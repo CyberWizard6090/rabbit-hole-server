@@ -32,13 +32,15 @@ type AuthService struct {
 	repo      *repository.UserRepository
 	jwtSecret []byte
 	pepper    []byte
+	jwtTTL    time.Duration
 }
 
-func NewAuthService(r *repository.UserRepository, jwtSecret, pepper string) *AuthService {
+func NewAuthService(r *repository.UserRepository, jwtSecret, pepper string, jwtTTL time.Duration) *AuthService {
 	return &AuthService{
 		repo:      r,
 		jwtSecret: []byte(jwtSecret),
 		pepper:    []byte(pepper),
+		jwtTTL:    jwtTTL,
 	}
 }
 
@@ -94,7 +96,7 @@ func (s *AuthService) GenerateTokenPair(userID uint) (dto.TokenPair, error) {
 	accessClaims := Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}

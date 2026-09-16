@@ -1,18 +1,18 @@
 package app
 
 import (
-	"os"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
+	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/middleware"
 )
 
 const routeLists = "/lists"
 
-func SetupRouter(deps *Container) *gin.Engine {
+func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	r := gin.New()
 
 	r.Use(gin.Logger(), gin.Recovery())
@@ -25,13 +25,8 @@ func SetupRouter(deps *Container) *gin.Engine {
 		c.Next()
 	})
 
-	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
-	if allowedOrigin == "" {
-		allowedOrigin = "http://127.0.0.1:3000"
-	}
-
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{allowedOrigin},
+		AllowOrigins:     cfg.AllowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},

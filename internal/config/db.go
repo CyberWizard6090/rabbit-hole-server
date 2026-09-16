@@ -2,25 +2,15 @@ package config
 
 import (
 	"fmt"
-	"os"
 
-	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
 )
 
-func InitDB() (*gorm.DB, error) {
-
-	_ = godotenv.Load()
-
-	dbURL := os.Getenv("DB_URL")
-	if dbURL == "" {
-		return nil, fmt.Errorf("DB_URL environment variable is not set")
-	}
-
-	db, err := gorm.Open(postgres.Open(dbURL), &gorm.Config{})
+func InitDB(cfg *Config) (*gorm.DB, error) {
+	db, err := gorm.Open(postgres.Open(cfg.DB.URL), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}

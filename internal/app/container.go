@@ -1,10 +1,9 @@
 package app
 
 import (
-	"os"
-
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/handler"
 	"rabbit-hole-server/internal/repository"
 	"rabbit-hole-server/internal/service"
@@ -28,8 +27,7 @@ type Container struct {
 	PermissionChecker service.PermissionChecker
 }
 
-func NewContainer(db *gorm.DB) *Container {
-
+func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
 	userRepo := repository.NewUserRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 	contactRepo := repository.NewContactRepository(db)
@@ -39,10 +37,7 @@ func NewContainer(db *gorm.DB) *Container {
 	folderRepo := repository.NewFolderRepository(db)
 	workspaceRepo := repository.NewWorkspaceRepository(db)
 
-	jwtSecret := os.Getenv("JWT_SECRET")
-	pepper := os.Getenv("APP_PEPPER")
-
-	authServ := service.NewAuthService(userRepo, jwtSecret, pepper)
+	authServ := service.NewAuthService(userRepo, cfg.JWT.Secret, cfg.AppPepper, cfg.JWT.TTL)
 	spaceServ := service.NewSpaceService(spaceRepo)
 	statusServ := service.NewStatusService(statusRepo, spaceRepo)
 	tagService := service.NewTagService(tagRepo)

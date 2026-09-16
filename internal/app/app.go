@@ -1,19 +1,20 @@
 package app
 
 import (
-	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-)
+	"github.com/gin-gonic/gin"
 
+	"rabbit-hole-server/internal/config"
+)
 
 type App struct {
 	router *gin.Engine
 }
 
-func NewApp(db *gorm.DB) *App {
-	container := NewContainer(db)
-	r := SetupRouter(container)
+func NewApp(db *gorm.DB, cfg *config.Config) *App {
+	container := NewContainer(db, cfg)
+	r := SetupRouter(container, cfg)
 	return &App{router: r}
 }
 

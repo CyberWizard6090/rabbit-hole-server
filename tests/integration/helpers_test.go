@@ -36,12 +36,11 @@ func newTestContext(t *testing.T) *TestContext {
 		t.Skip("TEST_DB_URL is not set; integration tests require a PostgreSQL test database")
 	}
 
-	if os.Getenv("JWT_SECRET") == "" {
-		os.Setenv("JWT_SECRET", "integration-test-secret")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
 	}
-	if os.Getenv("APP_PEPPER") == "" {
-		os.Setenv("APP_PEPPER", "integration-test-pepper")
-	}
+	cfg.DB.URL = dbURL
 
 	db, err := gorm.Open(postgres.Open(dbURL), &gorm.Config{})
 	if err != nil {
@@ -74,7 +73,7 @@ func newTestContext(t *testing.T) *TestContext {
 
 	return &TestContext{
 		DB:     db,
-		Router: app.SetupRouter(app.NewContainer(db)),
+		Router: app.SetupRouter(app.NewContainer(db, cfg), cfg),
 	}
 }
 
