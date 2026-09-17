@@ -148,8 +148,11 @@ func registerAndLogin(t *testing.T, tc *TestContext) {
 	}
 
 	body := decodeJSON(t, rec)
-
-	token, ok := body["access_token"].(string)
+	data, ok := body["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("login response does not contain data object: %s", rec.Body.String())
+	}
+	token, ok := data["access_token"].(string)
 	if !ok || token == "" {
 		t.Fatalf("login response does not contain access_token: %s", rec.Body.String())
 	}

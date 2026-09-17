@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"rabbit-hole-server/internal/dto"
+	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
 )
@@ -30,13 +31,13 @@ func NewStatusHandler(
 func (h *StatusHandler) Create(c *gin.Context) {
 	listID, err := strconv.ParseUint(c.Param("list_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidListIDMessage)
+		response.HandleError(c, httperrors.BadRequest("INVALID_LIST_ID", invalidListIDMessage, err))
 		return
 	}
 
 	var req dto.CreateStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		response.ValidationError(c, err)
 		return
 	}
 
@@ -49,7 +50,7 @@ func (h *StatusHandler) Create(c *gin.Context) {
 	})
 	if err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("STATUS_CREATE_FAILED", "internal server error", err))
 		return
 	}
 
@@ -59,14 +60,14 @@ func (h *StatusHandler) Create(c *gin.Context) {
 func (h *StatusHandler) GetAll(c *gin.Context) {
 	listID, err := strconv.ParseUint(c.Param("list_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidListIDMessage)
+		response.HandleError(c, httperrors.BadRequest("INVALID_LIST_ID", invalidListIDMessage, err))
 		return
 	}
 
 	statuses, err := h.service.GetAllByList(uint(listID))
 	if err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("STATUSES_FETCH_FAILED", "internal server error", err))
 		return
 	}
 
@@ -76,18 +77,18 @@ func (h *StatusHandler) GetAll(c *gin.Context) {
 func (h *StatusHandler) Update(c *gin.Context) {
 	listID, err := strconv.ParseUint(c.Param("list_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidListIDMessage)
+		response.HandleError(c, httperrors.BadRequest("INVALID_LIST_ID", invalidListIDMessage, err))
 		return
 	}
 	statusID, err := strconv.ParseUint(c.Param("status_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid status id")
+		response.HandleError(c, httperrors.BadRequest("INVALID_STATUS_ID", "invalid status id", err))
 		return
 	}
 
 	var req dto.UpdateStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		response.ValidationError(c, err)
 		return
 	}
 
@@ -98,7 +99,7 @@ func (h *StatusHandler) Update(c *gin.Context) {
 	})
 	if err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("STATUS_UPDATE_FAILED", "internal server error", err))
 		return
 	}
 
@@ -108,18 +109,18 @@ func (h *StatusHandler) Update(c *gin.Context) {
 func (h *StatusHandler) Delete(c *gin.Context) {
 	listID, err := strconv.ParseUint(c.Param("list_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidListIDMessage)
+		response.HandleError(c, httperrors.BadRequest("INVALID_LIST_ID", invalidListIDMessage, err))
 		return
 	}
 	statusID, err := strconv.ParseUint(c.Param("status_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid status id")
+		response.HandleError(c, httperrors.BadRequest("INVALID_STATUS_ID", "invalid status id", err))
 		return
 	}
 
 	if err := h.service.Delete(uint(listID), uint(statusID)); err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("STATUS_DELETE_FAILED", "internal server error", err))
 		return
 	}
 

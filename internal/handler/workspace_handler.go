@@ -9,6 +9,7 @@ import (
 
 	"rabbit-hole-server/internal/dto"
 	contextutil "rabbit-hole-server/internal/http/context"
+	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
 )
@@ -46,12 +47,12 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	)
 	if err != nil {
 		if errors.Is(err, service.ErrWorkspaceNameRequired) {
-			response.BadRequest(c, err.Error())
+			response.HandleError(c, httperrors.BadRequest("WORKSPACE_NAME_REQUIRED", err.Error(), err))
 			return
 		}
 
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("WORKSPACE_CREATE_FAILED", "internal server error", err))
 		return
 	}
 

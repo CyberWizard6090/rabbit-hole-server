@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"rabbit-hole-server/internal/http/response"
 )
 
 func RateLimiter(max int, period time.Duration) gin.HandlerFunc {
@@ -36,7 +38,8 @@ func RateLimiter(max int, period time.Duration) gin.HandlerFunc {
 		mu.Unlock()
 
 		if exceeded {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many requests"})
+			response.Error(c, http.StatusTooManyRequests, "too many requests")
+			c.Abort()
 			return
 		}
 

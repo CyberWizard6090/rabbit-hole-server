@@ -1,10 +1,14 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
+	"rabbit-hole-server/internal/domain"
+	httperrors "rabbit-hole-server/internal/http/errors"
+	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
 )
 
@@ -27,16 +31,24 @@ type registerInput struct {
 func (h *AuthHandler) Register(c *gin.Context) {
 	var input registerInput
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, err)
 		return
 	}
 
 	if err := h.authService.Register(input.Email, input.Password, input.Username); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register user"})
+		if errors.Is(err, domain.ErrEmailTaken) {
+			response.HandleError(c, httperrors.Conflict("EMAIL_TAKEN", "email is already registered", err))
+			return
+		}
+		if errors.Is(err, domain.ErrUsernameTaken) {
+			response.HandleError(c, httperrors.Conflict("USERNAME_TAKEN", "username is already registered", err))
+			return
+		}
+		response.HandleError(c, httperrors.Internal("REGISTRATION_FAILED", "failed to register user", err))
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "registration successful"})
+	response.Success(c, http.StatusCreated, gin.H{"message": "registration successful"})
 }
 
 type loginInput struct {
@@ -47,52 +59,52 @@ type loginInput struct {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var input loginInput
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.ValidationError(c, err)
 		return
 	}
 
 	tokenPair, err := h.authService.Login(input.Email, input.Password)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		response.HandleError(c, httperrors.Unauthorized("INVALID_CREDENTIALS", "invalid email or password", err))
 		return
 	}
 
 	c.SetCookie("refresh_token", tokenPair.RefreshToken, 7*24*3600, authCookiePath, "", false, true)
 
-	c.JSON(http.StatusOK, gin.H{"access_token": tokenPair.AccessToken})
+	response.Success(c, http.StatusOK, gin.H{"access_token": tokenPair.AccessToken})
 }
 
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	refreshToken, err := c.Cookie("refresh_token")
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Refresh token missing"})
+		response.HandleError(c, httperrors.Unauthorized("TOKEN_MISSING", "refresh token missing", err))
 		return
 	}
 
 	tokenPair, err := h.authService.Refresh(refreshToken)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		response.HandleError(c, httperrors.Unauthorized("TOKEN_EXPIRED", "invalid or expired refresh token", err))
 		return
 	}
 
 	c.SetCookie("refresh_token", tokenPair.RefreshToken, 7*24*3600, authCookiePath, "", false, true)
 
-	c.JSON(http.StatusOK, gin.H{"access_token": tokenPair.AccessToken})
+	response.Success(c, http.StatusOK, gin.H{"access_token": tokenPair.AccessToken})
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
 	refreshToken, err := c.Cookie("refresh_token")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Already logged out"})
+		response.HandleError(c, httperrors.BadRequest("ALREADY_LOGGED_OUT", "already logged out", err))
 		return
 	}
 
 	if err := h.authService.Logout(refreshToken); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to logout"})
+		response.HandleError(c, httperrors.Internal("LOGOUT_FAILED", "failed to logout", err))
 		return
 	}
 
 	c.SetCookie("refresh_token", "", -1, authCookiePath, "", false, true)
 
-	c.JSON(http.StatusOK, gin.H{"message": "logged out successfully"})
+	response.Success(c, http.StatusOK, gin.H{"message": "logged out successfully"})
 }

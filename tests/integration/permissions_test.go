@@ -28,7 +28,8 @@ func newUser(t *testing.T, tc *TestContext, email string) (uint, string) {
 	}
 
 	body := decodeJSON(t, rec)
-	token := body["access_token"].(string)
+	data := body["data"].(map[string]any)
+	token := data["access_token"].(string)
 
 	var user domain.User
 	if err := tc.DB.Where("email = ?", email).First(&user).Error; err != nil {

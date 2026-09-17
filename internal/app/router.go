@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -14,6 +15,9 @@ const routeLists = "/lists"
 
 func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	r := gin.New()
+	if err := r.SetTrustedProxies(cfg.Server.TrustedProxies); err != nil {
+		panic(fmt.Errorf("configure trusted proxies: %w", err))
+	}
 
 	r.Use(gin.Logger(), gin.Recovery())
 

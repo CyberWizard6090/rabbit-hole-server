@@ -10,6 +10,7 @@ import (
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/dto"
+	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
 )
@@ -40,11 +41,11 @@ func (h *TagHandler) Create(c *gin.Context) {
 	tag, err := h.service.CreateTag(uint(spaceID), service.CreateTagParams{Name: req.Name, Color: req.Color})
 	if err != nil {
 		if errors.Is(err, domain.ErrTagNameTaken) {
-			response.BadRequest(c, "tag with this name already exists")
+			response.HandleError(c, httperrors.Conflict("TAG_NAME_TAKEN", "tag with this name already exists", err))
 			return
 		}
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("TAG_CREATE_FAILED", "internal server error", err))
 		return
 	}
 
@@ -132,11 +133,11 @@ func (h *TagHandler) Merge(c *gin.Context) {
 
 	if err := h.service.MergeTags(uint(spaceID), req.SourceTagID, req.TargetTagID); err != nil {
 		if errors.Is(err, service.ErrCannotMergeSame) {
-			response.BadRequest(c, err.Error())
+			response.HandleError(c, httperrors.BadRequest("TAG_MERGE_SELF", err.Error(), err))
 			return
 		}
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("TAG_MERGE_FAILED", "internal server error", err))
 		return
 	}
 

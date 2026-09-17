@@ -9,6 +9,7 @@ import (
 
 	"rabbit-hole-server/internal/dto"
 	contextutil "rabbit-hole-server/internal/http/context"
+	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
@@ -37,13 +38,13 @@ func (h *TaskHandler) Create(c *gin.Context) {
 
 	listID, err := strconv.ParseUint(c.Param("list_id"), 10, 64)
 	if err != nil || listID <= 0 {
-		response.BadRequest(c, "invalid list_id in URL")
+		response.HandleError(c, httperrors.BadRequest("INVALID_LIST_ID", "invalid list_id in URL", err))
 		return
 	}
 
 	var req dto.CreateTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		response.ValidationError(c, err)
 		return
 	}
 
@@ -61,7 +62,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	})
 	if err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("TASK_CREATE_FAILED", "internal server error", err))
 		return
 	}
 
@@ -77,13 +78,13 @@ func (h *TaskHandler) Update(c *gin.Context) {
 
 	taskID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidTaskIDMessage)
+		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_ID", invalidTaskIDMessage, err))
 		return
 	}
 
 	var req dto.UpdateTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		response.ValidationError(c, err)
 		return
 	}
 
@@ -98,7 +99,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	})
 	if err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("TASK_UPDATE_FAILED", "internal server error", err))
 		return
 	}
 
@@ -117,7 +118,7 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 	tasks, total, err := h.service.GetAllTasks(uid, p.Limit, p.Offset)
 	if err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("TASKS_FETCH_FAILED", "internal server error", err))
 		return
 	}
 
@@ -137,14 +138,14 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 
 	taskID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidTaskIDMessage)
+		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_ID", invalidTaskIDMessage, err))
 		return
 	}
 
 	task, err := h.service.GetTaskByID(uint(taskID), uid)
 	if err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.NotFound("TASK_NOT_FOUND", "task not found", err))
 		return
 	}
 
@@ -160,13 +161,13 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 
 	taskID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidTaskIDMessage)
+		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_ID", invalidTaskIDMessage, err))
 		return
 	}
 
 	if err := h.service.DeleteTask(uint(taskID), uid); err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("TASK_DELETE_FAILED", "internal server error", err))
 		return
 	}
 

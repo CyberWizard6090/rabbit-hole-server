@@ -9,6 +9,7 @@ import (
 
 	"rabbit-hole-server/internal/dto"
 	contextutil "rabbit-hole-server/internal/http/context"
+	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
 )
@@ -31,7 +32,7 @@ func (h *ContactHandler) List(c *gin.Context) {
 	contacts, err := h.service.GetContacts(uid)
 	if err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("CONTACTS_FETCH_FAILED", "internal server error", err))
 		return
 	}
 
@@ -47,13 +48,13 @@ func (h *ContactHandler) Add(c *gin.Context) {
 
 	var req dto.AddContactRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		response.ValidationError(c, err)
 		return
 	}
 
 	if err := h.service.AddContact(uid, req.ContactID); err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("CONTACT_ADD_FAILED", "internal server error", err))
 		return
 	}
 
@@ -71,13 +72,13 @@ func (h *ContactHandler) Delete(c *gin.Context) {
 
 	contactID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid contact id")
+		response.HandleError(c, httperrors.BadRequest("INVALID_CONTACT_ID", "invalid contact id", err))
 		return
 	}
 
 	if err := h.service.DeleteContact(uid, uint(contactID)); err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("CONTACT_DELETE_FAILED", "internal server error", err))
 		return
 	}
 
@@ -95,14 +96,14 @@ func (h *ContactHandler) Search(c *gin.Context) {
 
 	query := c.Query("q")
 	if query == "" {
-		response.BadRequest(c, "query param 'q' is required")
+		response.HandleError(c, httperrors.BadRequest("QUERY_REQUIRED", "query param 'q' is required", nil))
 		return
 	}
 
 	users, err := h.service.SearchUsers(uid, query)
 	if err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("USER_SEARCH_FAILED", "internal server error", err))
 		return
 	}
 

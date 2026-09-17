@@ -21,8 +21,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port int    `env:"PORT" envDefault:"8080" validate:"required,min=1,max=65535"`
-	Host string `env:"HOST" envDefault:"0.0.0.0" validate:"required,hostname|ip"`
+	Port           int      `env:"PORT" envDefault:"8080" validate:"required,min=1,max=65535"`
+	Host           string   `env:"HOST" envDefault:"0.0.0.0" validate:"required,hostname|ip"`
+	TrustedProxies []string `env:"TRUSTED_PROXIES" envDefault:"127.0.0.1,::1" envSeparator:"," validate:"required,min=1,dive"`
 }
 
 type DBConfig struct {

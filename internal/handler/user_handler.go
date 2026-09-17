@@ -9,6 +9,7 @@ import (
 
 	"rabbit-hole-server/internal/dto"
 	contextutil "rabbit-hole-server/internal/http/context"
+	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
 )
@@ -31,11 +32,11 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 	user, err := h.service.GetUserByID(uid)
 	if err != nil {
 		if errors.Is(err, service.ErrUserNotFound) {
-			response.NotFound(c, "user not found")
+			response.HandleError(c, httperrors.NotFound("USER_NOT_FOUND", "user not found", err))
 			return
 		}
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("USER_FETCH_FAILED", "internal server error", err))
 		return
 	}
 
@@ -64,11 +65,11 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrUserNotFound) {
-			response.NotFound(c, "user not found")
+			response.HandleError(c, httperrors.NotFound("USER_NOT_FOUND", "user not found", err))
 			return
 		}
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("PROFILE_UPDATE_FAILED", "internal server error", err))
 		return
 	}
 

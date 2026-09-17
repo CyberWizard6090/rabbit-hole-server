@@ -20,8 +20,14 @@ func TestTag_DuplicateNameIsRejected(t *testing.T) {
 	}
 
 	rec = request(t, tc.Router, http.MethodPost, "/api/v1/spaces/"+itoa(spaceID)+"/tags", tc.Token, body)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("duplicate tag: expected 400, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("duplicate tag: expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	errorBody := decodeJSON(t, rec)
+	errorPayload, ok := errorBody["error"].(map[string]any)
+	if !ok || errorPayload["code"] != "TAG_NAME_TAKEN" {
+		t.Fatalf("duplicate tag: unexpected error payload: %s", rec.Body.String())
 	}
 }
 

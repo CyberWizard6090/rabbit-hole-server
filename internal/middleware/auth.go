@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
 )
 
@@ -13,12 +14,12 @@ func AuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		if header == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
+			response.Unauthorized(c)
 			return
 		}
 
 		if !strings.HasPrefix(header, "Bearer ") {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token format"})
+			response.Error(c, http.StatusUnauthorized, "Invalid token format")
 			return
 		}
 
@@ -26,7 +27,7 @@ func AuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
 
 		claims, err := authService.ParseToken(tokenString)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			response.Error(c, http.StatusUnauthorized, "Invalid or expired token")
 			return
 		}
 

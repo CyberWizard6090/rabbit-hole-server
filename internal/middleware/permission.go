@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	contextutil "rabbit-hole-server/internal/http/context"
+	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
 )
 
@@ -24,13 +25,13 @@ func RequirePermission(checker service.PermissionChecker, resource Resource, cod
 	return func(c *gin.Context) {
 		uid, err := contextutil.GetUserID(c)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			response.Unauthorized(c)
 			return
 		}
 
 		id, err := strconv.ParseUint(c.Param(string(resource)), 10, 64)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid " + string(resource)})
+			response.BadRequest(c, "invalid "+string(resource))
 			return
 		}
 
@@ -51,11 +52,11 @@ func RequirePermission(checker service.PermissionChecker, resource Resource, cod
 		}
 
 		if checkErr != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "permission check failed"})
+			response.Error(c, http.StatusInternalServerError, "permission check failed")
 			return
 		}
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "permission denied: " + code})
+			response.Forbidden(c, "permission denied: "+code)
 			return
 		}
 

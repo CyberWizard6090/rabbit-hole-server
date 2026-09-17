@@ -9,6 +9,7 @@ import (
 
 	"rabbit-hole-server/internal/dto"
 	contextutil "rabbit-hole-server/internal/http/context"
+	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
@@ -32,14 +33,14 @@ func (h *SpaceHandler) CreateSpace(c *gin.Context) {
 	}
 	workspaceID, err := strconv.ParseUint(c.Param("workspace_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid workspace id")
+		response.HandleError(c, httperrors.BadRequest("INVALID_WORKSPACE_ID", "invalid workspace id", err))
 		return
 	}
 
 	var req dto.CreateSpaceRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		response.ValidationError(c, err)
 		return
 	}
 
@@ -66,7 +67,7 @@ func (h *SpaceHandler) CreateSpace(c *gin.Context) {
 func (h *SpaceHandler) GetAll(c *gin.Context) {
 	workspaceID, err := strconv.ParseUint(c.Param("workspace_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid workspace id")
+		response.HandleError(c, httperrors.BadRequest("INVALID_WORKSPACE_ID", "invalid workspace id", err))
 		return
 	}
 
@@ -75,7 +76,7 @@ func (h *SpaceHandler) GetAll(c *gin.Context) {
 	spaces, total, err := h.service.GetAllSpaces(uint(workspaceID), p.Limit, p.Offset)
 	if err != nil {
 		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("SPACES_FETCH_FAILED", "internal server error", err))
 		return
 	}
 
@@ -89,14 +90,14 @@ func (h *SpaceHandler) GetAll(c *gin.Context) {
 func (h *SpaceHandler) GetDashboard(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid space id")
+		response.HandleError(c, httperrors.BadRequest("INVALID_SPACE_ID", "invalid space id", err))
 		return
 	}
 
 	dashboard, err := h.service.GetDashboard(uint(spaceID))
 	if err != nil {
 		log.Println(err)
-		response.NotFound(c, "space not found")
+		response.HandleError(c, httperrors.NotFound("SPACE_NOT_FOUND", "space not found", err))
 		return
 	}
 

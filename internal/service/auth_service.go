@@ -2,6 +2,7 @@ package service
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -93,9 +94,16 @@ func (s *AuthService) Login(email, password string) (dto.TokenPair, error) {
 }
 
 func (s *AuthService) GenerateTokenPair(userID uint) (dto.TokenPair, error) {
+	nonceBytes := make([]byte, 16)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		return dto.TokenPair{}, fmt.Errorf("generate token id: %w", err)
+	}
+	nonce := hex.EncodeToString(nonceBytes)
+
 	accessClaims := Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        nonce,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
@@ -109,6 +117,7 @@ func (s *AuthService) GenerateTokenPair(userID uint) (dto.TokenPair, error) {
 	refreshClaims := RefreshClaims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        nonce + "-refresh",
 			ExpiresAt: jwt.NewNumericDate(refreshExpiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},

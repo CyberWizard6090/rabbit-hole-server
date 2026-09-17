@@ -1,6 +1,14 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var (
+	ErrEmailTaken    = errors.New("email is already registered")
+	ErrUsernameTaken = errors.New("username is already registered")
+)
 
 type User struct {
 	ID            uint          `gorm:"primaryKey" json:"id"`

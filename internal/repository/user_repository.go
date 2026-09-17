@@ -1,6 +1,9 @@
 package repository
 
 import (
+	"errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
@@ -15,7 +18,44 @@ func NewUserRepository(db *gorm.DB) *UserRepository {
 }
 
 func (r *UserRepository) CreateUser(user *domain.User) error {
-	return r.db.Create(user).Error
+	err := r.db.Create(user).Error
+	if err != nil && isEmailUniqueViolation(err) {
+		return domain.ErrEmailTaken
+	}
+	if err != nil && isUsernameUniqueViolation(err) {
+		return domain.ErrUsernameTaken
+	}
+	return err
+}
+
+func isEmailUniqueViolation(err error) bool {
+	return isUniqueViolationForConstraints(err,
+		"idx_users_email",
+		"uni_users_email",
+		"users_email_key",
+	)
+}
+
+func isUsernameUniqueViolation(err error) bool {
+	return isUniqueViolationForConstraints(err,
+		"idx_users_username",
+		"uni_users_username",
+		"users_username_key",
+	)
+}
+
+func isUniqueViolationForConstraints(err error, constraints ...string) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+
+	for _, constraint := range constraints {
+		if pgErr.ConstraintName == constraint {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *UserRepository) GetByEmail(email string) (*domain.User, error) {
