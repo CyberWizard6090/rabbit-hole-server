@@ -37,7 +37,7 @@ func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
 	folderRepo := repository.NewFolderRepository(db)
 	workspaceRepo := repository.NewWorkspaceRepository(db)
 
-	authServ := service.NewAuthService(userRepo, cfg.JWT.Secret, cfg.AppPepper, cfg.JWT.TTL)
+	authServ := service.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.TTL)
 	spaceServ := service.NewSpaceService(spaceRepo)
 	statusServ := service.NewStatusService(statusRepo, spaceRepo)
 	tagService := service.NewTagService(tagRepo)

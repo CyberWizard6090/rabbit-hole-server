@@ -1,16 +1,19 @@
 package service
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/argon2"
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/dto"
@@ -32,23 +35,81 @@ type RefreshClaims struct {
 type AuthService struct {
 	repo      *repository.UserRepository
 	jwtSecret []byte
-	pepper    []byte
 	jwtTTL    time.Duration
 }
 
-func NewAuthService(r *repository.UserRepository, jwtSecret, pepper string, jwtTTL time.Duration) *AuthService {
+func NewAuthService(r *repository.UserRepository, jwtSecret string, jwtTTL time.Duration) *AuthService {
 	return &AuthService{
 		repo:      r,
 		jwtSecret: []byte(jwtSecret),
-		pepper:    []byte(pepper),
 		jwtTTL:    jwtTTL,
 	}
 }
 
-func (s *AuthService) preparePassword(password string) string {
-	h := hmac.New(sha256.New, s.pepper)
-	h.Write([]byte(password))
-	return hex.EncodeToString(h.Sum(nil))
+const (
+	argon2Memory      = 64 * 1024
+	argon2Iterations  = 3
+	argon2Parallelism = 4
+	argon2SaltLength  = 16
+	argon2KeyLength   = 32
+)
+
+func hashPassword(password string) (string, error) {
+	salt := make([]byte, argon2SaltLength)
+	if _, err := rand.Read(salt); err != nil {
+		return "", fmt.Errorf("generate password salt: %w", err)
+	}
+
+	key := argon2.IDKey([]byte(password), salt, argon2Iterations, argon2Memory, argon2Parallelism, argon2KeyLength)
+	encode := base64.RawStdEncoding.EncodeToString
+	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s",
+		argon2Memory,
+		argon2Iterations,
+		argon2Parallelism,
+		encode(salt),
+		encode(key),
+	), nil
+}
+
+func verifyPassword(password, encodedHash string) bool {
+	parts := strings.Split(encodedHash, "$")
+	if len(parts) != 6 || parts[1] != "argon2id" || parts[2] != "v=19" {
+		return false
+	}
+
+	params := map[string]uint32{}
+	for _, item := range strings.Split(parts[3], ",") {
+		pair := strings.SplitN(item, "=", 2)
+		if len(pair) != 2 {
+			return false
+		}
+		value, err := strconv.ParseUint(pair[1], 10, 32)
+		if err != nil {
+			return false
+		}
+		params[pair[0]] = uint32(value)
+	}
+	memory, memoryOK := params["m"]
+	iterations, iterationsOK := params["t"]
+	parallelism, parallelismOK := params["p"]
+	if !memoryOK || !iterationsOK || !parallelismOK || memory == 0 || iterations == 0 || parallelism == 0 {
+		return false
+	}
+	if memory > 1024*1024 || iterations > 10 || parallelism > 16 {
+		return false
+	}
+
+	decode := base64.RawStdEncoding.DecodeString
+	salt, err := decode(parts[4])
+	if err != nil || len(salt) == 0 {
+		return false
+	}
+	expected, err := decode(parts[5])
+	if err != nil || len(expected) == 0 {
+		return false
+	}
+	actual := argon2.IDKey([]byte(password), salt, iterations, memory, uint8(parallelism), uint32(len(expected)))
+	return subtle.ConstantTimeCompare(actual, expected) == 1
 }
 
 func (s *AuthService) hashToken(token string) string {
@@ -58,16 +119,14 @@ func (s *AuthService) hashToken(token string) string {
 }
 
 func (s *AuthService) Register(email, password, username string) error {
-	preparedPassword := s.preparePassword(password)
-
-	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(preparedPassword), bcrypt.DefaultCost)
+	passwordHash, err := hashPassword(password)
 	if err != nil {
 		return err
 	}
 
 	user := &domain.User{
 		Email:        email,
-		PasswordHash: string(hashedBytes),
+		PasswordHash: passwordHash,
 		Username:     username,
 	}
 	if user.Username == "" {
@@ -83,10 +142,7 @@ func (s *AuthService) Login(email, password string) (dto.TokenPair, error) {
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
 
-	preparedPassword := s.preparePassword(password)
-
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(preparedPassword))
-	if err != nil {
+	if !verifyPassword(password, user.PasswordHash) {
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
 

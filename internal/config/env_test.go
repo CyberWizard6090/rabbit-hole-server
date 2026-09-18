@@ -5,7 +5,6 @@ import "testing"
 func TestLoadEnvValidatesRequiredValues(t *testing.T) {
 	t.Setenv("DB_URL", "postgres://localhost/rabbit_hole")
 	t.Setenv("JWT_SECRET", "short-secret")
-	t.Setenv("APP_PEPPER", "long-enough-pepper")
 	t.Setenv("ALLOWED_ORIGINS", "http://localhost:3000")
 
 	if _, err := Load(); err == nil {
@@ -16,7 +15,6 @@ func TestLoadEnvValidatesRequiredValues(t *testing.T) {
 func TestLoadEnvAcceptsValidValues(t *testing.T) {
 	t.Setenv("DB_URL", "postgres://localhost/rabbit_hole")
 	t.Setenv("JWT_SECRET", "12345678901234567890123456789012")
-	t.Setenv("APP_PEPPER", "1234567890123456")
 	t.Setenv("ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 
 	env, err := Load()

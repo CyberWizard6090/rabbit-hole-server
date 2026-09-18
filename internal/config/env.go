@@ -16,7 +16,6 @@ type Config struct {
 	Server         ServerConfig
 	DB             DBConfig
 	JWT            JWTConfig `envPrefix:"JWT_"`
-	AppPepper      string    `env:"APP_PEPPER,required" validate:"required,min=16"`
 	AllowedOrigins []string  `env:"ALLOWED_ORIGINS" envDefault:"http://127.0.0.1:3000" envSeparator:"," validate:"required,min=1,dive,url"`
 }
 
