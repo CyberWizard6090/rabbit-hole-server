@@ -90,9 +90,10 @@ func (h *StatusHandler) Update(c *gin.Context) {
 	}
 
 	status, err := h.service.Update(uint(listID), uint(statusID), service.UpdateStatusParams{
-		Name:  req.Name,
-		Color: req.Color,
-		Type:  req.Type,
+		Name:     req.Name,
+		Color:    req.Color,
+		Position: req.Position,
+		Type:     req.Type,
 	})
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("STATUS_UPDATE_FAILED", "internal server error", err))

@@ -8,6 +8,8 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -48,8 +50,8 @@ func TestAuth_RegisterLoginAndProfile(t *testing.T) {
 	}
 
 	profile := dataObject(t, rec)
-	if profile["email"] != email {
-		t.Fatalf("profile email = %v, want %s", profile["email"], email)
+	if profile["email"] != strings.ToLower(email) {
+		t.Fatalf("profile email = %v, want %s", profile["email"], strings.ToLower(email))
 	}
 }
 
@@ -231,6 +233,57 @@ func TestAuth_LoginTwiceRapidlyDoesNotDuplicateSession(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("login #%d: expected 200, got %d: %s", i+1, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+func TestAuth_RefreshRotationAllowsOnlyOneConcurrentUse(t *testing.T) {
+	tc := newTestContext(t)
+	email := fmt.Sprintf("rotate-%s-%d@example.test", t.Name(), time.Now().UnixNano())
+
+	requestWithCookie := func(path, cookie string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Cookie", cookie)
+		rec := httptest.NewRecorder()
+		tc.Router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := request(t, tc.Router, http.MethodPost, "/api/v1/auth/register", "", map[string]any{
+		"email": email, "password": "password-123",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register: expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = request(t, tc.Router, http.MethodPost, "/api/v1/auth/login", "", map[string]any{
+		"email": email, "password": "password-123",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	setCookie := rec.Header().Get("Set-Cookie")
+	if setCookie == "" {
+		t.Fatal("login did not return refresh cookie")
+	}
+	cookie := strings.SplitN(setCookie, ";", 2)[0]
+
+	results := make(chan int, 2)
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer waitGroup.Done()
+			results <- requestWithCookie("/api/v1/auth/refresh", cookie).Code
+		}()
+	}
+	waitGroup.Wait()
+	close(results)
+
+	statusCounts := map[int]int{}
+	for status := range results {
+		statusCounts[status]++
+	}
+	if statusCounts[http.StatusOK] != 1 || statusCounts[http.StatusUnauthorized] != 1 {
+		t.Fatalf("concurrent refresh statuses = %v, want one 200 and one 401", statusCounts)
 	}
 }
 

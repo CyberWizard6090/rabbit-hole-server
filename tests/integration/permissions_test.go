@@ -3,6 +3,7 @@ package integration
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 func newUser(t *testing.T, tc *TestContext, email string) (uint, string) {
 	t.Helper()
+	email = strings.ToLower(email)
 
 	password := "password-123"
 	rec := request(t, tc.Router, http.MethodPost, "/api/v1/auth/register", "", map[string]any{
@@ -78,5 +80,32 @@ func TestPermissions_AdminCanCreateSpaceMemberCannot(t *testing.T) {
 	)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("member create space: expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPermissions_NonMemberCannotAccessNestedSpaceResources(t *testing.T) {
+	tc := newTestContext(t)
+	registerAndLogin(t, tc)
+	spaceID := createSpace(t, tc)
+	_, outsiderToken := newUser(t, tc, fmt.Sprintf("outsider-%s-%d@example.test", t.Name(), time.Now().UnixNano()))
+
+	rec := request(t, tc.Router, http.MethodGet, "/api/v1/spaces/"+itoa(spaceID)+"/dashboard", outsiderToken, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("outsider dashboard: expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = request(t, tc.Router, http.MethodPost, "/api/v1/spaces/"+itoa(spaceID)+"/tags", outsiderToken, map[string]any{
+		"name": "Forbidden Tag", "color": "#123456",
+	})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("outsider tag create: expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var count int64
+	if err := tc.DB.Table("spaces").Where("id = ?", spaceID).Count(&count).Error; err != nil {
+		t.Fatalf("verify space ownership: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("space ownership count = %d, want 1", count)
 	}
 }

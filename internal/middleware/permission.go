@@ -26,12 +26,14 @@ func RequirePermission(checker service.PermissionChecker, resource Resource, cod
 		uid, err := contextutil.GetUserID(c)
 		if err != nil {
 			response.Unauthorized(c)
+			c.Abort()
 			return
 		}
 
 		id, err := strconv.ParseUint(c.Param(string(resource)), 10, 64)
 		if err != nil {
 			response.BadRequest(c, "invalid "+string(resource))
+			c.Abort()
 			return
 		}
 
@@ -53,10 +55,12 @@ func RequirePermission(checker service.PermissionChecker, resource Resource, cod
 
 		if checkErr != nil {
 			response.Error(c, http.StatusInternalServerError, "permission check failed")
+			c.Abort()
 			return
 		}
 		if !ok {
 			response.Forbidden(c, "permission denied: "+code)
+			c.Abort()
 			return
 		}
 

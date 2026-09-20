@@ -3,6 +3,9 @@ package service
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestHashPasswordUsesArgon2id(t *testing.T) {
@@ -40,5 +43,37 @@ func TestVerifyPasswordRejectsMalformedOrLegacyHash(t *testing.T) {
 		if verifyPassword("password", hash) {
 			t.Fatalf("expected hash %q to be rejected", hash)
 		}
+	}
+}
+
+func TestTokenTypesAreSeparated(t *testing.T) {
+	service := NewAuthService(nil, "12345678901234567890123456789012", time.Hour, 24*time.Hour)
+	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, Claims{
+		UserID: 42, TokenType: TokenAccess,
+		RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))},
+	}).SignedString(service.jwtSecret)
+	if err != nil {
+		t.Fatalf("sign access token: %v", err)
+	}
+	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, RefreshClaims{
+		UserID: 42, TokenType: TokenRefresh,
+		RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))},
+	}).SignedString(service.jwtSecret)
+	if err != nil {
+		t.Fatalf("sign refresh token: %v", err)
+	}
+
+	claims, err := service.ParseToken(accessToken)
+	if err != nil {
+		t.Fatalf("parse access token: %v", err)
+	}
+	if claims.TokenType != TokenAccess {
+		t.Fatalf("access token type = %q, want %q", claims.TokenType, TokenAccess)
+	}
+	if _, err := service.ParseToken(refreshToken); err == nil {
+		t.Fatal("expected refresh token to be rejected as access token")
+	}
+	if _, err := service.Refresh(accessToken); err == nil {
+		t.Fatal("expected access token to be rejected as refresh token")
 	}
 }

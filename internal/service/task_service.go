@@ -21,10 +21,10 @@ func randomTagColor() string {
 
 type TaskService interface {
 	CreateTask(userID uint, input CreateTaskParams) (*domain.Task, error)
-	GetAllTasks(userID uint, limit int, offset int) ([]domain.Task, int64, error)
-	GetTaskByID(taskID uint, userID uint) (*domain.Task, error)
-	UpdateTask(id uint, uid uint, params UpdateTaskParams) (*domain.Task, error)
-	DeleteTask(taskID uint, userID uint) error
+	GetAllTasks(listID uint, limit int, offset int) ([]domain.Task, int64, error)
+	GetTaskByID(taskID uint) (*domain.Task, error)
+	UpdateTask(id uint, params UpdateTaskParams) (*domain.Task, error)
+	DeleteTask(taskID uint) error
 }
 
 type CreateTaskParams struct {
@@ -124,16 +124,16 @@ func (s *taskService) CreateTask(userID uint, input CreateTaskParams) (*domain.T
 	return task, nil
 }
 
-func (s *taskService) GetAllTasks(userID uint, limit int, offset int) ([]domain.Task, int64, error) {
-	return s.repo.GetAll(userID, limit, offset)
+func (s *taskService) GetAllTasks(listID uint, limit int, offset int) ([]domain.Task, int64, error) {
+	return s.repo.GetAll(listID, limit, offset)
 }
 
-func (s *taskService) GetTaskByID(taskID uint, userID uint) (*domain.Task, error) {
-	return s.repo.GetByID(taskID, userID)
+func (s *taskService) GetTaskByID(taskID uint) (*domain.Task, error) {
+	return s.repo.GetByID(taskID)
 }
 
-func (s *taskService) UpdateTask(id uint, uid uint, params UpdateTaskParams) (*domain.Task, error) {
-	task, err := s.repo.GetByID(id, uid)
+func (s *taskService) UpdateTask(id uint, params UpdateTaskParams) (*domain.Task, error) {
+	task, err := s.repo.GetByID(id)
 	if err != nil {
 		return nil, err
 	}
@@ -169,9 +169,9 @@ func (s *taskService) UpdateTask(id uint, uid uint, params UpdateTaskParams) (*d
 		}
 	}
 
-	return s.repo.GetByID(task.ID, uid)
+	return s.repo.GetByID(task.ID)
 }
 
-func (s *taskService) DeleteTask(taskID uint, userID uint) error {
-	return s.repo.Delete(taskID, userID)
+func (s *taskService) DeleteTask(taskID uint) error {
+	return s.repo.Delete(taskID)
 }

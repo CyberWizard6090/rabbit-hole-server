@@ -51,7 +51,7 @@ func NewContainer(db *gorm.DB, cfg *config.Config) *Container {
 
 	return &Container{
 		AuthService: authServ,
-		AuthHandler: handler.NewAuthHandler(authServ),
+		AuthHandler: handler.NewAuthHandler(authServ, cfg.Environment == "production"),
 		TaskHandler: handler.NewTaskHandler(taskService),
 		UserHandler: handler.NewUserHandler(userService),
 

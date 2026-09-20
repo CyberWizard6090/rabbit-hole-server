@@ -97,8 +97,8 @@ func (h *ContactHandler) Search(c *gin.Context) {
 	}
 
 	query := c.Query("q")
-	if query == "" {
-		response.HandleError(c, httperrors.BadRequest("QUERY_REQUIRED", "query param 'q' is required", nil))
+	if len([]rune(query)) < 2 {
+		response.HandleError(c, httperrors.BadRequest("QUERY_TOO_SHORT", "query param 'q' must contain at least 2 characters", nil))
 		return
 	}
 

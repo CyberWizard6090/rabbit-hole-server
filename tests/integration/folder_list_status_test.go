@@ -82,11 +82,11 @@ func TestStatus_PositionShiftAndDelete(t *testing.T) {
 	}
 
 	var statuses []domain.TaskStatus
-	if err := tc.DB.Where("space_id = ?", spaceID).Order("position ASC").Find(&statuses).Error; err != nil {
+	if err := tc.DB.Where("list_id = ?", listID).Order("position ASC").Find(&statuses).Error; err != nil {
 		t.Fatalf("query statuses: %v", err)
 	}
-	if len(statuses) != 4 {
-		t.Fatalf("status count = %d, want 4", len(statuses))
+	if len(statuses) != 1 {
+		t.Fatalf("status count = %d, want 1", len(statuses))
 	}
 
 	for i, status := range statuses {

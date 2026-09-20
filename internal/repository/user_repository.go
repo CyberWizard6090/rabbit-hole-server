@@ -93,6 +93,20 @@ func (r *UserRepository) DeleteSession(tokenHash string) error {
 	return r.db.Where("token_hash = ?", tokenHash).Delete(&domain.UserSession{}).Error
 }
 
+func (r *UserRepository) RotateSession(tokenHash string, replacement *domain.UserSession) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("token_hash = ? AND expires_at > NOW()", tokenHash).
+			Delete(&domain.UserSession{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		return tx.Create(replacement).Error
+	})
+}
+
 func (r *UserRepository) DeleteAllUserSessions(userID uint) error {
 	return r.db.Where("user_id = ?", userID).Delete(&domain.UserSession{}).Error
 }

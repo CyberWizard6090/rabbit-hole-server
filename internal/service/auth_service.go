@@ -14,6 +14,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/argon2"
+	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/dto"
@@ -22,13 +23,22 @@ import (
 
 var ErrInvalidCredentials = errors.New("invalid email or password")
 
+type TokenType string
+
+const (
+	TokenAccess  TokenType = "access"
+	TokenRefresh TokenType = "refresh"
+)
+
 type Claims struct {
-	UserID uint `json:"user_id"`
+	UserID    uint      `json:"user_id"`
+	TokenType TokenType `json:"token_type"`
 	jwt.RegisteredClaims
 }
 
 type RefreshClaims struct {
-	UserID uint `json:"user_id"`
+	UserID    uint      `json:"user_id"`
+	TokenType TokenType `json:"token_type"`
 	jwt.RegisteredClaims
 }
 
@@ -125,6 +135,7 @@ func (s *AuthService) hashToken(token string) string {
 }
 
 func (s *AuthService) Register(email, password, username string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
 	passwordHash, err := hashPassword(password)
 	if err != nil {
 		return err
@@ -143,6 +154,7 @@ func (s *AuthService) Register(email, password, username string) error {
 }
 
 func (s *AuthService) Login(email, password string) (dto.TokenPair, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
 	user, err := s.repo.GetByEmail(email)
 	if err != nil {
 		return dto.TokenPair{}, ErrInvalidCredentials
@@ -156,14 +168,26 @@ func (s *AuthService) Login(email, password string) (dto.TokenPair, error) {
 }
 
 func (s *AuthService) GenerateTokenPair(userID uint) (dto.TokenPair, error) {
+	pair, session, err := s.generateTokenPair(userID)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	if err := s.repo.CreateSession(session); err != nil {
+		return dto.TokenPair{}, err
+	}
+	return pair, nil
+}
+
+func (s *AuthService) generateTokenPair(userID uint) (dto.TokenPair, *domain.UserSession, error) {
 	nonceBytes := make([]byte, 16)
 	if _, err := rand.Read(nonceBytes); err != nil {
-		return dto.TokenPair{}, fmt.Errorf("generate token id: %w", err)
+		return dto.TokenPair{}, nil, fmt.Errorf("generate token id: %w", err)
 	}
 	nonce := hex.EncodeToString(nonceBytes)
 
 	accessClaims := Claims{
-		UserID: userID,
+		UserID:    userID,
+		TokenType: TokenAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        nonce,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtTTL)),
@@ -172,12 +196,13 @@ func (s *AuthService) GenerateTokenPair(userID uint) (dto.TokenPair, error) {
 	}
 	accessToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims).SignedString(s.jwtSecret)
 	if err != nil {
-		return dto.TokenPair{}, err
+		return dto.TokenPair{}, nil, err
 	}
 
 	refreshExpiresAt := time.Now().Add(s.refreshTTL)
 	refreshClaims := RefreshClaims{
-		UserID: userID,
+		UserID:    userID,
+		TokenType: TokenRefresh,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        nonce + "-refresh",
 			ExpiresAt: jwt.NewNumericDate(refreshExpiresAt),
@@ -186,7 +211,7 @@ func (s *AuthService) GenerateTokenPair(userID uint) (dto.TokenPair, error) {
 	}
 	refreshToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims).SignedString(s.jwtSecret)
 	if err != nil {
-		return dto.TokenPair{}, err
+		return dto.TokenPair{}, nil, err
 	}
 
 	session := &domain.UserSession{
@@ -195,19 +220,15 @@ func (s *AuthService) GenerateTokenPair(userID uint) (dto.TokenPair, error) {
 		ExpiresAt: refreshExpiresAt,
 	}
 
-	if err := s.repo.CreateSession(session); err != nil {
-		return dto.TokenPair{}, err
-	}
-
 	return dto.TokenPair{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-	}, nil
+	}, session, nil
 }
 
 func (s *AuthService) Refresh(refreshTokenString string) (dto.TokenPair, error) {
 	token, err := jwt.ParseWithClaims(refreshTokenString, &RefreshClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 			return nil, jwt.ErrSignatureInvalid
 		}
 		return s.jwtSecret, nil
@@ -220,16 +241,22 @@ func (s *AuthService) Refresh(refreshTokenString string) (dto.TokenPair, error) 
 	if !ok {
 		return dto.TokenPair{}, errors.New("invalid token claims")
 	}
-
-	tokenHash := s.hashToken(refreshTokenString)
-	session, err := s.repo.FindSession(tokenHash)
-	if err != nil {
-		return dto.TokenPair{}, errors.New("session not found")
+	if claims.TokenType != TokenRefresh {
+		return dto.TokenPair{}, errors.New("invalid token type")
 	}
 
-	_ = s.repo.DeleteSession(session.TokenHash)
-
-	return s.GenerateTokenPair(claims.UserID)
+	tokenHash := s.hashToken(refreshTokenString)
+	pair, replacement, err := s.generateTokenPair(claims.UserID)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	if err := s.repo.RotateSession(tokenHash, replacement); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return dto.TokenPair{}, errors.New("session not found")
+		}
+		return dto.TokenPair{}, fmt.Errorf("rotate refresh session: %w", err)
+	}
+	return pair, nil
 }
 
 func (s *AuthService) Logout(refreshTokenString string) error {
@@ -239,7 +266,7 @@ func (s *AuthService) Logout(refreshTokenString string) error {
 
 func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 			return nil, jwt.ErrSignatureInvalid
 		}
 		return s.jwtSecret, nil
@@ -248,7 +275,7 @@ func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 		return nil, err
 	}
 
-	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+	if claims, ok := token.Claims.(*Claims); ok && token.Valid && claims.TokenType == TokenAccess {
 		return claims, nil
 	}
 

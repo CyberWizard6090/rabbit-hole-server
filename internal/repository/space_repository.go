@@ -16,7 +16,7 @@ func NewSpaceRepository(db *gorm.DB) domain.SpaceRepository {
 
 func (r *spaceRepository) GetByID(id uint) (*domain.Space, error) {
 	var space domain.Space
-	if err := r.db.First(&space, id).Error; err != nil {
+	if err := r.db.Preload("Lists").First(&space, id).Error; err != nil {
 		return nil, err
 	}
 	return &space, nil

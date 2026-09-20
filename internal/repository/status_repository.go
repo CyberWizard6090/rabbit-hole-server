@@ -9,8 +9,8 @@ import (
 type StatusRepository interface {
 	Create(status *domain.TaskStatus) error
 
-	GetAllBySpace(
-		spaceID uint,
+	GetAllByList(
+		listID uint,
 	) ([]domain.TaskStatus, error)
 
 	GetByID(
@@ -21,13 +21,18 @@ type StatusRepository interface {
 		status *domain.TaskStatus,
 	) error
 
+	UpdatePosition(
+		status *domain.TaskStatus,
+		position int,
+	) error
+
 	Delete(
-		spaceID uint,
+		listID uint,
 		statusID uint,
 	) error
 
 	ShiftPositions(
-		spaceID uint,
+		listID uint,
 		startPosition int,
 	) error
 
@@ -58,14 +63,14 @@ func (r *statusRepository) Create(
 		Error
 }
 
-func (r *statusRepository) GetAllBySpace(
-	spaceID uint,
+func (r *statusRepository) GetAllByList(
+	listID uint,
 ) ([]domain.TaskStatus, error) {
 
 	var statuses []domain.TaskStatus
 
 	err := r.db.
-		Where("space_id = ?", spaceID).
+		Where("list_id = ?", listID).
 		Order("position ASC").
 		Find(&statuses).
 		Error
@@ -99,16 +104,48 @@ func (r *statusRepository) Update(
 		Error
 }
 
+func (r *statusRepository) UpdatePosition(status *domain.TaskStatus, position int) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&domain.TaskStatus{}).Where("list_id = ?", status.ListID).Count(&count).Error; err != nil {
+			return err
+		}
+		if position < 1 {
+			position = 1
+		}
+		if position > int(count) {
+			position = int(count)
+		}
+
+		if position < status.Position {
+			if err := tx.Model(&domain.TaskStatus{}).
+				Where("list_id = ? AND position >= ? AND position < ?", status.ListID, position, status.Position).
+				Update("position", gorm.Expr("position + 1")).Error; err != nil {
+				return err
+			}
+		} else if position > status.Position {
+			if err := tx.Model(&domain.TaskStatus{}).
+				Where("list_id = ? AND position > ? AND position <= ?", status.ListID, status.Position, position).
+				Update("position", gorm.Expr("position - 1")).Error; err != nil {
+				return err
+			}
+		}
+
+		status.Position = position
+		return tx.Save(status).Error
+	})
+}
+
 func (r *statusRepository) Delete(
-	spaceID uint,
+	listID uint,
 	statusID uint,
 ) error {
 
 	res := r.db.
 		Where(
-			"id = ? AND space_id = ?",
+			"id = ? AND list_id = ?",
 			statusID,
-			spaceID,
+			listID,
 		).
 		Delete(&domain.TaskStatus{})
 	if res.Error != nil {
@@ -121,15 +158,15 @@ func (r *statusRepository) Delete(
 }
 
 func (r *statusRepository) ShiftPositions(
-	spaceID uint,
+	listID uint,
 	startPosition int,
 ) error {
 
 	return r.db.
 		Model(&domain.TaskStatus{}).
 		Where(
-			"space_id = ? AND position >= ?",
-			spaceID,
+			"list_id = ? AND position >= ?",
+			listID,
 			startPosition,
 		).
 		Update(
@@ -140,15 +177,15 @@ func (r *statusRepository) ShiftPositions(
 }
 
 func (r *statusRepository) DecrementPositionsAfter(
-	spaceID uint,
+	listID uint,
 	position int,
 ) error {
 
 	return r.db.
 		Model(&domain.TaskStatus{}).
 		Where(
-			"space_id = ? AND position > ?",
-			spaceID,
+			"list_id = ? AND position > ?",
+			listID,
 			position,
 		).
 		Update(

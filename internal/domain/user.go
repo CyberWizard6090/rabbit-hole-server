@@ -24,15 +24,15 @@ type User struct {
 	Contacts      []*User       `gorm:"many2many:user_contacts;foreignKey:ID;joinForeignKey:UserID;References:ID;joinReferences:ContactID" json:"contacts"`
 	CreatedAt     time.Time     `json:"created_at"`
 	UpdatedAt     time.Time     `json:"updated_at"`
-	RefreshTokens []UserSession `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE;"`
+	RefreshTokens []UserSession `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE;" json:"-"`
 }
 
 type UserSession struct {
-	ID        uint      `gorm:"primaryKey"`
-	UserID    uint      `gorm:"not null;index"`
-	TokenHash string    `gorm:"unique;not null"`
-	ExpiresAt time.Time `gorm:"not null"`
-	CreatedAt time.Time
+	ID        uint      `gorm:"primaryKey" json:"-"`
+	UserID    uint      `gorm:"not null;index" json:"-"`
+	TokenHash string    `gorm:"unique;not null" json:"-"`
+	ExpiresAt time.Time `gorm:"not null" json:"-"`
+	CreatedAt time.Time `json:"-"`
 }
 
 type UserRepository interface {

@@ -22,6 +22,10 @@ func DefaultRoles() []DefaultRole {
 				"space.create",
 				"space.update",
 				"space.delete",
+				"task.read",
+				"task.create",
+				"task.update",
+				"task.delete",
 			},
 		},
 		{
@@ -32,6 +36,10 @@ func DefaultRoles() []DefaultRole {
 				"space.create",
 				"space.update",
 				"space.delete",
+				"task.read",
+				"task.create",
+				"task.update",
+				"task.delete",
 			},
 		},
 		{
@@ -42,6 +50,7 @@ func DefaultRoles() []DefaultRole {
 				"task.read",
 				"task.create",
 				"task.update",
+				"task.delete",
 			},
 		},
 		{

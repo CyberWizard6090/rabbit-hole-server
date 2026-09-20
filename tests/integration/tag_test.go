@@ -37,13 +37,6 @@ func TestTag_MergeMovesTaskRelations(t *testing.T) {
 	spaceID := createSpace(t, tc)
 	listID := createList(t, tc, spaceID)
 
-	var statuses []domain.TaskStatus
-	if err := tc.DB.Where("space_id = ?", spaceID).
-		Order("position ASC").
-		Find(&statuses).Error; err != nil {
-		t.Fatalf("statuses: %v", err)
-	}
-
 	createTag := func(name string) uint {
 		t.Helper()
 		rec := request(t, tc.Router, http.MethodPost,
@@ -59,13 +52,22 @@ func TestTag_MergeMovesTaskRelations(t *testing.T) {
 
 	sourceID := createTag("Source")
 	targetID := createTag("Target")
-
 	rec := request(t, tc.Router, http.MethodPost,
+		"/api/v1/lists/"+itoa(listID)+"/statuses",
+		tc.Token,
+		map[string]any{"name": "Task Status", "color": "#112233", "position": 1, "type": 0, "board_id": listID},
+	)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create task status: %d: %s", rec.Code, rec.Body.String())
+	}
+	statusID := uint(dataObject(t, rec)["ID"].(float64))
+
+	rec = request(t, tc.Router, http.MethodPost,
 		"/api/v1/lists/"+itoa(listID)+"/tasks",
 		tc.Token,
 		map[string]any{
 			"title":     "Tagged task",
-			"status_id": statuses[0].ID,
+			"status_id": statusID,
 			"tag_ids":   []uint{sourceID},
 		},
 	)

@@ -13,17 +13,30 @@ import (
 )
 
 type AuthHandler struct {
-	authService *service.AuthService
+	authService  *service.AuthService
+	secureCookie bool
 }
 
 const authCookiePath = "/api/v1/auth"
 
-func NewAuthHandler(s *service.AuthService) *AuthHandler {
-	return &AuthHandler{authService: s}
+func NewAuthHandler(s *service.AuthService, secureCookie bool) *AuthHandler {
+	return &AuthHandler{authService: s, secureCookie: secureCookie}
 }
 
 func (h *AuthHandler) refreshCookieMaxAge() int {
 	return int(h.authService.RefreshTTL().Seconds())
+}
+
+func (h *AuthHandler) setRefreshCookie(c *gin.Context, value string, maxAge int) {
+	c.Header("Set-Cookie", (&http.Cookie{
+		Name:     "refresh_token",
+		Value:    value,
+		MaxAge:   maxAge,
+		Path:     authCookiePath,
+		HttpOnly: true,
+		Secure:   h.secureCookie,
+		SameSite: http.SameSiteLaxMode,
+	}).String())
 }
 
 type registerInput struct {
@@ -73,7 +86,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("refresh_token", tokenPair.RefreshToken, h.refreshCookieMaxAge(), authCookiePath, "", false, true)
+	h.setRefreshCookie(c, tokenPair.RefreshToken, h.refreshCookieMaxAge())
 
 	response.Success(c, http.StatusOK, gin.H{"access_token": tokenPair.AccessToken})
 }
@@ -91,7 +104,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("refresh_token", tokenPair.RefreshToken, h.refreshCookieMaxAge(), authCookiePath, "", false, true)
+	h.setRefreshCookie(c, tokenPair.RefreshToken, h.refreshCookieMaxAge())
 
 	response.Success(c, http.StatusOK, gin.H{"access_token": tokenPair.AccessToken})
 }
@@ -108,7 +121,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("refresh_token", "", -1, authCookiePath, "", false, true)
+	h.setRefreshCookie(c, "", -1)
 
 	response.Success(c, http.StatusOK, gin.H{"message": "logged out successfully"})
 }

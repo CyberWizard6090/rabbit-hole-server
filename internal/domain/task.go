@@ -1,9 +1,17 @@
 package domain
 
 import (
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
+)
+
+var (
+	ErrInvalidStatusReference   = errors.New("status does not belong to task list")
+	ErrInvalidParentReference   = errors.New("parent task does not belong to task list")
+	ErrInvalidTagReference      = errors.New("tag does not belong to task space")
+	ErrInvalidAssigneeReference = errors.New("assignee does not belong to task workspace")
 )
 
 type Task struct {

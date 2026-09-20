@@ -19,14 +19,15 @@ type CreateStatusParams struct {
 
 	Name     string
 	Color    string
-	Position int
+	Position *int
 	Type     int
 }
 
 type UpdateStatusParams struct {
-	Name  *string
-	Color *string
-	Type  *int
+	Name     *string
+	Color    *string
+	Position *int
+	Type     *int
 }
 
 type statusService struct {
@@ -44,21 +45,24 @@ func (s *statusService) Create(params CreateStatusParams) (*domain.TaskStatus, e
 		return nil, fmt.Errorf("get list by id: %w", err)
 	}
 
-	existingStatuses, err := s.repo.GetAllBySpace(list.SpaceID)
+	existingStatuses, err := s.repo.GetAllByList(params.ListID)
 	if err != nil {
 		return nil, err
 	}
 
-	position := params.Position
-	if position < 0 {
-		position = 0
-	}
-	if position > len(existingStatuses) {
-		position = len(existingStatuses)
+	position := len(existingStatuses) + 1
+	if params.Position != nil {
+		position = *params.Position
+		if position < 1 {
+			position = 1
+		}
+		if position > len(existingStatuses)+1 {
+			position = len(existingStatuses) + 1
+		}
 	}
 
-	if len(existingStatuses) > 0 && position < len(existingStatuses) {
-		if err := s.repo.ShiftPositions(list.SpaceID, position); err != nil {
+	if len(existingStatuses) > 0 && position <= len(existingStatuses) {
+		if err := s.repo.ShiftPositions(params.ListID, position); err != nil {
 			return nil, err
 		}
 	}
@@ -79,11 +83,11 @@ func (s *statusService) Create(params CreateStatusParams) (*domain.TaskStatus, e
 }
 
 func (s *statusService) GetAllByList(listID uint) ([]domain.TaskStatus, error) {
-	list, err := s.spaceRepo.GetListByID(listID)
+	_, err := s.spaceRepo.GetListByID(listID)
 	if err != nil {
 		return nil, fmt.Errorf("get list by id: %w", err)
 	}
-	return s.repo.GetAllBySpace(list.SpaceID)
+	return s.repo.GetAllByList(listID)
 }
 
 func (s *statusService) Update(listID uint, statusID uint, params UpdateStatusParams) (*domain.TaskStatus, error) {
@@ -104,6 +108,12 @@ func (s *statusService) Update(listID uint, statusID uint, params UpdateStatusPa
 	if params.Type != nil {
 		status.Type = domain.StatusType(*params.Type)
 	}
+	if params.Position != nil {
+		if err := s.repo.UpdatePosition(status, *params.Position); err != nil {
+			return nil, err
+		}
+		return status, nil
+	}
 
 	if err := s.repo.Update(status); err != nil {
 		return nil, err
@@ -120,8 +130,8 @@ func (s *statusService) Delete(listID uint, statusID uint) error {
 		return fmt.Errorf("status does not belong to this list")
 	}
 
-	if err := s.repo.Delete(status.SpaceID, statusID); err != nil {
+	if err := s.repo.Delete(listID, statusID); err != nil {
 		return err
 	}
-	return s.repo.DecrementPositionsAfter(status.SpaceID, status.Position)
+	return s.repo.DecrementPositionsAfter(listID, status.Position)
 }
