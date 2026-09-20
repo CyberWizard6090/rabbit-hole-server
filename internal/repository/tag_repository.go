@@ -32,7 +32,14 @@ func (r *tagRepository) Create(tag *domain.Tag) error {
 }
 
 func (r *tagRepository) Delete(spaceID, tagID uint) error {
-	return r.db.Where("id = ? AND space_id = ?", tagID, spaceID).Delete(&domain.Tag{}).Error
+	res := r.db.Where("id = ? AND space_id = ?", tagID, spaceID).Delete(&domain.Tag{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *tagRepository) GetAllBySpace(spaceID uint) ([]domain.Tag, error) {

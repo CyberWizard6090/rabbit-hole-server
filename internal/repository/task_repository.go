@@ -76,7 +76,14 @@ func (r *taskRepository) Update(task *domain.Task) error {
 }
 
 func (r *taskRepository) Delete(id uint, userID uint) error {
-	return r.db.Where("id = ? AND user_id = ?", id, userID).Delete(&domain.Task{}).Error
+	res := r.db.Where("id = ? AND user_id = ?", id, userID).Delete(&domain.Task{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *taskRepository) AddTags(taskID uint, tagIDs []uint) error {

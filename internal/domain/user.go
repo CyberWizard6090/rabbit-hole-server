@@ -6,8 +6,9 @@ import (
 )
 
 var (
-	ErrEmailTaken    = errors.New("email is already registered")
-	ErrUsernameTaken = errors.New("username is already registered")
+	ErrEmailTaken          = errors.New("email is already registered")
+	ErrUsernameTaken       = errors.New("username is already registered")
+	ErrContactAlreadyAdded = errors.New("contact already added")
 )
 
 type User struct {

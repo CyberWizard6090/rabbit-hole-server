@@ -1,0 +1,58 @@
+
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: rabbit-hole-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: rabbit_hole
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rabbit_hole"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: ["./migrate", "-action=up"]
+    environment:
+      APP_ENV: development
+      DB_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/rabbit_hole?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-1h}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-168h}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rabbit-hole-server
+    ports:
+      - "8080:8080"
+    environment:
+      APP_ENV: development
+      PORT: 8080
+      HOST: 0.0.0.0
+      DB_URL: postgres://postgres:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/rabbit_hole?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-1h}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-168h}
+      ALLOWED_ORIGINS: http://localhost:3000
+      TRUSTED_PROXIES: 127.0.0.1,172.16.0.0/12
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:

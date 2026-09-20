@@ -2,7 +2,6 @@ package handler
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"strconv"
 
@@ -44,7 +43,6 @@ func (h *TagHandler) Create(c *gin.Context) {
 			response.HandleError(c, httperrors.Conflict("TAG_NAME_TAKEN", "tag with this name already exists", err))
 			return
 		}
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("TAG_CREATE_FAILED", "internal server error", err))
 		return
 	}
@@ -61,8 +59,7 @@ func (h *TagHandler) GetAll(c *gin.Context) {
 
 	tags, err := h.service.GetAllBySpace(uint(spaceID))
 	if err != nil {
-		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("TAGS_FETCH_FAILED", "internal server error", err))
 		return
 	}
 
@@ -89,8 +86,7 @@ func (h *TagHandler) Update(c *gin.Context) {
 
 	tag, err := h.service.UpdateTag(uint(spaceID), uint(tagID), service.UpdateTagParams{Name: req.Name, Color: req.Color})
 	if err != nil {
-		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("TAG_UPDATE_FAILED", "internal server error", err))
 		return
 	}
 
@@ -110,8 +106,7 @@ func (h *TagHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.service.DeleteTag(uint(spaceID), uint(tagID)); err != nil {
-		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("TAG_DELETE_FAILED", "internal server error", err))
 		return
 	}
 
@@ -136,7 +131,6 @@ func (h *TagHandler) Merge(c *gin.Context) {
 			response.HandleError(c, httperrors.BadRequest("TAG_MERGE_SELF", err.Error(), err))
 			return
 		}
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("TAG_MERGE_FAILED", "internal server error", err))
 		return
 	}

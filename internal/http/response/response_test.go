@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
+	"gorm.io/gorm"
 
 	httperrors "rabbit-hole-server/internal/http/errors"
 )
@@ -99,5 +100,23 @@ func TestHandleErrorHidesUnknownInternalError(t *testing.T) {
 	}
 	if recorder.Body.String() == "" || strings.Contains(recorder.Body.String(), "database password leaked") {
 		t.Fatalf("internal error leaked in response: %s", recorder.Body.String())
+	}
+}
+
+func TestHandleErrorClassifiesRecordNotFound(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+
+	HandleError(context, httperrors.Internal("FETCH_FAILED", "fetch failed", gorm.ErrRecordNotFound))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
+	}
+	var body APIResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error == nil || body.Error.Code != "NOT_FOUND" {
+		t.Fatalf("unexpected error payload: %+v", body.Error)
 	}
 }

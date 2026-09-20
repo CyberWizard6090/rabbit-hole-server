@@ -24,7 +24,10 @@ func TestLoadEnvAcceptsValidValues(t *testing.T) {
 	if len(env.AllowedOrigins) != 2 || env.AllowedOrigins[0] != "http://localhost:3000" {
 		t.Fatalf("unexpected allowed origins: %v", env.AllowedOrigins)
 	}
-	if env.JWT.TTL.String() != "24h0m0s" {
-		t.Fatalf("unexpected JWT TTL: %s", env.JWT.TTL)
+	if env.JWT.AccessTTL.String() != "1h0m0s" {
+		t.Fatalf("unexpected JWT access TTL: %s", env.JWT.AccessTTL)
+	}
+	if env.JWT.RefreshTTL.String() != "168h0m0s" {
+		t.Fatalf("unexpected JWT refresh TTL: %s", env.JWT.RefreshTTL)
 	}
 }

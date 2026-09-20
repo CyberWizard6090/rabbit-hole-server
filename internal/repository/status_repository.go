@@ -104,14 +104,20 @@ func (r *statusRepository) Delete(
 	statusID uint,
 ) error {
 
-	return r.db.
+	res := r.db.
 		Where(
 			"id = ? AND space_id = ?",
 			statusID,
 			spaceID,
 		).
-		Delete(&domain.TaskStatus{}).
-		Error
+		Delete(&domain.TaskStatus{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *statusRepository) ShiftPositions(

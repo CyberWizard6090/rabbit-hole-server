@@ -1,12 +1,13 @@
 package handler
 
 import (
-	"log"
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
+	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/dto"
 	contextutil "rabbit-hole-server/internal/http/context"
 	httperrors "rabbit-hole-server/internal/http/errors"
@@ -31,7 +32,6 @@ func (h *ContactHandler) List(c *gin.Context) {
 
 	contacts, err := h.service.GetContacts(uid)
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("CONTACTS_FETCH_FAILED", "internal server error", err))
 		return
 	}
@@ -53,12 +53,15 @@ func (h *ContactHandler) Add(c *gin.Context) {
 	}
 
 	if err := h.service.AddContact(uid, req.ContactID); err != nil {
-		log.Println(err)
+		if errors.Is(err, domain.ErrContactAlreadyAdded) {
+			response.HandleError(c, httperrors.Conflict("CONTACT_ALREADY_ADDED", "contact already added", err))
+			return
+		}
 		response.HandleError(c, httperrors.Internal("CONTACT_ADD_FAILED", "internal server error", err))
 		return
 	}
 
-	response.Success(c, http.StatusOK, gin.H{
+	response.Success(c, http.StatusCreated, gin.H{
 		"message": "contact added successfully",
 	})
 }
@@ -77,7 +80,6 @@ func (h *ContactHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.service.DeleteContact(uid, uint(contactID)); err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("CONTACT_DELETE_FAILED", "internal server error", err))
 		return
 	}
@@ -102,7 +104,6 @@ func (h *ContactHandler) Search(c *gin.Context) {
 
 	users, err := h.service.SearchUsers(uid, query)
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("USER_SEARCH_FAILED", "internal server error", err))
 		return
 	}

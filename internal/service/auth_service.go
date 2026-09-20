@@ -33,17 +33,23 @@ type RefreshClaims struct {
 }
 
 type AuthService struct {
-	repo      *repository.UserRepository
-	jwtSecret []byte
-	jwtTTL    time.Duration
+	repo       *repository.UserRepository
+	jwtSecret  []byte
+	jwtTTL     time.Duration
+	refreshTTL time.Duration
 }
 
-func NewAuthService(r *repository.UserRepository, jwtSecret string, jwtTTL time.Duration) *AuthService {
+func NewAuthService(r *repository.UserRepository, jwtSecret string, accessTTL, refreshTTL time.Duration) *AuthService {
 	return &AuthService{
-		repo:      r,
-		jwtSecret: []byte(jwtSecret),
-		jwtTTL:    jwtTTL,
+		repo:       r,
+		jwtSecret:  []byte(jwtSecret),
+		jwtTTL:     accessTTL,
+		refreshTTL: refreshTTL,
 	}
+}
+
+func (s *AuthService) RefreshTTL() time.Duration {
+	return s.refreshTTL
 }
 
 const (
@@ -169,7 +175,7 @@ func (s *AuthService) GenerateTokenPair(userID uint) (dto.TokenPair, error) {
 		return dto.TokenPair{}, err
 	}
 
-	refreshExpiresAt := time.Now().Add(7 * 24 * time.Hour)
+	refreshExpiresAt := time.Now().Add(s.refreshTTL)
 	refreshClaims := RefreshClaims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{

@@ -2,14 +2,15 @@ package response
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
+	"gorm.io/gorm"
 
 	httperrors "rabbit-hole-server/internal/http/errors"
-
 )
 
 type Pagination struct {
@@ -50,6 +51,14 @@ func Error(c *gin.Context, status int, message string) {
 }
 
 func HandleError(c *gin.Context, err error) {
+	if err != nil {
+		log.Println(err)
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		ErrorWithCode(c, http.StatusNotFound, "NOT_FOUND", "resource not found", nil)
+		return
+	}
+
 	var appErr *httperrors.AppError
 	if errors.As(err, &appErr) {
 		ErrorWithCode(c, appErr.Status, appErr.Code, appErr.Message, appErr.Fields)

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"log"
 	"net/http"
 	"strconv"
 
@@ -49,7 +48,6 @@ func (h *StatusHandler) Create(c *gin.Context) {
 		Type:     req.Type,
 	})
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("STATUS_CREATE_FAILED", "internal server error", err))
 		return
 	}
@@ -66,7 +64,6 @@ func (h *StatusHandler) GetAll(c *gin.Context) {
 
 	statuses, err := h.service.GetAllByList(uint(listID))
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("STATUSES_FETCH_FAILED", "internal server error", err))
 		return
 	}
@@ -98,7 +95,6 @@ func (h *StatusHandler) Update(c *gin.Context) {
 		Type:  req.Type,
 	})
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("STATUS_UPDATE_FAILED", "internal server error", err))
 		return
 	}
@@ -119,7 +115,6 @@ func (h *StatusHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.service.Delete(uint(listID), uint(statusID)); err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("STATUS_DELETE_FAILED", "internal server error", err))
 		return
 	}

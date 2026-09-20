@@ -26,12 +26,16 @@ type ServerConfig struct {
 }
 
 type DBConfig struct {
-	URL string `env:"DB_URL,required" validate:"required,min=1"`
+	URL                string        `env:"DB_URL,required" validate:"required,min=1"`
+	MaxIdleConnections int           `env:"DB_MAX_IDLE_CONNS" envDefault:"10" validate:"gte=0"`
+	MaxOpenConnections int           `env:"DB_MAX_OPEN_CONNS" envDefault:"100" validate:"gt=0"`
+	ConnMaxLifetime    time.Duration `env:"DB_CONN_MAX_LIFETIME" envDefault:"1h" validate:"gt=0"`
 }
 
 type JWTConfig struct {
-	Secret string        `env:"SECRET,required" validate:"required,min=32"`
-	TTL    time.Duration `env:"TTL" envDefault:"24h" validate:"gt=0"`
+	Secret     string        `env:"SECRET,required" validate:"required,min=32"`
+	AccessTTL  time.Duration `env:"ACCESS_TTL" envDefault:"1h" validate:"gt=0"`
+	RefreshTTL time.Duration `env:"REFRESH_TTL" envDefault:"168h" validate:"gt=0"`
 }
 
 func Load() (*Config, error) {

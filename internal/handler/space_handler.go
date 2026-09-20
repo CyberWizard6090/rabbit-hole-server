@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"log"
 	"net/http"
 	"strconv"
 
@@ -56,8 +55,7 @@ func (h *SpaceHandler) CreateSpace(c *gin.Context) {
 	)
 
 	if err != nil {
-		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("SPACE_CREATE_FAILED", "internal server error", err))
 		return
 	}
 
@@ -75,7 +73,6 @@ func (h *SpaceHandler) GetAll(c *gin.Context) {
 
 	spaces, total, err := h.service.GetAllSpaces(uint(workspaceID), p.Limit, p.Offset)
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("SPACES_FETCH_FAILED", "internal server error", err))
 		return
 	}
@@ -96,7 +93,6 @@ func (h *SpaceHandler) GetDashboard(c *gin.Context) {
 
 	dashboard, err := h.service.GetDashboard(uint(spaceID))
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.NotFound("SPACE_NOT_FOUND", "space not found", err))
 		return
 	}

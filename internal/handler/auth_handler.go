@@ -22,6 +22,10 @@ func NewAuthHandler(s *service.AuthService) *AuthHandler {
 	return &AuthHandler{authService: s}
 }
 
+func (h *AuthHandler) refreshCookieMaxAge() int {
+	return int(h.authService.RefreshTTL().Seconds())
+}
+
 type registerInput struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=6"`
@@ -69,7 +73,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("refresh_token", tokenPair.RefreshToken, 7*24*3600, authCookiePath, "", false, true)
+	c.SetCookie("refresh_token", tokenPair.RefreshToken, h.refreshCookieMaxAge(), authCookiePath, "", false, true)
 
 	response.Success(c, http.StatusOK, gin.H{"access_token": tokenPair.AccessToken})
 }
@@ -87,7 +91,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("refresh_token", tokenPair.RefreshToken, 7*24*3600, authCookiePath, "", false, true)
+	c.SetCookie("refresh_token", tokenPair.RefreshToken, h.refreshCookieMaxAge(), authCookiePath, "", false, true)
 
 	response.Success(c, http.StatusOK, gin.H{"access_token": tokenPair.AccessToken})
 }

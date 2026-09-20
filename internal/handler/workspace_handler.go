@@ -2,7 +2,6 @@ package handler
 
 import (
 	"errors"
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -51,7 +50,6 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 			return
 		}
 
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("WORKSPACE_CREATE_FAILED", "internal server error", err))
 		return
 	}
@@ -72,8 +70,7 @@ func (h *WorkspaceHandler) GetAllForUser(c *gin.Context) {
 
 	workspaces, err := h.service.GetAllForUser(userID)
 	if err != nil {
-		log.Println(err)
-		response.Internal(c)
+		response.HandleError(c, httperrors.Internal("WORKSPACES_FETCH_FAILED", "internal server error", err))
 		return
 	}
 

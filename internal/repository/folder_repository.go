@@ -37,5 +37,12 @@ func (r *folderRepository) Update(folder *domain.Folder) error {
 }
 
 func (r *folderRepository) Delete(id uint) error {
-	return r.db.Delete(&domain.Folder{}, id).Error
+	res := r.db.Delete(&domain.Folder{}, id)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }

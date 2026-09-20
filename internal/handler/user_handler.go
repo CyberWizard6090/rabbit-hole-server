@@ -2,7 +2,6 @@ package handler
 
 import (
 	"errors"
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -35,7 +34,6 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 			response.HandleError(c, httperrors.NotFound("USER_NOT_FOUND", "user not found", err))
 			return
 		}
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("USER_FETCH_FAILED", "internal server error", err))
 		return
 	}
@@ -68,7 +66,6 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 			response.HandleError(c, httperrors.NotFound("USER_NOT_FOUND", "user not found", err))
 			return
 		}
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("PROFILE_UPDATE_FAILED", "internal server error", err))
 		return
 	}

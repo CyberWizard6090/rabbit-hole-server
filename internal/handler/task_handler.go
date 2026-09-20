@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"log"
 	"net/http"
 	"strconv"
 
@@ -61,7 +60,6 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		TimeEstimate: req.TimeEstimate,
 	})
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("TASK_CREATE_FAILED", "internal server error", err))
 		return
 	}
@@ -98,7 +96,6 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		AddTagNames:  req.AddTagNames,
 	})
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("TASK_UPDATE_FAILED", "internal server error", err))
 		return
 	}
@@ -117,7 +114,6 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 
 	tasks, total, err := h.service.GetAllTasks(uid, p.Limit, p.Offset)
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("TASKS_FETCH_FAILED", "internal server error", err))
 		return
 	}
@@ -144,7 +140,6 @@ func (h *TaskHandler) GetByID(c *gin.Context) {
 
 	task, err := h.service.GetTaskByID(uint(taskID), uid)
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.NotFound("TASK_NOT_FOUND", "task not found", err))
 		return
 	}
@@ -166,7 +161,6 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.service.DeleteTask(uint(taskID), uid); err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("TASK_DELETE_FAILED", "internal server error", err))
 		return
 	}

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"log"
 	"net/http"
 	"strconv"
 
@@ -43,7 +42,6 @@ func (h *ListHandler) CreateInSpace(c *gin.Context) {
 
 	list, err := h.service.CreateList(uint(spaceID), req.Name, req.ParentStatusID)
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("LIST_CREATE_FAILED", "internal server error", err))
 		return
 	}
@@ -60,7 +58,6 @@ func (h *ListHandler) GetAllInSpace(c *gin.Context) {
 
 	space, err := h.service.GetSpaceByID(uint(spaceID))
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.NotFound("SPACE_NOT_FOUND", "space not found", err))
 		return
 	}
@@ -94,7 +91,6 @@ func (h *ListHandler) CreateInFolder(c *gin.Context) {
 
 	list, err := h.service.CreateListInFolder(folder.SpaceID, uint(folderID), req.Name)
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("LIST_CREATE_FAILED", "internal server error", err))
 		return
 	}
@@ -111,7 +107,6 @@ func (h *ListHandler) GetAllInFolder(c *gin.Context) {
 
 	lists, err := h.service.GetListsByFolder(uint(folderID))
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("LISTS_FETCH_FAILED", "internal server error", err))
 		return
 	}
@@ -134,7 +129,6 @@ func (h *ListHandler) Update(c *gin.Context) {
 
 	list, err := h.service.UpdateList(uint(listID), req.Name)
 	if err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("LIST_UPDATE_FAILED", "internal server error", err))
 		return
 	}
@@ -150,7 +144,6 @@ func (h *ListHandler) Delete(c *gin.Context) {
 	}
 
 	if err := h.service.DeleteList(uint(listID)); err != nil {
-		log.Println(err)
 		response.HandleError(c, httperrors.Internal("LIST_DELETE_FAILED", "internal server error", err))
 		return
 	}

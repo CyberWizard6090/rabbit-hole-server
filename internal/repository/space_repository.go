@@ -124,5 +124,12 @@ func (r *spaceRepository) UpdateList(list *domain.List) error {
 }
 
 func (r *spaceRepository) DeleteList(id uint) error {
-	return r.db.Delete(&domain.List{}, id).Error
+	res := r.db.Delete(&domain.List{}, id)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
