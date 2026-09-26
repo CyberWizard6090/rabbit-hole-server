@@ -24,6 +24,9 @@ func (e *AppError) Error() string {
 }
 
 func (e *AppError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
 	return e.Err
 }
 
@@ -84,9 +87,12 @@ func Wrap(code, message string, status int, err error) *AppError {
 	return &AppError{Code: code, Message: message, Status: status, Err: err}
 }
 
-func Wrapf(code, message string, status int, err error, format string, args ...any) *AppError {
-	if err == nil {
-		return New(code, fmt.Sprintf(message, args...), status)
+func Wrapf(code, message string, status int, err error, args ...any) *AppError {
+	message = fmt.Sprintf(message, args...)
+	return &AppError{
+		Code:    code,
+		Message: message,
+		Status:  status,
+		Err:     err,
 	}
-	return &AppError{Code: code, Message: fmt.Sprintf(message, args...), Status: status, Err: err}
 }

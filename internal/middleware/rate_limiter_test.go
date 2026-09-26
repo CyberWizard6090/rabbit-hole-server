@@ -38,3 +38,29 @@ func TestRateLimiterReturns429AndStopsChain(t *testing.T) {
 		t.Fatal("429 response body is empty")
 	}
 }
+
+func TestRateLimiterAllowsRequestsAfterPeriod(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(RateLimiter(1, 10*time.Millisecond))
+	router.GET("/limited", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	first := httptest.NewRecorder()
+	router.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/limited", nil))
+	if first.Code != http.StatusNoContent {
+		t.Fatalf("first status=%d", first.Code)
+	}
+
+	blocked := httptest.NewRecorder()
+	router.ServeHTTP(blocked, httptest.NewRequest(http.MethodGet, "/limited", nil))
+	if blocked.Code != http.StatusTooManyRequests {
+		t.Fatalf("blocked status=%d", blocked.Code)
+	}
+
+	time.Sleep(15 * time.Millisecond)
+	allowed := httptest.NewRecorder()
+	router.ServeHTTP(allowed, httptest.NewRequest(http.MethodGet, "/limited", nil))
+	if allowed.Code != http.StatusNoContent {
+		t.Fatalf("allowed status=%d", allowed.Code)
+	}
+}
