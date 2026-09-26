@@ -21,7 +21,7 @@ func NewUserHandler(service service.UserService) *UserHandler {
 	return &UserHandler{service: service}
 }
 
-func (h *UserHandler) GetMe(c *gin.Context) {
+func (h *UserHandler) GetCurrentUser(c *gin.Context) {
 	uid, err := contextutil.GetUserID(c)
 	if err != nil {
 		response.Unauthorized(c)

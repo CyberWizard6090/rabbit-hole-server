@@ -50,7 +50,11 @@ func (h *TagHandler) Create(c *gin.Context) {
 	response.Success(c, http.StatusCreated, tag)
 }
 
-func (h *TagHandler) GetAll(c *gin.Context) {
+func (h *TagHandler) Get(c *gin.Context) {
+	//TODO: Создать метод получения тега по ID
+}
+
+func (h *TagHandler) List(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
 		response.BadRequest(c, invalidSpaceIDMessage)

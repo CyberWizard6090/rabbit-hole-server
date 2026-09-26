@@ -24,7 +24,7 @@ func NewSpaceHandler(spaceService service.SpaceService) *SpaceHandler {
 	}
 }
 
-func (h *SpaceHandler) CreateSpace(c *gin.Context) {
+func (h *SpaceHandler) Create(c *gin.Context) {
 	uid, err := contextutil.GetUserID(c)
 	if err != nil {
 		response.Unauthorized(c)
@@ -62,7 +62,11 @@ func (h *SpaceHandler) CreateSpace(c *gin.Context) {
 	response.Success(c, http.StatusCreated, space)
 }
 
-func (h *SpaceHandler) GetAll(c *gin.Context) {
+func (h *SpaceHandler) Get(c *gin.Context) {
+	// TODO:  Добавить функцию получения пространства по ID
+}
+
+func (h *SpaceHandler) List(c *gin.Context) {
 	workspaceID, err := strconv.ParseUint(c.Param("workspace_id"), 10, 64)
 	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_WORKSPACE_ID", "invalid workspace id", err))
@@ -82,6 +86,14 @@ func (h *SpaceHandler) GetAll(c *gin.Context) {
 	response.SuccessWithPagination(c, http.StatusOK, spaces, &response.Pagination{
 		Total: int(total), Page: p.Page, Limit: p.Limit, Pages: pages,
 	})
+}
+
+func (h *SpaceHandler) Update(c *gin.Context) {
+	// TODO:  Добавить функцию обновления пространства
+}
+
+func (h *SpaceHandler) Delete(c *gin.Context) {
+	// TODO: добавить функцию удаления пространства
 }
 
 func (h *SpaceHandler) GetDashboard(c *gin.Context) {

@@ -1,0 +1,39 @@
+* text=auto
+
+# Go
+*.go text eol=lf
+
+# Configuration and data
+*.json text eol=lf
+*.sql text eol=lf
+*.env text eol=lf
+*.env.example text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Documentation and tooling
+*.md text eol=lf
+Dockerfile text eol=lf
+Makefile text eol=lf
+*.mk text eol=lf
+*.sh text eol=lf
+
+# Windows scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary

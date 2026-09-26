@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"rabbit-hole-server/internal/domain"
-	"rabbit-hole-server/internal/repository"
 )
 
 var tagColorPalette = []string{
@@ -51,13 +50,13 @@ type UpdateTaskParams struct {
 }
 
 type taskService struct {
-	repo       repository.TaskRepository
+	repo       domain.TaskRepository
 	spaceRepo  domain.SpaceRepository
 	tagService TagService
 }
 
 func NewTaskService(
-	repo repository.TaskRepository,
+	repo domain.TaskRepository,
 	spaceRepo domain.SpaceRepository,
 	tagService TagService,
 ) TaskService {

@@ -15,11 +15,13 @@ func AuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
 		header := c.GetHeader("Authorization")
 		if header == "" {
 			response.Unauthorized(c)
+			c.Abort()
 			return
 		}
 
 		if !strings.HasPrefix(header, "Bearer ") {
 			response.Error(c, http.StatusUnauthorized, "Invalid token format")
+			c.Abort()
 			return
 		}
 
@@ -28,6 +30,7 @@ func AuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
 		claims, err := authService.ParseToken(tokenString)
 		if err != nil {
 			response.Error(c, http.StatusUnauthorized, "Invalid or expired token")
+			c.Abort()
 			return
 		}
 

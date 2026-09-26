@@ -48,7 +48,7 @@ func (h *FolderHandler) Create(c *gin.Context) {
 	response.Success(c, http.StatusCreated, folder)
 }
 
-func (h *FolderHandler) GetAll(c *gin.Context) {
+func (h *FolderHandler) List(c *gin.Context) {
 	if _, err := contextutil.GetUserID(c); err != nil {
 		response.Unauthorized(c)
 		return

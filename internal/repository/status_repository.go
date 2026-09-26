@@ -6,66 +6,19 @@ import (
 	"rabbit-hole-server/internal/domain"
 )
 
-type StatusRepository interface {
-	Create(status *domain.TaskStatus) error
-
-	GetAllByList(
-		listID uint,
-	) ([]domain.TaskStatus, error)
-
-	GetByID(
-		statusID uint,
-	) (*domain.TaskStatus, error)
-
-	Update(
-		status *domain.TaskStatus,
-	) error
-
-	UpdatePosition(
-		status *domain.TaskStatus,
-		position int,
-	) error
-
-	Delete(
-		listID uint,
-		statusID uint,
-	) error
-
-	ShiftPositions(
-		listID uint,
-		startPosition int,
-	) error
-
-	DecrementPositionsAfter(
-		spaceID uint,
-		position int,
-	) error
-}
-
 type statusRepository struct {
 	db *gorm.DB
 }
 
-func NewStatusRepository(
-	db *gorm.DB,
-) StatusRepository {
-	return &statusRepository{
-		db: db,
-	}
+func NewStatusRepository(db *gorm.DB) domain.StatusRepository {
+	return &statusRepository{db: db}
 }
 
-func (r *statusRepository) Create(
-	status *domain.TaskStatus,
-) error {
-
-	return r.db.
-		Create(status).
-		Error
+func (r *statusRepository) Create(status *domain.TaskStatus) error {
+	return r.db.Create(status).Error
 }
 
-func (r *statusRepository) GetAllByList(
-	listID uint,
-) ([]domain.TaskStatus, error) {
+func (r *statusRepository) GetAllByList(listID uint) ([]domain.TaskStatus, error) {
 
 	var statuses []domain.TaskStatus
 
@@ -78,9 +31,7 @@ func (r *statusRepository) GetAllByList(
 	return statuses, err
 }
 
-func (r *statusRepository) GetByID(
-	statusID uint,
-) (*domain.TaskStatus, error) {
+func (r *statusRepository) GetByID(statusID uint) (*domain.TaskStatus, error) {
 
 	var status domain.TaskStatus
 
@@ -95,9 +46,7 @@ func (r *statusRepository) GetByID(
 	return &status, nil
 }
 
-func (r *statusRepository) Update(
-	status *domain.TaskStatus,
-) error {
+func (r *statusRepository) Update(status *domain.TaskStatus) error {
 
 	return r.db.
 		Save(status).
@@ -136,10 +85,7 @@ func (r *statusRepository) UpdatePosition(status *domain.TaskStatus, position in
 	})
 }
 
-func (r *statusRepository) Delete(
-	listID uint,
-	statusID uint,
-) error {
+func (r *statusRepository) Delete(listID uint, statusID uint) error {
 
 	res := r.db.
 		Where(
@@ -157,10 +103,7 @@ func (r *statusRepository) Delete(
 	return nil
 }
 
-func (r *statusRepository) ShiftPositions(
-	listID uint,
-	startPosition int,
-) error {
+func (r *statusRepository) ShiftPositions(listID uint, startPosition int) error {
 
 	return r.db.
 		Model(&domain.TaskStatus{}).
@@ -176,10 +119,7 @@ func (r *statusRepository) ShiftPositions(
 		Error
 }
 
-func (r *statusRepository) DecrementPositionsAfter(
-	listID uint,
-	position int,
-) error {
+func (r *statusRepository) DecrementPositionsAfter(listID uint, position int) error {
 
 	return r.db.
 		Model(&domain.TaskStatus{}).

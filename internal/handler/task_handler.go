@@ -113,7 +113,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	response.Success(c, http.StatusOK, task)
 }
 
-func (h *TaskHandler) GetAll(c *gin.Context) {
+func (h *TaskHandler) List(c *gin.Context) {
 	_, err := contextutil.GetUserID(c)
 	if err != nil {
 		response.Unauthorized(c)
@@ -141,7 +141,7 @@ func (h *TaskHandler) GetAll(c *gin.Context) {
 	})
 }
 
-func (h *TaskHandler) GetByID(c *gin.Context) {
+func (h *TaskHandler) Get(c *gin.Context) {
 	_, err := contextutil.GetUserID(c)
 	if err != nil {
 		response.Unauthorized(c)

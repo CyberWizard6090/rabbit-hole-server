@@ -61,7 +61,7 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	)
 }
 
-func (h *WorkspaceHandler) GetAllForUser(c *gin.Context) {
+func (h *WorkspaceHandler) List(c *gin.Context) {
 	userID, err := contextutil.GetUserID(c)
 	if err != nil {
 		response.Unauthorized(c)
@@ -79,4 +79,16 @@ func (h *WorkspaceHandler) GetAllForUser(c *gin.Context) {
 		http.StatusOK,
 		workspaces,
 	)
+}
+
+func (h *WorkspaceHandler) Get(c *gin.Context) {
+	// TODO:  Добавить функцию получения рабочего пространства по ID
+}
+
+func (h *WorkspaceHandler) Update(c *gin.Context) {
+
+	// TODO: Добавить функцию обновления рабочего пространства
+}
+func (h *WorkspaceHandler) Delete(c *gin.Context) {
+	// TODO:  Добавить функцию удаления рабочего пространства
 }

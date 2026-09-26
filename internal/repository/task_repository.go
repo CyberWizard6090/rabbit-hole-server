@@ -6,20 +6,11 @@ import (
 	"rabbit-hole-server/internal/domain"
 )
 
-type TaskRepository interface {
-	Create(task *domain.Task, assigneeIDs []uint, tagIDs []uint) error
-	GetAll(listID uint, limit, offset int) ([]domain.Task, int64, error)
-	GetByID(id uint) (*domain.Task, error)
-	Update(task *domain.Task) error
-	Delete(id uint) error
-	AddTags(taskID uint, tagIDs []uint) error
-}
-
 type taskRepository struct {
 	db *gorm.DB
 }
 
-func NewTaskRepository(db *gorm.DB) TaskRepository {
+func NewTaskRepository(db *gorm.DB) domain.TaskRepository {
 	return &taskRepository{db: db}
 }
 

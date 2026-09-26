@@ -49,7 +49,7 @@ func (h *ListHandler) CreateInSpace(c *gin.Context) {
 	response.Success(c, http.StatusCreated, list)
 }
 
-func (h *ListHandler) GetAllInSpace(c *gin.Context) {
+func (h *ListHandler) ListInSpace(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_SPACE_ID", "invalid space id", err))
@@ -98,7 +98,7 @@ func (h *ListHandler) CreateInFolder(c *gin.Context) {
 	response.Success(c, http.StatusCreated, list)
 }
 
-func (h *ListHandler) GetAllInFolder(c *gin.Context) {
+func (h *ListHandler) ListInFolder(c *gin.Context) {
 	folderID, err := strconv.ParseUint(c.Param("folder_id"), 10, 64)
 	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_FOLDER_ID", "invalid folder id", err))

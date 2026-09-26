@@ -16,6 +16,7 @@ type Params struct {
 	Page   int
 	Limit  int
 	Offset int
+	//	TODO: Добавить поддержку Cursor-based пагинации
 }
 
 func Parse(c *gin.Context) Params {

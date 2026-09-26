@@ -55,7 +55,7 @@ func (h *StatusHandler) Create(c *gin.Context) {
 	response.Success(c, http.StatusCreated, status)
 }
 
-func (h *StatusHandler) GetAll(c *gin.Context) {
+func (h *StatusHandler) List(c *gin.Context) {
 	listID, err := strconv.ParseUint(c.Param("list_id"), 10, 64)
 	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_LIST_ID", invalidListIDMessage, err))

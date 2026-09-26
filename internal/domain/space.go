@@ -82,3 +82,14 @@ type SpaceRepository interface {
 	UpdateList(list *List) error
 	DeleteList(id uint) error
 }
+
+type StatusRepository interface {
+	Create(status *TaskStatus) error
+	GetAllByList(listID uint) ([]TaskStatus, error)
+	GetByID(statusID uint) (*TaskStatus, error)
+	Update(status *TaskStatus) error
+	UpdatePosition(status *TaskStatus, position int) error
+	Delete(listID uint, statusID uint) error
+	ShiftPositions(listID uint, startPosition int) error
+	DecrementPositionsAfter(spaceID uint, position int) error
+}

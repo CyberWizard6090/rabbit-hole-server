@@ -33,11 +33,10 @@ type Task struct {
 }
 
 type TaskRepository interface {
-	Create(task *Task) error
-	GetAll(uid uint, limit, offset int) ([]Task, int64, error)
-	GetByID(id uint, uid uint) (*Task, error)
-	GetByListID(ListID uint) ([]Task, error)
+	Create(task *Task, assigneeIDs []uint, tagIDs []uint) error
+	GetAll(listID uint, limit, offset int) ([]Task, int64, error)
+	GetByID(id uint) (*Task, error)
 	Update(task *Task) error
-	Delete(id uint, uid uint) error
+	Delete(id uint) error
 	AddTags(taskID uint, tagIDs []uint) error
 }

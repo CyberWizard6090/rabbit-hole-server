@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"rabbit-hole-server/internal/domain"
-	"rabbit-hole-server/internal/repository"
 )
 
 type StatusService interface {
@@ -31,11 +30,11 @@ type UpdateStatusParams struct {
 }
 
 type statusService struct {
-	repo      repository.StatusRepository
+	repo      domain.StatusRepository
 	spaceRepo domain.SpaceRepository
 }
 
-func NewStatusService(repo repository.StatusRepository, spaceRepo domain.SpaceRepository) StatusService {
+func NewStatusService(repo domain.StatusRepository, spaceRepo domain.SpaceRepository) StatusService {
 	return &statusService{repo: repo, spaceRepo: spaceRepo}
 }
 

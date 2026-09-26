@@ -59,7 +59,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 
 				profile := protected.Group("/profile")
 				{
-					profile.GET("/", deps.UserHandler.GetMe)
+					profile.GET("/", deps.UserHandler.GetCurrentUser)
 					profile.PATCH("/", deps.UserHandler.UpdateProfile)
 				}
 				protected.GET("/users/search", deps.ContactHandler.Search)
@@ -74,14 +74,14 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				workspaces := protected.Group("/workspaces")
 				{
 					workspaces.POST("/", deps.WorkspaceHandler.Create)
-					workspaces.GET("/", deps.WorkspaceHandler.GetAllForUser)
+					workspaces.GET("/", deps.WorkspaceHandler.List)
 
 					workspaces.POST("/:workspace_id/spaces",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceWorkspace, "space.create"),
-						deps.SpaceHandler.CreateSpace)
+						deps.SpaceHandler.Create)
 					workspaces.GET("/:workspace_id/spaces",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceWorkspace, "space.read"),
-						deps.SpaceHandler.GetAll)
+						deps.SpaceHandler.List)
 				}
 
 				spaces := protected.Group("/spaces/:space_id")
@@ -95,7 +95,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						deps.TagHandler.Create)
 					spaces.GET("/tags",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.read"),
-						deps.TagHandler.GetAll)
+						deps.TagHandler.List)
 					spaces.PUT("/tags/:tag_id",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.update"),
 						deps.TagHandler.Update)
@@ -111,14 +111,14 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						deps.FolderHandler.Create)
 					spaces.GET("/folders",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.read"),
-						deps.FolderHandler.GetAll)
+						deps.FolderHandler.List)
 
 					spaces.POST(routeLists,
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.update"),
 						deps.ListHandler.CreateInSpace)
 					spaces.GET(routeLists,
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.read"),
-						deps.ListHandler.GetAllInSpace)
+						deps.ListHandler.ListInSpace)
 				}
 
 				folders := protected.Group("/folders/:folder_id")
@@ -128,7 +128,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						deps.ListHandler.CreateInFolder)
 					folders.GET(routeLists,
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceFolder, "space.read"),
-						deps.ListHandler.GetAllInFolder)
+						deps.ListHandler.ListInFolder)
 					folders.PATCH("/",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceFolder, "space.update"),
 						deps.FolderHandler.Update)
@@ -144,7 +144,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						deps.StatusHandler.Create)
 					lists.GET("/statuses",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.read"),
-						deps.StatusHandler.GetAll)
+						deps.StatusHandler.List)
 					lists.PUT("/statuses/:status_id",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.update"),
 						deps.StatusHandler.Update)
@@ -157,7 +157,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						deps.TaskHandler.Create)
 					lists.GET("/tasks",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "task.read"),
-						deps.TaskHandler.GetAll)
+						deps.TaskHandler.List)
 					lists.PATCH("/",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.update"),
 						deps.ListHandler.Update)
@@ -170,7 +170,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				{
 					tasks.GET("/",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceTask, "task.read"),
-						deps.TaskHandler.GetByID)
+						deps.TaskHandler.Get)
 					tasks.PATCH("/",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceTask, "task.update"),
 						deps.TaskHandler.Update)
