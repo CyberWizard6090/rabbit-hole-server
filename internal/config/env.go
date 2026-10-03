@@ -64,6 +64,20 @@ func Parse() (*Config, error) {
 	return cfg, nil
 }
 
+// ParseDB reads only the database settings. Tools that do not need the full
+// application config (for example cmd/migrate) use it so they do not require
+// unrelated variables such as JWT_SECRET.
+func ParseDB() (*DBConfig, error) {
+	cfg := &DBConfig{}
+	if err := env.Parse(cfg); err != nil {
+		return nil, fmt.Errorf("parsing db env config: %w", err)
+	}
+	if err := validator.New().Struct(cfg); err != nil {
+		return nil, fmt.Errorf("validating db config: %w", err)
+	}
+	return cfg, nil
+}
+
 func Validate(cfg *Config) error {
 	return validator.New().Struct(cfg)
 }

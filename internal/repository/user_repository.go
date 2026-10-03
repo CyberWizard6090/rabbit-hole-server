@@ -30,17 +30,13 @@ func (r *UserRepository) CreateUser(user *domain.User) error {
 
 func isEmailUniqueViolation(err error) bool {
 	return isUniqueViolationForConstraints(err,
-		"idx_users_email",
-		"uni_users_email",
-		"users_email_key",
+		"uq_users_email",
 	)
 }
 
 func isUsernameUniqueViolation(err error) bool {
 	return isUniqueViolationForConstraints(err,
-		"idx_users_username",
-		"uni_users_username",
-		"users_username_key",
+		"uq_users_username",
 	)
 }
 
@@ -60,7 +56,7 @@ func isUniqueViolationForConstraints(err error, constraints ...string) bool {
 
 func (r *UserRepository) GetByEmail(email string) (*domain.User, error) {
 	var user domain.User
-	err := r.db.Where("email = ?", email).First(&user).Error
+	err := r.db.Where("lower(email) = lower(?)", email).First(&user).Error
 	return &user, err
 }
 
@@ -77,7 +73,13 @@ func (r *UserRepository) Update(user *domain.User) error {
 }
 
 func (r *UserRepository) CreateSession(session *domain.UserSession) error {
-	return r.db.Create(session).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ? AND expires_at < NOW()", session.UserID).
+			Delete(&domain.UserSession{}).Error; err != nil {
+			return err
+		}
+		return tx.Create(session).Error
+	})
 }
 
 func (r *UserRepository) FindSession(tokenHash string) (*domain.UserSession, error) {
@@ -95,6 +97,10 @@ func (r *UserRepository) DeleteSession(tokenHash string) error {
 
 func (r *UserRepository) RotateSession(tokenHash string, replacement *domain.UserSession) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ? AND expires_at < NOW()", replacement.UserID).
+			Delete(&domain.UserSession{}).Error; err != nil {
+			return err
+		}
 		result := tx.Where("token_hash = ? AND expires_at > NOW()", tokenHash).
 			Delete(&domain.UserSession{})
 		if result.Error != nil {

@@ -1,18 +1,25 @@
 -- SQLBook: Code
 ALTER TABLE IF EXISTS lists DROP CONSTRAINT IF EXISTS fk_lists_parent_status;
-DROP TABLE IF EXISTS user_contacts;
-DROP TABLE IF EXISTS task_tags;
-DROP TABLE IF EXISTS task_assignees;
-DROP TABLE IF EXISTS role_permissions;
-DROP TABLE IF EXISTS workspace_members;
-DROP TABLE IF EXISTS user_sessions;
-DROP TABLE IF EXISTS tasks;
-DROP TABLE IF EXISTS tags;
-DROP TABLE IF EXISTS task_statuses;
-DROP TABLE IF EXISTS lists;
-DROP TABLE IF EXISTS folders;
-DROP TABLE IF EXISTS spaces;
-DROP TABLE IF EXISTS roles;
-DROP TABLE IF EXISTS permissions;
-DROP TABLE IF EXISTS workspaces;
-DROP TABLE IF EXISTS users;
+
+-- pg_trgm is shared at database scope and may be used by objects outside this schema.
+
+DROP TABLE IF EXISTS
+    task_assignees,
+    task_tags,
+    tasks,
+    tags,
+    task_statuses,
+    lists,
+    folders,
+    spaces,
+    workspace_members,
+    role_permissions,
+    permissions,
+    roles,
+    workspaces,
+    user_contacts,
+    user_sessions,
+    users;
+
+DROP FUNCTION IF EXISTS update_updated_at_column();
+DROP TYPE IF EXISTS task_status_type;

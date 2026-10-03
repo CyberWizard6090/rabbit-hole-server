@@ -1,6 +1,9 @@
 package domain
 
 import (
+	"database/sql/driver"
+	"fmt"
+
 	"gorm.io/gorm"
 )
 
@@ -9,7 +12,7 @@ type Space struct {
 	Name        string `gorm:"not null" json:"name"`
 	WorkspaceID uint   `gorm:"not null;index;column:workspace_id" json:"workspace_id"`
 
-	Currency string `gorm:"default:'USD'" json:"currency"`
+	Currency string `gorm:"not null;default:'USD'" json:"currency"`
 	OwnerID  uint   `gorm:"not null" json:"owner_id"`
 
 	Lists []List `gorm:"foreignKey:SpaceID;references:ID;constraint:OnDelete:CASCADE" json:"lists"`
@@ -46,14 +49,51 @@ const (
 	StatusDone
 )
 
+func (statusType StatusType) Value() (driver.Value, error) {
+	switch statusType {
+	case StatusTodo:
+		return "todo", nil
+	case StatusInProgress:
+		return "in_progress", nil
+	case StatusDone:
+		return "done", nil
+	default:
+		return nil, fmt.Errorf("invalid task status type %d", statusType)
+	}
+}
+
+func (statusType *StatusType) Scan(value any) error {
+	var name string
+	switch typedValue := value.(type) {
+	case string:
+		name = typedValue
+	case []byte:
+		name = string(typedValue)
+	default:
+		return fmt.Errorf("cannot scan task status type from %T", value)
+	}
+
+	switch name {
+	case "todo":
+		*statusType = StatusTodo
+	case "in_progress":
+		*statusType = StatusInProgress
+	case "done":
+		*statusType = StatusDone
+	default:
+		return fmt.Errorf("invalid task status type %q", name)
+	}
+	return nil
+}
+
 type TaskStatus struct {
 	gorm.Model
 	SpaceID  uint       `gorm:"index;not null;column:space_id" json:"-"`
 	ListID   uint       `gorm:"index;not null;column:list_id" json:"list_id"`
 	Name     string     `gorm:"not null" json:"name"`
 	Color    string     `gorm:"size:7;not null" json:"color"`
-	Position int        `gorm:"not null" json:"position"`
-	Type     StatusType `gorm:"type:smallint;not null" json:"type"`
+	Position int        `gorm:"type:integer;not null" json:"position"`
+	Type     StatusType `gorm:"type:task_status_type;not null" json:"type"`
 }
 
 type FolderRepository interface {
@@ -90,6 +130,4 @@ type StatusRepository interface {
 	Update(status *TaskStatus) error
 	UpdatePosition(status *TaskStatus, position int) error
 	Delete(listID uint, statusID uint) error
-	ShiftPositions(listID uint, startPosition int) error
-	DecrementPositionsAfter(spaceID uint, position int) error
 }

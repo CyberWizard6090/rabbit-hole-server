@@ -81,8 +81,8 @@ func migrateWithDedicatedConnection(dsn, action string, steps, version int) erro
 	if err != nil {
 		return fmt.Errorf("open migration database: %w", err)
 	}
+	defer db.Close()
 	if err := db.Ping(); err != nil {
-		_ = db.Close()
 		return fmt.Errorf("ping migration database: %w", err)
 	}
 	_, _, runErr := runMigrations(db, action, steps, version)

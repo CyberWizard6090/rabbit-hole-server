@@ -22,13 +22,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	cfg, err := config.Parse()
+	cfg, err := config.ParseDB()
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	currentVersion, dirty, err := database.RunMigrations(
-		cfg.DB.URL,
+		cfg.URL,
 		*action,
 		*steps,
 		*version,
