@@ -1,7 +1,7 @@
 package dto
 
 type UpdateProfileRequest struct {
-	Username  *string `json:"username" binding:"omitempty,min=3"`
+	Username  *string `json:"username" binding:"omitempty,min=1"`
 	FirstName *string `json:"first_name"`
 	LastName  *string `json:"last_name"`
 	Bio       *string `json:"bio"`

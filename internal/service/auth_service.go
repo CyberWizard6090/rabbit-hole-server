@@ -136,6 +136,7 @@ func (s *AuthService) hashToken(token string) string {
 
 func (s *AuthService) Register(email, password, username string) error {
 	email = strings.ToLower(strings.TrimSpace(email))
+	username = strings.TrimSpace(username)
 	passwordHash, err := hashPassword(password)
 	if err != nil {
 		return err

@@ -113,6 +113,19 @@ func TestAPI_ProfileSearchAndContactsLifecycle(t *testing.T) {
 	}
 }
 
+func TestAPI_RejectsWhitespaceOnlySpaceName(t *testing.T) {
+	tc := newTestContext(t)
+	registerAndLogin(t, tc)
+	workspaceID := createWorkspace(t, tc)
+
+	rec := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces/"+itoa(workspaceID)+"/spaces", tc.Token, map[string]any{
+		"name": "   ",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("whitespace-only space name: expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 	tc := newTestContext(t)
 	registerAndLogin(t, tc)
@@ -193,7 +206,7 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 	}
 
 	rec = request(t, tc.Router, http.MethodPost, "/api/v1/lists/"+itoa(listID)+"/statuses", tc.Token, map[string]any{
-		"name": "Custom", "color": "#123456", "position": 1, "type": 0, "board_id": listID,
+		"name": "Custom", "color": "#123456", "position": 1, "type": 1, "list_id": listID,
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status: expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -258,7 +271,7 @@ func TestAPI_TaskLifecycleAndDatabaseRelations(t *testing.T) {
 	listID := createList(t, tc, spaceID)
 
 	rec := request(t, tc.Router, http.MethodPost, "/api/v1/lists/"+itoa(listID)+"/statuses", tc.Token, map[string]any{
-		"name": "Task Status", "color": "#112233", "position": 1, "type": 0, "board_id": listID,
+		"name": "Task Status", "color": "#112233", "position": 1, "type": 1, "list_id": listID,
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create task status: expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -333,7 +346,7 @@ func TestAPI_TaskRejectsCrossSpaceTagsAndAssignees(t *testing.T) {
 	listID := createList(t, tc, spaceID)
 
 	rec := request(t, tc.Router, http.MethodPost, "/api/v1/lists/"+itoa(listID)+"/statuses", tc.Token, map[string]any{
-		"name": "Scoped Status", "color": "#112233", "position": 1, "type": 0, "board_id": listID,
+		"name": "Scoped Status", "color": "#112233", "position": 1, "type": 1, "list_id": listID,
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create scoped status: expected 201, got %d: %s", rec.Code, rec.Body.String())
