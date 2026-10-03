@@ -35,8 +35,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Lint
- uses: golangci/golangci-lint-action@v6.5.0
+     - name: Lint
+        uses: golangci/golangci-lint-action@v6.5.0
         with:
           version: v1.65.0
       - name: Check formatting
