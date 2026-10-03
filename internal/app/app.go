@@ -1,6 +1,9 @@
 package app
 
 import (
+	"context"
+	"net/http"
+
 	"gorm.io/gorm"
 
 	"github.com/gin-gonic/gin"
@@ -20,4 +23,12 @@ func NewApp(db *gorm.DB, cfg *config.Config) *App {
 
 func (a *App) Run(addr string) error {
 	return a.router.Run(addr)
+}
+
+func (a *App) Handler() http.Handler {
+	return a.router
+}
+
+func (a *App) Close(ctx context.Context) error {
+	return nil
 }

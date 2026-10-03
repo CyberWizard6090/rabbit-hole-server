@@ -385,3 +385,13 @@ func TestAPI_TaskRejectsCrossSpaceTagsAndAssignees(t *testing.T) {
 		t.Fatalf("foreign assignee task: expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestHealthzEndpoint(t *testing.T) {
+
+	// TODO: потом можно перенести в отдельный фаил так это инфраструктурный тест, который не зависит от бизнес-логики. Но пока пусть будет здесь.
+	tc := newTestContext(t)
+	resp := request(t, tc.Router, http.MethodGet, "/healthz", "", nil)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.Code)
+	}
+}
