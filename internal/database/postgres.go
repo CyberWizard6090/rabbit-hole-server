@@ -57,7 +57,7 @@ func RunMigrations(dsn, action string, steps, version int) (uint, bool, error) {
 	if err != nil {
 		return 0, false, fmt.Errorf("open migration database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if err := db.Ping(); err != nil {
 		return 0, false, fmt.Errorf("ping migration database: %w", err)
@@ -81,7 +81,7 @@ func migrateWithDedicatedConnection(dsn, action string, steps, version int) erro
 	if err != nil {
 		return fmt.Errorf("open migration database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := db.Ping(); err != nil {
 		return fmt.Errorf("ping migration database: %w", err)
 	}
@@ -135,9 +135,10 @@ func runMigrations(db *sql.DB, action string, steps, version int) (uint, bool, e
 
 func gormLogger(environment string) gormlogger.Interface {
 	level := gormlogger.Info
-	if environment == "production" {
+	switch environment {
+	case "production":
 		level = gormlogger.Error
-	} else if environment == "staging" {
+	case "staging":
 		level = gormlogger.Warn
 	}
 
