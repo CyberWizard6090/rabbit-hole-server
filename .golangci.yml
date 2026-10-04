@@ -1,73 +1,39 @@
+version: "2"
+
 run:
   timeout: 5m
-  go: "1.25"
 
 linters:
+  default: standard
   enable:
-    - errcheck
-    - govet
-    - staticcheck
-    - ineffassign
-    - unused
-    - deadcode
-    - varcheck
-    - typecheck
     - errorlint
-    - nolintlint
-    - gosimple
-    - prealloc
     - gosec
     - misspell
+    - nolintlint
+  settings:
+    errcheck:
+      check-type-assertions: true
+    gosec:
+      excludes:
+        - G404
+    misspell:
+      locale: US
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+      - path: ^tests/
+        linters:
+          - gosec
+          - errcheck
+
+formatters:
+  enable:
     - gofmt
     - goimports
-    - unparam
-    - scopelint
-    - godot
-
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-
-  gosec:
-    severity: high
-    confidence: high
-    excludes:
-      - G404
-
-  misspell:
-    locale: US
-    ignore-words:
-      - cancelled
-
-  goimports:
-    local-prefixes: rabbit-hole-server
-
-  govet:
-    check-shadowing: true
-    check-unreachable: true
-    check-rangeloops: true
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - govet
-        - gosec
-
-    - path: tests/
-      linters:
-        - gosec
-
-    - path: _test\.go
-      text: "error shadowing"
-
-  exclude:
-    - "should not use ALL_CAPS in Go names"
-    - "at least one file in a package should have a package comment"
-    - "comment on exported function should be of the form"
-
-output:
-  format: colored-line-number
-  print-issued-lines: true
-  print-linter-name: true
+  settings:
+    goimports:
+      local-prefixes:
+        - rabbit-hole-server

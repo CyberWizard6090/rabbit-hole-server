@@ -115,16 +115,18 @@ func verifyPassword(password, encodedHash string) bool {
 		return false
 	}
 
+	const maxHashLength = 1024
+
 	decode := base64.RawStdEncoding.DecodeString
 	salt, err := decode(parts[4])
 	if err != nil || len(salt) == 0 {
 		return false
 	}
 	expected, err := decode(parts[5])
-	if err != nil || len(expected) == 0 {
+	if err != nil || len(expected) == 0 || len(expected) > maxHashLength {
 		return false
 	}
-	actual := argon2.IDKey([]byte(password), salt, iterations, memory, uint8(parallelism), uint32(len(expected)))
+	actual := argon2.IDKey([]byte(password), salt, iterations, memory, uint8(parallelism), uint32(len(expected))) //nolint:gosec // length is bounded by maxHashLength
 	return subtle.ConstantTimeCompare(actual, expected) == 1
 }
 
