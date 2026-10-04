@@ -15,13 +15,14 @@ build: ## Скомпилировать бинарник сервера
 	@mkdir -p $(BUILD_DIR)
 	go build -o $(BUILD_DIR)/$(APP_NAME) $(MAIN_PATH)
 
-run: ## Запустить Go-сервер локально
+run: ## Накатить миграции и запустить Go-сервер локально
+	go run ./cmd/migrate -action up
 	go run $(MAIN_PATH)
 
 test: ## Запустить все тесты
 	go test -v -race -cover ./...
 
-lint: ## Запустить линтер (требуется golangci-lint)
+lint: ## Запустить линтер
 	golangci-lint run
 
 clean: ## Удалить скомпилированные бинарники

@@ -28,7 +28,7 @@ func (h *AuthHandler) refreshCookieMaxAge() int {
 }
 
 func (h *AuthHandler) setRefreshCookie(c *gin.Context, value string, maxAge int) {
-	c.Header("Set-Cookie", (&http.Cookie{
+	c.Header("Set-Cookie", (&http.Cookie{ //nolint:gosec // Secure is configurable: local dev runs over plain HTTP
 		Name:     "refresh_token",
 		Value:    value,
 		MaxAge:   maxAge,

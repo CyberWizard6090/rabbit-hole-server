@@ -60,12 +60,6 @@ func (s *statusService) Create(params CreateStatusParams) (*domain.TaskStatus, e
 		}
 	}
 
-	if len(existingStatuses) > 0 && position <= len(existingStatuses) {
-		if err := s.repo.ShiftPositions(params.ListID, position); err != nil {
-			return nil, err
-		}
-	}
-
 	status := &domain.TaskStatus{
 		SpaceID:  list.SpaceID,
 		ListID:   params.ListID,
@@ -129,8 +123,5 @@ func (s *statusService) Delete(listID uint, statusID uint) error {
 		return fmt.Errorf("status does not belong to this list")
 	}
 
-	if err := s.repo.Delete(listID, statusID); err != nil {
-		return err
-	}
-	return s.repo.DecrementPositionsAfter(listID, status.Position)
+	return s.repo.Delete(listID, statusID)
 }

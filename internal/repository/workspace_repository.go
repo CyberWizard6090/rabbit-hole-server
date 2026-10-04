@@ -33,7 +33,7 @@ func (r *workspaceRepository) Create(workspace *domain.Workspace, ownerID uint) 
 			for _, code := range def.PermissionCodes {
 				var perm domain.Permission
 				if err := tx.Where("code = ?", code).First(&perm).Error; err != nil {
-					return fmt.Errorf("permission %q not seeded (run config.SeedPermissions first): %w", code, err)
+					return fmt.Errorf("permission %q not seeded (run database migrations first): %w", code, err)
 				}
 				if err := tx.Create(&domain.RolePermission{RoleID: role.ID, PermissionID: perm.ID}).Error; err != nil {
 					return fmt.Errorf("attach permission %q to role %q: %w", code, def.Name, err)

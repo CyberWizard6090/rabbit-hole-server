@@ -22,14 +22,14 @@ type Task struct {
 	ParentID     *uint      `json:"parent_id"`
 	Title        string     `gorm:"not null" json:"title" binding:"required,min=3"`
 	Description  string     `json:"description"`
-	Priority     int        `gorm:"default:2" json:"priority"`
+	Priority     int        `gorm:"type:integer;not null;default:2" json:"priority"`
 	UserID       uint       `gorm:"not null" json:"user_id"`
 	Assignees    []User     `gorm:"many2many:task_assignees;constraint:OnDelete:CASCADE" json:"assignees"`
 	Tags         []Tag      `gorm:"many2many:task_tags;constraint:OnDelete:CASCADE" json:"tags"`
 	StartDate    *time.Time `json:"start_date"`
 	DueDate      *time.Time `json:"due_date"`
-	TimeEstimate int        `gorm:"default:0" json:"time_estimate"`
-	TimeSpent    int        `gorm:"default:0" json:"time_spent"`
+	TimeEstimate int        `gorm:"type:integer;not null;default:0" json:"time_estimate"`
+	TimeSpent    int        `gorm:"type:integer;not null;default:0" json:"time_spent"`
 }
 
 type TaskRepository interface {

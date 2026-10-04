@@ -20,7 +20,7 @@ func TestAppErrorErrorAndUnwrap(t *testing.T) {
 	if !errors.Is(wrapped, cause) {
 		t.Fatal("wrapped error does not expose cause")
 	}
-	if wrapped.Unwrap() != cause {
+	if !errors.Is(wrapped.Unwrap(), cause) {
 		t.Fatal("Unwrap did not return cause")
 	}
 }

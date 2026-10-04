@@ -3,8 +3,9 @@ package pagination
 import (
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"net/http/httptest"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestParseUsesDefaults(t *testing.T) {

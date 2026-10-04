@@ -55,7 +55,7 @@ func TestTag_MergeMovesTaskRelations(t *testing.T) {
 	rec := request(t, tc.Router, http.MethodPost,
 		"/api/v1/lists/"+itoa(listID)+"/statuses",
 		tc.Token,
-		map[string]any{"name": "Task Status", "color": "#112233", "position": 1, "type": 0, "board_id": listID},
+		map[string]any{"name": "Task Status", "color": "#112233", "position": 1, "type": 1, "list_id": listID},
 	)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create task status: %d: %s", rec.Code, rec.Body.String())
