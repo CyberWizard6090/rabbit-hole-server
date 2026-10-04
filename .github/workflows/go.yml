@@ -16,7 +16,7 @@ concurrency:
 
 env:
   GO_VERSION: "1.25"
-  GOLANGCI_VERSION: "1.60.1"
+  GOLANGCI_VERSION: "1.65.0"
 
 jobs:
   fmt:
@@ -49,9 +49,7 @@ jobs:
         uses: golangci/golangci-lint-action@v4
         with:
           version: v${{ env.GOLANGCI_VERSION }}
-          args: --timeout=5m --verbose
-          skip-pkg-cache: false
-          skip-build-cache: false
+          args: --timeout 5m --verbose
 
   vet:
     name: Run go vet
