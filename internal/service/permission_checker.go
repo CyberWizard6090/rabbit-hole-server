@@ -15,6 +15,7 @@ type permissionChecker struct {
 }
 
 const spacesJoin = "JOIN spaces ON spaces.workspace_id = workspace_members.workspace_id"
+const activeSpacesJoinFilter = " AND spaces.deleted_at IS NULL"
 
 func NewPermissionChecker(db *gorm.DB) PermissionChecker {
 	return &permissionChecker{db: db}
@@ -22,10 +23,10 @@ func NewPermissionChecker(db *gorm.DB) PermissionChecker {
 
 func (p *permissionChecker) baseQuery(userID uint, code string) *gorm.DB {
 	return p.db.Table("workspace_members").
-		Joins("JOIN roles ON roles.id = workspace_members.role_id").
-		Joins("JOIN role_permissions ON role_permissions.role_id = roles.id").
-		Joins("JOIN permissions ON permissions.id = role_permissions.permission_id").
-		Where("workspace_members.user_id = ? AND permissions.code = ?", userID, code)
+		Joins("JOIN roles ON roles.id = workspace_members.role_id AND roles.deleted_at IS NULL").
+		Joins("JOIN role_permissions ON role_permissions.role_id = roles.id AND role_permissions.deleted_at IS NULL").
+		Joins("JOIN permissions ON permissions.id = role_permissions.permission_id AND permissions.deleted_at IS NULL").
+		Where("workspace_members.user_id = ? AND workspace_members.deleted_at IS NULL AND permissions.code = ?", userID, code)
 }
 
 func (p *permissionChecker) HasWorkspacePermission(userID, workspaceID uint, code string) (bool, error) {
@@ -39,7 +40,7 @@ func (p *permissionChecker) HasWorkspacePermission(userID, workspaceID uint, cod
 func (p *permissionChecker) HasSpacePermission(userID, spaceID uint, code string) (bool, error) {
 	var count int64
 	err := p.baseQuery(userID, code).
-		Joins(spacesJoin).
+		Joins(spacesJoin+activeSpacesJoinFilter).
 		Where("spaces.id = ?", spaceID).
 		Count(&count).Error
 	return count > 0, err
@@ -48,8 +49,8 @@ func (p *permissionChecker) HasSpacePermission(userID, spaceID uint, code string
 func (p *permissionChecker) HasFolderPermission(userID, folderID uint, code string) (bool, error) {
 	var count int64
 	err := p.baseQuery(userID, code).
-		Joins(spacesJoin).
-		Joins("JOIN folders ON folders.space_id = spaces.id").
+		Joins(spacesJoin+activeSpacesJoinFilter).
+		Joins("JOIN folders ON folders.space_id = spaces.id AND folders.deleted_at IS NULL").
 		Where("folders.id = ?", folderID).
 		Count(&count).Error
 	return count > 0, err
@@ -58,8 +59,8 @@ func (p *permissionChecker) HasFolderPermission(userID, folderID uint, code stri
 func (p *permissionChecker) HasListPermission(userID, listID uint, code string) (bool, error) {
 	var count int64
 	err := p.baseQuery(userID, code).
-		Joins(spacesJoin).
-		Joins("JOIN lists ON lists.space_id = spaces.id").
+		Joins(spacesJoin+activeSpacesJoinFilter).
+		Joins("JOIN lists ON lists.space_id = spaces.id AND lists.deleted_at IS NULL").
 		Where("lists.id = ?", listID).
 		Count(&count).Error
 	return count > 0, err
@@ -68,8 +69,8 @@ func (p *permissionChecker) HasListPermission(userID, listID uint, code string) 
 func (p *permissionChecker) HasTaskPermission(userID, taskID uint, code string) (bool, error) {
 	var count int64
 	err := p.baseQuery(userID, code).
-		Joins(spacesJoin).
-		Joins("JOIN tasks ON tasks.space_id = spaces.id").
+		Joins(spacesJoin+activeSpacesJoinFilter).
+		Joins("JOIN tasks ON tasks.space_id = spaces.id AND tasks.deleted_at IS NULL").
 		Where("tasks.id = ?", taskID).
 		Count(&count).Error
 	return count > 0, err

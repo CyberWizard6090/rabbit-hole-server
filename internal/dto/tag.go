@@ -2,12 +2,12 @@ package dto
 
 type CreateTagRequest struct {
 	Name  string `json:"name" binding:"required"`
-	Color string `json:"color" binding:"required"`
+	Color string `json:"color" binding:"required,hexcolor,len=7"`
 }
 
 type UpdateTagRequest struct {
 	Name  *string `json:"name,omitempty"`
-	Color *string `json:"color,omitempty"`
+	Color *string `json:"color,omitempty" binding:"omitempty,hexcolor,len=7"`
 }
 
 type MergeTagsRequest struct {

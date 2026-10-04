@@ -14,13 +14,6 @@ func TestStatusServiceCreateClampsPositionAndShifts(t *testing.T) {
 	}
 	list := &domain.List{SpaceID: 42}
 	repoCalls := []string{}
-	repo.shiftPositionsFn = func(listID uint, position int) error {
-		repoCalls = append(repoCalls, "shift")
-		if listID != 7 || position != 2 {
-			t.Fatalf("shift args=%d,%d", listID, position)
-		}
-		return nil
-	}
 	repo.createFn = func(s *domain.TaskStatus) error { repoCalls = append(repoCalls, "create"); return nil }
 	spaceRepo := newMockSpaceRepository()
 	spaceRepo.getListByIDFn = func(id uint) (*domain.List, error) {
@@ -39,7 +32,7 @@ func TestStatusServiceCreateClampsPositionAndShifts(t *testing.T) {
 	if got.SpaceID != 42 || got.ListID != 7 || got.Position != 2 || got.Type != domain.StatusInProgress {
 		t.Fatalf("status=%+v", got)
 	}
-	if len(repoCalls) != 2 || repoCalls[0] != "shift" || repoCalls[1] != "create" {
+	if len(repoCalls) != 1 || repoCalls[0] != "create" {
 		t.Fatalf("calls=%v", repoCalls)
 	}
 }
@@ -106,11 +99,10 @@ func TestStatusServiceUpdateRejectsForeignList(t *testing.T) {
 	}
 }
 
-func TestStatusServiceDeleteChecksListAndDecrements(t *testing.T) {
+func TestStatusServiceDeleteChecksList(t *testing.T) {
 	repo := newMockStatusRepository()
 	repo.getByIDFn = func(uint) (*domain.TaskStatus, error) { return &domain.TaskStatus{ListID: 7, Position: 4}, nil }
 	deleted := false
-	decremented := false
 	repo.deleteFn = func(listID, statusID uint) error {
 		deleted = true
 		if listID != 7 || statusID != 9 {
@@ -118,18 +110,11 @@ func TestStatusServiceDeleteChecksListAndDecrements(t *testing.T) {
 		}
 		return nil
 	}
-	repo.decrementPositionsAfterFn = func(listID uint, p int) error {
-		decremented = true
-		if listID != 7 || p != 4 {
-			t.Fatalf("decrement=%d,%d", listID, p)
-		}
-		return nil
-	}
 	if err := NewStatusService(repo, newMockSpaceRepository()).Delete(7, 9); err != nil {
 		t.Fatal(err)
 	}
-	if !deleted || !decremented {
-		t.Fatalf("deleted=%v decremented=%v", deleted, decremented)
+	if !deleted {
+		t.Fatal("repository delete was not called")
 	}
 }
 

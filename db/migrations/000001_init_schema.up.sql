@@ -1,773 +1,285 @@
 -- SQLBook: Code
-CREATE TABLE public.folders (
-    id bigint NOT NULL,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    deleted_at timestamp with time zone,
-    name character varying(255) NOT NULL,
-    space_id bigint NOT NULL,
-    parent_id bigint
+CREATE TYPE task_status_type AS ENUM ('todo', 'in_progress', 'done');
+
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    email TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    username TEXT,
+    first_name TEXT,
+    last_name TEXT,
+    avatar_url TEXT,
+    bio TEXT,
+    time_zone TEXT NOT NULL DEFAULT 'UTC',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX uq_users_email ON users (lower(email));
+CREATE UNIQUE INDEX uq_users_username ON users (username);
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX idx_users_username_trgm ON users USING GIN (username gin_trgm_ops);
+CREATE INDEX idx_users_email_trgm ON users USING GIN (email gin_trgm_ops);
+CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TABLE user_sessions (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_user_sessions_token_hash UNIQUE (token_hash),
+    CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+CREATE INDEX idx_user_sessions_user_id ON user_sessions (user_id);
+
+CREATE TABLE user_contacts (
+    user_id BIGINT NOT NULL,
+    contact_id BIGINT NOT NULL,
+    PRIMARY KEY (user_id, contact_id),
+    CONSTRAINT fk_user_contacts_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_user_contacts_contacts FOREIGN KEY (contact_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT chk_user_contacts_not_self CHECK (user_id <> contact_id)
 );
 
-
-
-
-CREATE SEQUENCE public.folders_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.folders_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.folders_id_seq OWNED BY public.folders.id;
-
-
-
-CREATE TABLE public.lists (
-    id bigint NOT NULL,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    deleted_at timestamp with time zone,
-    name text NOT NULL,
-    space_id bigint NOT NULL,
-    folder_id bigint,
-    parent_status_id bigint
+CREATE TABLE workspaces (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    name VARCHAR(255) NOT NULL,
+    owner_id BIGINT NOT NULL,
+    description TEXT,
+    CONSTRAINT chk_workspaces_name_not_blank CHECK (btrim(name) <> ''),
+    CONSTRAINT fk_workspaces_owner FOREIGN KEY (owner_id) REFERENCES users (id) ON DELETE RESTRICT
 );
+CREATE INDEX idx_workspaces_deleted_at ON workspaces (deleted_at);
+CREATE TRIGGER trg_workspaces_updated_at BEFORE UPDATE ON workspaces
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-
-
-
-CREATE SEQUENCE public.lists_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.lists_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.lists_id_seq OWNED BY public.lists.id;
-
-
-
-CREATE TABLE public.permissions (
-    id bigint NOT NULL,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    deleted_at timestamp with time zone,
-    code character varying(100) NOT NULL,
-    description character varying(255)
+CREATE TABLE roles (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    workspace_id BIGINT NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    CONSTRAINT chk_roles_name_not_blank CHECK (btrim(name) <> ''),
+    CONSTRAINT fk_workspaces_roles FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE
 );
+CREATE INDEX idx_roles_deleted_at ON roles (deleted_at);
+CREATE INDEX idx_roles_workspace_id ON roles (workspace_id);
+CREATE UNIQUE INDEX idx_roles_workspace_name ON roles (workspace_id, name) WHERE deleted_at IS NULL;
+CREATE TRIGGER trg_roles_updated_at BEFORE UPDATE ON roles
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-
-
-
-CREATE SEQUENCE public.permissions_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.permissions_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.permissions_id_seq OWNED BY public.permissions.id;
-
-
-
-CREATE TABLE public.role_permissions (
-    id bigint NOT NULL,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    deleted_at timestamp with time zone,
-    role_id bigint NOT NULL,
-    permission_id bigint NOT NULL
+CREATE TABLE permissions (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    code VARCHAR(100) NOT NULL,
+    description VARCHAR(255)
 );
+CREATE UNIQUE INDEX idx_permissions_code ON permissions (code) WHERE deleted_at IS NULL;
+CREATE INDEX idx_permissions_deleted_at ON permissions (deleted_at);
+CREATE TRIGGER trg_permissions_updated_at BEFORE UPDATE ON permissions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-
-
-
-CREATE SEQUENCE public.role_permissions_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.role_permissions_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.role_permissions_id_seq OWNED BY public.role_permissions.id;
-
-
-
-CREATE TABLE public.roles (
-    id bigint NOT NULL,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    deleted_at timestamp with time zone,
-    workspace_id bigint NOT NULL,
-    name character varying(100) NOT NULL
+CREATE TABLE role_permissions (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    role_id BIGINT NOT NULL,
+    permission_id BIGINT NOT NULL,
+    CONSTRAINT fk_roles_permissions FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE CASCADE,
+    CONSTRAINT fk_role_permissions_permission FOREIGN KEY (permission_id) REFERENCES permissions (id) ON DELETE RESTRICT
 );
+CREATE UNIQUE INDEX idx_role_permission ON role_permissions (role_id, permission_id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_role_permissions_deleted_at ON role_permissions (deleted_at);
+CREATE INDEX idx_role_permissions_permission_id ON role_permissions (permission_id);
+CREATE INDEX idx_role_permissions_role_id ON role_permissions (role_id);
+CREATE TRIGGER trg_role_permissions_updated_at BEFORE UPDATE ON role_permissions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-
-
-
-CREATE SEQUENCE public.roles_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.roles_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.roles_id_seq OWNED BY public.roles.id;
-
-
-
-CREATE TABLE public.spaces (
-    id bigint NOT NULL,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    deleted_at timestamp with time zone,
-    name text NOT NULL,
-    workspace_id bigint NOT NULL,
-    currency text DEFAULT 'USD'::text,
-    owner_id bigint NOT NULL
+CREATE TABLE workspace_members (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    workspace_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    role_id BIGINT NOT NULL,
+    CONSTRAINT fk_workspaces_members FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE,
+    CONSTRAINT fk_workspace_members_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_workspace_members_role FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE RESTRICT
 );
+CREATE INDEX idx_workspace_members_deleted_at ON workspace_members (deleted_at);
+CREATE INDEX idx_workspace_members_role_id ON workspace_members (role_id);
+CREATE INDEX idx_workspace_members_user_id ON workspace_members (user_id);
+CREATE INDEX idx_workspace_members_workspace_id ON workspace_members (workspace_id);
+CREATE UNIQUE INDEX idx_workspace_user ON workspace_members (workspace_id, user_id) WHERE deleted_at IS NULL;
+CREATE TRIGGER trg_workspace_members_updated_at BEFORE UPDATE ON workspace_members
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-
-
-
-CREATE SEQUENCE public.spaces_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.spaces_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.spaces_id_seq OWNED BY public.spaces.id;
-
-
-
-CREATE TABLE public.tags (
-    id bigint NOT NULL,
-    space_id bigint NOT NULL,
-    name text NOT NULL,
-    color character varying(7) NOT NULL
+CREATE TABLE spaces (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    name TEXT NOT NULL,
+    workspace_id BIGINT NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'USD',
+    owner_id BIGINT NOT NULL,
+    CONSTRAINT chk_spaces_name_not_blank CHECK (btrim(name) <> ''),
+    CONSTRAINT fk_workspaces_spaces FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE,
+    CONSTRAINT fk_spaces_owner FOREIGN KEY (owner_id) REFERENCES users (id) ON DELETE RESTRICT
 );
+CREATE INDEX idx_spaces_deleted_at ON spaces (deleted_at);
+CREATE INDEX idx_spaces_workspace_id ON spaces (workspace_id);
+CREATE TRIGGER trg_spaces_updated_at BEFORE UPDATE ON spaces
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-
-
-
-CREATE SEQUENCE public.tags_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.tags_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.tags_id_seq OWNED BY public.tags.id;
-
-
-
-CREATE TABLE public.task_assignees (
-    task_id bigint NOT NULL,
-    user_id bigint NOT NULL
+CREATE TABLE folders (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    name VARCHAR(255) NOT NULL,
+    space_id BIGINT NOT NULL,
+    parent_id BIGINT,
+    CONSTRAINT chk_folders_name_not_blank CHECK (btrim(name) <> ''),
+    CONSTRAINT fk_spaces_folders FOREIGN KEY (space_id) REFERENCES spaces (id) ON DELETE CASCADE,
+    CONSTRAINT fk_folders_children FOREIGN KEY (parent_id) REFERENCES folders (id) ON DELETE CASCADE,
+    CONSTRAINT chk_folders_parent_not_self CHECK (parent_id IS NULL OR parent_id <> id)
 );
+CREATE INDEX idx_folders_deleted_at ON folders (deleted_at);
+CREATE INDEX idx_folders_parent_id ON folders (parent_id);
+CREATE INDEX idx_folders_space_id ON folders (space_id);
+CREATE TRIGGER trg_folders_updated_at BEFORE UPDATE ON folders
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-
-
-
-CREATE TABLE public.task_statuses (
-    id bigint NOT NULL,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    deleted_at timestamp with time zone,
-    space_id bigint NOT NULL,
-    list_id bigint NOT NULL,
-    name text NOT NULL,
-    color character varying(7) NOT NULL,
-    "position" bigint NOT NULL,
-    type smallint NOT NULL
+CREATE TABLE lists (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    name TEXT NOT NULL,
+    space_id BIGINT NOT NULL,
+    folder_id BIGINT,
+    parent_status_id BIGINT,
+    CONSTRAINT chk_lists_name_not_blank CHECK (btrim(name) <> ''),
+    CONSTRAINT fk_spaces_lists FOREIGN KEY (space_id) REFERENCES spaces (id) ON DELETE CASCADE,
+    CONSTRAINT fk_folders_lists FOREIGN KEY (folder_id) REFERENCES folders (id) ON DELETE CASCADE
 );
+CREATE INDEX idx_lists_deleted_at ON lists (deleted_at);
+CREATE INDEX idx_lists_folder_id ON lists (folder_id);
+CREATE INDEX idx_lists_parent_status_id ON lists (parent_status_id);
+CREATE INDEX idx_lists_space_id ON lists (space_id);
+CREATE TRIGGER trg_lists_updated_at BEFORE UPDATE ON lists
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-
-
-
-CREATE SEQUENCE public.task_statuses_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.task_statuses_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.task_statuses_id_seq OWNED BY public.task_statuses.id;
-
-
-
-CREATE TABLE public.task_tags (
-    task_id bigint NOT NULL,
-    tag_id bigint NOT NULL
+CREATE TABLE task_statuses (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    space_id BIGINT NOT NULL,
+    list_id BIGINT NOT NULL,
+    name TEXT NOT NULL,
+    color VARCHAR(7) NOT NULL,
+    position INTEGER NOT NULL,
+    type task_status_type NOT NULL,
+    CONSTRAINT chk_task_statuses_name_not_blank CHECK (btrim(name) <> ''),
+    CONSTRAINT fk_spaces_statuses FOREIGN KEY (space_id) REFERENCES spaces (id) ON DELETE CASCADE,
+    CONSTRAINT fk_lists_statuses FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE CASCADE,
+    CONSTRAINT chk_task_statuses_color CHECK (color ~ '^#[0-9A-Fa-f]{6}$'),
+    CONSTRAINT chk_task_statuses_position CHECK (position >= 1)
 );
+CREATE INDEX idx_task_statuses_deleted_at ON task_statuses (deleted_at);
+CREATE INDEX idx_task_statuses_list_position ON task_statuses (list_id, position);
+CREATE INDEX idx_task_statuses_space_id ON task_statuses (space_id);
+ALTER TABLE lists ADD CONSTRAINT fk_lists_parent_status
+    FOREIGN KEY (parent_status_id) REFERENCES task_statuses (id) ON DELETE SET NULL;
+CREATE TRIGGER trg_task_statuses_updated_at BEFORE UPDATE ON task_statuses
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-
-
-
-CREATE TABLE public.tasks (
-    id bigint NOT NULL,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    deleted_at timestamp with time zone,
-    space_id bigint NOT NULL,
-    list_id bigint NOT NULL,
-    status_id bigint NOT NULL,
-    parent_id bigint,
-    title text NOT NULL,
-    description text,
-    priority bigint DEFAULT 2,
-    user_id bigint NOT NULL,
-    start_date timestamp with time zone,
-    due_date timestamp with time zone,
-    time_estimate bigint DEFAULT 0,
-    time_spent bigint DEFAULT 0
+CREATE TABLE tags (
+    id BIGSERIAL PRIMARY KEY,
+    space_id BIGINT NOT NULL,
+    name TEXT NOT NULL,
+    color VARCHAR(7) NOT NULL,
+    CONSTRAINT chk_tags_name_not_blank CHECK (btrim(name) <> ''),
+    CONSTRAINT fk_spaces_tags FOREIGN KEY (space_id) REFERENCES spaces (id) ON DELETE CASCADE,
+    CONSTRAINT chk_tags_color CHECK (color ~ '^#[0-9A-Fa-f]{6}$')
 );
+CREATE INDEX idx_tags_space_id ON tags (space_id);
+CREATE UNIQUE INDEX idx_space_tag_name ON tags (space_id, LOWER(name));
 
-
-
-
-CREATE SEQUENCE public.tasks_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.tasks_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.tasks_id_seq OWNED BY public.tasks.id;
-
-
-
-CREATE TABLE public.user_contacts (
-    user_id bigint NOT NULL,
-    contact_id bigint NOT NULL
+CREATE TABLE tasks (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    space_id BIGINT NOT NULL,
+    list_id BIGINT NOT NULL,
+    status_id BIGINT NOT NULL,
+    parent_id BIGINT,
+    title TEXT NOT NULL,
+    description TEXT,
+    priority INTEGER NOT NULL DEFAULT 2,
+    user_id BIGINT NOT NULL,
+    start_date TIMESTAMPTZ,
+    due_date TIMESTAMPTZ,
+    time_estimate INTEGER NOT NULL DEFAULT 0,
+    time_spent INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT chk_tasks_title_not_blank CHECK (btrim(title) <> ''),
+    CONSTRAINT fk_spaces_tasks FOREIGN KEY (space_id) REFERENCES spaces (id) ON DELETE CASCADE,
+    CONSTRAINT fk_lists_tasks FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE NO ACTION,
+    CONSTRAINT fk_tasks_status FOREIGN KEY (status_id) REFERENCES task_statuses (id) ON DELETE NO ACTION,
+    CONSTRAINT fk_tasks_parent FOREIGN KEY (parent_id) REFERENCES tasks (id) ON DELETE SET NULL,
+    CONSTRAINT fk_tasks_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT,
+    CONSTRAINT chk_tasks_priority CHECK (priority BETWEEN 1 AND 5),
+    CONSTRAINT chk_tasks_time_estimate CHECK (time_estimate >= 0),
+    CONSTRAINT chk_tasks_time_spent CHECK (time_spent >= 0),
+    CONSTRAINT chk_tasks_date_order CHECK (start_date IS NULL OR due_date IS NULL OR due_date >= start_date),
+    CONSTRAINT chk_tasks_parent_not_self CHECK (parent_id IS NULL OR parent_id <> id)
 );
+CREATE INDEX idx_tasks_deleted_at ON tasks (deleted_at);
+CREATE INDEX idx_tasks_list_created_at ON tasks (list_id, created_at DESC);
+CREATE INDEX idx_tasks_parent_id ON tasks (parent_id);
+CREATE INDEX idx_tasks_space_id ON tasks (space_id);
+CREATE INDEX idx_tasks_status_id ON tasks (status_id);
+CREATE INDEX idx_tasks_user_id ON tasks (user_id);
+CREATE TRIGGER trg_tasks_updated_at BEFORE UPDATE ON tasks
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+COMMENT ON COLUMN tasks.priority IS 'Priority scale: integer values 1 through 5.';
+COMMENT ON COLUMN tasks.time_estimate IS 'Estimated duration as a nonnegative integer; the unit is not defined in application code.';
+COMMENT ON COLUMN tasks.time_spent IS 'Spent duration as a nonnegative integer; the unit is not defined in application code.';
 
-
-
-
-CREATE TABLE public.user_sessions (
-    id bigint NOT NULL,
-    user_id bigint NOT NULL,
-    token_hash text NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    created_at timestamp with time zone
+CREATE TABLE task_tags (
+    task_id BIGINT NOT NULL,
+    tag_id BIGINT NOT NULL,
+    PRIMARY KEY (task_id, tag_id),
+    CONSTRAINT fk_task_tags_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+    CONSTRAINT fk_task_tags_tag FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
 );
+CREATE INDEX idx_task_tags_tag_id ON task_tags (tag_id);
 
-
-
-
-CREATE SEQUENCE public.user_sessions_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.user_sessions_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.user_sessions_id_seq OWNED BY public.user_sessions.id;
-
-
-
-CREATE TABLE public.users (
-    id bigint NOT NULL,
-    email text NOT NULL,
-    password_hash text NOT NULL,
-    username text,
-    first_name text,
-    last_name text,
-    avatar_url text,
-    bio text,
-    time_zone text DEFAULT 'UTC'::text,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone
+CREATE TABLE task_assignees (
+    task_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    PRIMARY KEY (task_id, user_id),
+    CONSTRAINT fk_task_assignees_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+    CONSTRAINT fk_task_assignees_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
-
-
-
-
-CREATE SEQUENCE public.users_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.users_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.users_id_seq OWNED BY public.users.id;
-
-
-
-CREATE TABLE public.workspace_members (
-    id bigint NOT NULL,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    deleted_at timestamp with time zone,
-    workspace_id bigint NOT NULL,
-    user_id bigint NOT NULL,
-    role_id bigint NOT NULL
-);
-
-
-
-
-CREATE SEQUENCE public.workspace_members_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.workspace_members_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.workspace_members_id_seq OWNED BY public.workspace_members.id;
-
-
-
-CREATE TABLE public.workspaces (
-    id bigint NOT NULL,
-    created_at timestamp with time zone,
-    updated_at timestamp with time zone,
-    deleted_at timestamp with time zone,
-    name character varying(255) NOT NULL,
-    owner_id bigint NOT NULL,
-    description text
-);
-
-
-
-
-CREATE SEQUENCE public.workspaces_id_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1;
-
-
-ALTER SEQUENCE public.workspaces_id_seq OWNER TO postgres;
-
-
-ALTER SEQUENCE public.workspaces_id_seq OWNED BY public.workspaces.id;
-
-
-
-ALTER TABLE ONLY public.folders ALTER COLUMN id SET DEFAULT nextval('public.folders_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.lists ALTER COLUMN id SET DEFAULT nextval('public.lists_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.permissions ALTER COLUMN id SET DEFAULT nextval('public.permissions_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.role_permissions ALTER COLUMN id SET DEFAULT nextval('public.role_permissions_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.roles ALTER COLUMN id SET DEFAULT nextval('public.roles_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.spaces ALTER COLUMN id SET DEFAULT nextval('public.spaces_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.tags ALTER COLUMN id SET DEFAULT nextval('public.tags_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.task_statuses ALTER COLUMN id SET DEFAULT nextval('public.task_statuses_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.tasks ALTER COLUMN id SET DEFAULT nextval('public.tasks_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.user_sessions ALTER COLUMN id SET DEFAULT nextval('public.user_sessions_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.workspace_members ALTER COLUMN id SET DEFAULT nextval('public.workspace_members_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.workspaces ALTER COLUMN id SET DEFAULT nextval('public.workspaces_id_seq'::regclass);
-
-
-
-ALTER TABLE ONLY public.folders
-    ADD CONSTRAINT folders_pkey PRIMARY KEY (id);
-
-
-
-ALTER TABLE ONLY public.lists
-    ADD CONSTRAINT lists_pkey PRIMARY KEY (id);
-
-
-
-ALTER TABLE ONLY public.permissions
-    ADD CONSTRAINT permissions_pkey PRIMARY KEY (id);
-
-
-
-ALTER TABLE ONLY public.role_permissions
-    ADD CONSTRAINT role_permissions_pkey PRIMARY KEY (id);
-
-
-
-ALTER TABLE ONLY public.roles
-    ADD CONSTRAINT roles_pkey PRIMARY KEY (id);
-
-
-
-ALTER TABLE ONLY public.spaces
-    ADD CONSTRAINT spaces_pkey PRIMARY KEY (id);
-
-
-
-ALTER TABLE ONLY public.tags
-    ADD CONSTRAINT tags_pkey PRIMARY KEY (id);
-
-
-
-ALTER TABLE ONLY public.task_assignees
-    ADD CONSTRAINT task_assignees_pkey PRIMARY KEY (task_id, user_id);
-
-
-
-ALTER TABLE ONLY public.task_statuses
-    ADD CONSTRAINT task_statuses_pkey PRIMARY KEY (id);
-
-
-
-ALTER TABLE ONLY public.task_tags
-    ADD CONSTRAINT task_tags_pkey PRIMARY KEY (task_id, tag_id);
-
-
-
-ALTER TABLE ONLY public.tasks
-    ADD CONSTRAINT tasks_pkey PRIMARY KEY (id);
-
-
-
-ALTER TABLE ONLY public.user_sessions
-    ADD CONSTRAINT uni_user_sessions_token_hash UNIQUE (token_hash);
-
-
-
-ALTER TABLE ONLY public.user_contacts
-    ADD CONSTRAINT user_contacts_pkey PRIMARY KEY (user_id, contact_id);
-
-
-
-ALTER TABLE ONLY public.user_sessions
-    ADD CONSTRAINT user_sessions_pkey PRIMARY KEY (id);
-
-
-
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-
-
-
-ALTER TABLE ONLY public.workspace_members
-    ADD CONSTRAINT workspace_members_pkey PRIMARY KEY (id);
-
-
-
-ALTER TABLE ONLY public.workspaces
-    ADD CONSTRAINT workspaces_pkey PRIMARY KEY (id);
-
-
-
-CREATE INDEX idx_folders_deleted_at ON public.folders USING btree (deleted_at);
-
-
-
-CREATE INDEX idx_folders_parent_id ON public.folders USING btree (parent_id);
-
-
-
-CREATE INDEX idx_folders_space_id ON public.folders USING btree (space_id);
-
-
-
-CREATE INDEX idx_lists_deleted_at ON public.lists USING btree (deleted_at);
-
-
-
-CREATE INDEX idx_lists_folder_id ON public.lists USING btree (folder_id);
-
-
-
-CREATE INDEX idx_lists_parent_status_id ON public.lists USING btree (parent_status_id);
-
-
-
-CREATE INDEX idx_lists_space_id ON public.lists USING btree (space_id);
-
-
-
-CREATE UNIQUE INDEX idx_permissions_code ON public.permissions USING btree (code);
-
-
-
-CREATE INDEX idx_permissions_deleted_at ON public.permissions USING btree (deleted_at);
-
-
-
-CREATE UNIQUE INDEX idx_role_permission ON public.role_permissions USING btree (role_id, permission_id);
-
-
-
-CREATE INDEX idx_role_permissions_deleted_at ON public.role_permissions USING btree (deleted_at);
-
-
-
-CREATE INDEX idx_role_permissions_permission_id ON public.role_permissions USING btree (permission_id);
-
-
-
-CREATE INDEX idx_role_permissions_role_id ON public.role_permissions USING btree (role_id);
-
-
-
-CREATE INDEX idx_roles_deleted_at ON public.roles USING btree (deleted_at);
-
-
-
-CREATE INDEX idx_roles_workspace_id ON public.roles USING btree (workspace_id);
-
-
-
-CREATE UNIQUE INDEX idx_space_tag_name ON public.tags USING btree (name);
-
-
-
-CREATE INDEX idx_spaces_deleted_at ON public.spaces USING btree (deleted_at);
-
-
-
-CREATE INDEX idx_spaces_workspace_id ON public.spaces USING btree (workspace_id);
-
-
-
-CREATE INDEX idx_tags_space_id ON public.tags USING btree (space_id);
-
-
-
-CREATE INDEX idx_task_statuses_deleted_at ON public.task_statuses USING btree (deleted_at);
-
-
-
-CREATE INDEX idx_task_statuses_list_id ON public.task_statuses USING btree (list_id);
-
-
-
-CREATE INDEX idx_task_statuses_space_id ON public.task_statuses USING btree (space_id);
-
-
-
-CREATE INDEX idx_tasks_deleted_at ON public.tasks USING btree (deleted_at);
-
-
-
-CREATE INDEX idx_tasks_list_id ON public.tasks USING btree (list_id);
-
-
-
-CREATE INDEX idx_tasks_space_id ON public.tasks USING btree (space_id);
-
-
-
-CREATE INDEX idx_user_sessions_user_id ON public.user_sessions USING btree (user_id);
-
-
-
-CREATE UNIQUE INDEX idx_users_email ON public.users USING btree (email);
-
-
-
-CREATE UNIQUE INDEX idx_users_username ON public.users USING btree (username);
-
-
-
-CREATE INDEX idx_workspace_members_deleted_at ON public.workspace_members USING btree (deleted_at);
-
-
-
-CREATE INDEX idx_workspace_members_role_id ON public.workspace_members USING btree (role_id);
-
-
-
-CREATE INDEX idx_workspace_members_user_id ON public.workspace_members USING btree (user_id);
-
-
-
-CREATE INDEX idx_workspace_members_workspace_id ON public.workspace_members USING btree (workspace_id);
-
-
-
-CREATE UNIQUE INDEX idx_workspace_user ON public.workspace_members USING btree (workspace_id, user_id);
-
-
-
-CREATE INDEX idx_workspaces_deleted_at ON public.workspaces USING btree (deleted_at);
-
-
-
-ALTER TABLE ONLY public.folders
-    ADD CONSTRAINT fk_folders_children FOREIGN KEY (parent_id) REFERENCES public.folders(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.lists
-    ADD CONSTRAINT fk_folders_lists FOREIGN KEY (folder_id) REFERENCES public.folders(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.task_statuses
-    ADD CONSTRAINT fk_lists_statuses FOREIGN KEY (list_id) REFERENCES public.lists(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.tasks
-    ADD CONSTRAINT fk_lists_tasks FOREIGN KEY (list_id) REFERENCES public.lists(id);
-
-
-
-ALTER TABLE ONLY public.role_permissions
-    ADD CONSTRAINT fk_role_permissions_permission FOREIGN KEY (permission_id) REFERENCES public.permissions(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.role_permissions
-    ADD CONSTRAINT fk_roles_permissions FOREIGN KEY (role_id) REFERENCES public.roles(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.lists
-    ADD CONSTRAINT fk_spaces_lists FOREIGN KEY (space_id) REFERENCES public.spaces(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.tags
-    ADD CONSTRAINT fk_spaces_tags FOREIGN KEY (space_id) REFERENCES public.spaces(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.tasks
-    ADD CONSTRAINT fk_spaces_tasks FOREIGN KEY (space_id) REFERENCES public.spaces(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.task_assignees
-    ADD CONSTRAINT fk_task_assignees_task FOREIGN KEY (task_id) REFERENCES public.tasks(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.task_assignees
-    ADD CONSTRAINT fk_task_assignees_user FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.task_tags
-    ADD CONSTRAINT fk_task_tags_tag FOREIGN KEY (tag_id) REFERENCES public.tags(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.task_tags
-    ADD CONSTRAINT fk_task_tags_task FOREIGN KEY (task_id) REFERENCES public.tasks(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.user_contacts
-    ADD CONSTRAINT fk_user_contacts_contacts FOREIGN KEY (contact_id) REFERENCES public.users(id);
-
-
-
-ALTER TABLE ONLY public.user_contacts
-    ADD CONSTRAINT fk_user_contacts_user FOREIGN KEY (user_id) REFERENCES public.users(id);
-
-
-
-ALTER TABLE ONLY public.user_sessions
-    ADD CONSTRAINT fk_users_refresh_tokens FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.workspace_members
-    ADD CONSTRAINT fk_workspace_members_role FOREIGN KEY (role_id) REFERENCES public.roles(id) ON DELETE RESTRICT;
-
-
-
-ALTER TABLE ONLY public.workspace_members
-    ADD CONSTRAINT fk_workspaces_members FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.roles
-    ADD CONSTRAINT fk_workspaces_roles FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
-
-
-
-ALTER TABLE ONLY public.spaces
-    ADD CONSTRAINT fk_workspaces_spaces FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id) ON DELETE CASCADE;
-
-
-
-
+CREATE INDEX idx_task_assignees_user_id ON task_assignees (user_id);

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -11,7 +12,10 @@ import (
 	"rabbit-hole-server/internal/middleware"
 )
 
-const routeLists = "/lists"
+const (
+	routeLists = "/lists"
+	healthPath = "/healthz"
+)
 
 func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	r := gin.New()
@@ -19,7 +23,11 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		panic(fmt.Errorf("configure trusted proxies: %w", err))
 	}
 
-	r.Use(gin.Logger(), gin.Recovery())
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{healthPath}}), gin.Recovery())
+
+	r.GET(healthPath, func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
 
 	r.Use(func(c *gin.Context) {
 		c.Header("X-Frame-Options", "DENY")

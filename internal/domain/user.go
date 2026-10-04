@@ -20,10 +20,10 @@ type User struct {
 	LastName      string        `json:"last_name"`
 	AvatarURL     string        `json:"avatar_url"`
 	Bio           string        `gorm:"type:text" json:"bio"`
-	TimeZone      string        `gorm:"default:'UTC'" json:"time_zone"`
+	TimeZone      string        `gorm:"not null;default:'UTC'" json:"time_zone"`
 	Contacts      []*User       `gorm:"many2many:user_contacts;foreignKey:ID;joinForeignKey:UserID;References:ID;joinReferences:ContactID" json:"contacts"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
+	CreatedAt     time.Time     `gorm:"not null" json:"created_at"`
+	UpdatedAt     time.Time     `gorm:"not null" json:"updated_at"`
 	RefreshTokens []UserSession `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE;" json:"-"`
 }
 
@@ -32,7 +32,7 @@ type UserSession struct {
 	UserID    uint      `gorm:"not null;index" json:"-"`
 	TokenHash string    `gorm:"unique;not null" json:"-"`
 	ExpiresAt time.Time `gorm:"not null" json:"-"`
-	CreatedAt time.Time `json:"-"`
+	CreatedAt time.Time `gorm:"not null" json:"-"`
 }
 
 type UserRepository interface {

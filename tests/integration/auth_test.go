@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"rabbit-hole-server/internal/domain"
 )
 
 func TestAuth_RegisterLoginAndProfile(t *testing.T) {
@@ -55,6 +57,18 @@ func TestAuth_RegisterLoginAndProfile(t *testing.T) {
 	}
 }
 
+func TestProfileRejectsEmptyUsername(t *testing.T) {
+	tc := newTestContext(t)
+	registerAndLogin(t, tc)
+
+	rec := request(t, tc.Router, http.MethodPatch, "/api/v1/profile/", tc.Token, map[string]any{
+		"username": "",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty username update: expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAuth_DuplicateEmailIsRejectedAsConflict(t *testing.T) {
 	tc := newTestContext(t)
 
@@ -76,6 +90,63 @@ func TestAuth_DuplicateEmailIsRejectedAsConflict(t *testing.T) {
 	errorPayload, ok := errorBody["error"].(map[string]any)
 	if !ok || errorPayload["code"] != "EMAIL_TAKEN" {
 		t.Fatalf("duplicate registration: unexpected error payload: %s", rec.Body.String())
+	}
+}
+
+func TestRegisterWithDifferentEmailCaseFailsOnDuplicate(t *testing.T) {
+	tc := newTestContext(t)
+
+	resp1 := request(t, tc.Router, http.MethodPost, "/api/v1/auth/register", "", map[string]any{
+		"email": "Alice@example.test", "password": "password123",
+	})
+	if resp1.Code != http.StatusCreated {
+		t.Fatalf("first register: expected 201, got %d", resp1.Code)
+	}
+
+	resp2 := request(t, tc.Router, http.MethodPost, "/api/v1/auth/register", "", map[string]any{
+		"email": "alice@example.test", "password": "password456",
+	})
+	if resp2.Code != http.StatusConflict {
+		t.Fatalf("duplicate email with case difference: expected 409, got %d", resp2.Code)
+	}
+}
+
+func TestLoginCleansUpExpiredSessions(t *testing.T) {
+	tc := newTestContext(t)
+	email := fmt.Sprintf("expired-%d@example.test", time.Now().UnixNano())
+	password := "password-123"
+
+	registered := request(t, tc.Router, http.MethodPost, "/api/v1/auth/register", "", map[string]any{
+		"email": email, "password": password,
+	})
+	if registered.Code != http.StatusCreated {
+		t.Fatalf("register: expected 201, got %d: %s", registered.Code, registered.Body.String())
+	}
+
+	var user domain.User
+	if err := tc.DB.Where("email = ?", email).First(&user).Error; err != nil {
+		t.Fatalf("find registered user: %v", err)
+	}
+	expired := domain.UserSession{
+		UserID: user.ID, TokenHash: "expired-session-check", ExpiresAt: time.Now().Add(-time.Hour),
+	}
+	if err := tc.DB.Create(&expired).Error; err != nil {
+		t.Fatalf("create expired session: %v", err)
+	}
+
+	loggedIn := request(t, tc.Router, http.MethodPost, "/api/v1/auth/login", "", map[string]any{
+		"email": email, "password": password,
+	})
+	if loggedIn.Code != http.StatusOK {
+		t.Fatalf("login: expected 200, got %d: %s", loggedIn.Code, loggedIn.Body.String())
+	}
+
+	var remaining int64
+	if err := tc.DB.Model(&domain.UserSession{}).Where("id = ?", expired.ID).Count(&remaining).Error; err != nil {
+		t.Fatalf("check expired session: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("expired session count = %d, want 0", remaining)
 	}
 }
 

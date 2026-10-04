@@ -1,0 +1,16 @@
+services:
+  db:
+    ports: []
+    restart: always
+
+  migrate:
+    build:
+      target: prod
+    restart: "no"
+
+  app:
+    build:
+      target: prod
+    ports:
+      - "8080:8080"
+    restart: always

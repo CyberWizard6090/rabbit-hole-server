@@ -259,27 +259,19 @@ type statusRepositoryMock struct {
 	updateErr         error
 	updatePositionErr error
 	deleteErr         error
-	shiftErr          error
-	decrementErr      error
 	updatedStatus     *domain.TaskStatus
 	positionStatus    *domain.TaskStatus
 	positionRequested int
 	deletedListID     uint
 	deletedStatusID   uint
-	shiftListID       uint
-	shiftPosition     int
-	decrementListID   uint
-	decrementPosition int
 	created           *domain.TaskStatus
 
-	createFn                  func(*domain.TaskStatus) error
-	getAllByListFn            func(uint) ([]domain.TaskStatus, error)
-	getByIDFn                 func(uint) (*domain.TaskStatus, error)
-	updateFn                  func(*domain.TaskStatus) error
-	updatePositionFn          func(*domain.TaskStatus, int) error
-	deleteFn                  func(uint, uint) error
-	shiftPositionsFn          func(uint, int) error
-	decrementPositionsAfterFn func(uint, int) error
+	createFn         func(*domain.TaskStatus) error
+	getAllByListFn   func(uint) ([]domain.TaskStatus, error)
+	getByIDFn        func(uint) (*domain.TaskStatus, error)
+	updateFn         func(*domain.TaskStatus) error
+	updatePositionFn func(*domain.TaskStatus, int) error
+	deleteFn         func(uint, uint) error
 }
 
 func newMockStatusRepository() *statusRepositoryMock { return &statusRepositoryMock{} }
@@ -330,20 +322,6 @@ func (m *statusRepositoryMock) Delete(listID uint, statusID uint) error {
 		return m.deleteFn(listID, statusID)
 	}
 	return m.deleteErr
-}
-func (m *statusRepositoryMock) ShiftPositions(listID uint, startPosition int) error {
-	m.shiftListID, m.shiftPosition = listID, startPosition
-	if m.shiftPositionsFn != nil {
-		return m.shiftPositionsFn(listID, startPosition)
-	}
-	return m.shiftErr
-}
-func (m *statusRepositoryMock) DecrementPositionsAfter(listID uint, position int) error {
-	m.decrementListID, m.decrementPosition = listID, position
-	if m.decrementPositionsAfterFn != nil {
-		return m.decrementPositionsAfterFn(listID, position)
-	}
-	return m.decrementErr
 }
 
 type tagRepositoryMock struct {

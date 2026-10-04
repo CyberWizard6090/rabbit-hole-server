@@ -2,6 +2,7 @@ package repository
 
 import (
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"rabbit-hole-server/internal/domain"
 )
@@ -10,12 +11,43 @@ type statusRepository struct {
 	db *gorm.DB
 }
 
+const (
+	statusListPredicate     = "list_id = ?"
+	statusPositionIncrement = "position + 1"
+)
+
 func NewStatusRepository(db *gorm.DB) domain.StatusRepository {
 	return &statusRepository{db: db}
 }
 
 func (r *statusRepository) Create(status *domain.TaskStatus) error {
-	return r.db.Create(status).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var list domain.List
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, status.ListID).Error; err != nil {
+			return err
+		}
+
+		var count int64
+		if err := tx.Model(&domain.TaskStatus{}).Where(statusListPredicate, status.ListID).Count(&count).Error; err != nil {
+			return err
+		}
+		position := status.Position
+		if position < 1 {
+			position = 1
+		}
+		if position > int(count)+1 {
+			position = int(count) + 1
+		}
+		if position <= int(count) {
+			if err := tx.Model(&domain.TaskStatus{}).
+				Where(statusListPredicate+" AND position >= ?", status.ListID, position).
+				Update("position", gorm.Expr(statusPositionIncrement)).Error; err != nil {
+				return err
+			}
+		}
+		status.Position = position
+		return tx.Create(status).Error
+	})
 }
 
 func (r *statusRepository) GetAllByList(listID uint) ([]domain.TaskStatus, error) {
@@ -55,8 +87,18 @@ func (r *statusRepository) Update(status *domain.TaskStatus) error {
 
 func (r *statusRepository) UpdatePosition(status *domain.TaskStatus, position int) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
+		var list domain.List
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, status.ListID).Error; err != nil {
+			return err
+		}
+		var current domain.TaskStatus
+		if err := tx.Where(statusListPredicate, status.ListID).First(&current, status.ID).Error; err != nil {
+			return err
+		}
+		status.Position = current.Position
+
 		var count int64
-		if err := tx.Model(&domain.TaskStatus{}).Where("list_id = ?", status.ListID).Count(&count).Error; err != nil {
+		if err := tx.Model(&domain.TaskStatus{}).Where(statusListPredicate, status.ListID).Count(&count).Error; err != nil {
 			return err
 		}
 		if position < 1 {
@@ -69,7 +111,7 @@ func (r *statusRepository) UpdatePosition(status *domain.TaskStatus, position in
 		if position < status.Position {
 			if err := tx.Model(&domain.TaskStatus{}).
 				Where("list_id = ? AND position >= ? AND position < ?", status.ListID, position, status.Position).
-				Update("position", gorm.Expr("position + 1")).Error; err != nil {
+				Update("position", gorm.Expr(statusPositionIncrement)).Error; err != nil {
 				return err
 			}
 		} else if position > status.Position {
@@ -86,51 +128,22 @@ func (r *statusRepository) UpdatePosition(status *domain.TaskStatus, position in
 }
 
 func (r *statusRepository) Delete(listID uint, statusID uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var list domain.List
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, listID).Error; err != nil {
+			return err
+		}
 
-	res := r.db.
-		Where(
-			"id = ? AND list_id = ?",
-			statusID,
-			listID,
-		).
-		Delete(&domain.TaskStatus{})
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
-	}
-	return nil
-}
+		var status domain.TaskStatus
+		if err := tx.Where(statusListPredicate, listID).First(&status, statusID).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&status).Error; err != nil {
+			return err
+		}
 
-func (r *statusRepository) ShiftPositions(listID uint, startPosition int) error {
-
-	return r.db.
-		Model(&domain.TaskStatus{}).
-		Where(
-			"list_id = ? AND position >= ?",
-			listID,
-			startPosition,
-		).
-		Update(
-			"position",
-			gorm.Expr("position + 1"),
-		).
-		Error
-}
-
-func (r *statusRepository) DecrementPositionsAfter(listID uint, position int) error {
-
-	return r.db.
-		Model(&domain.TaskStatus{}).
-		Where(
-			"list_id = ? AND position > ?",
-			listID,
-			position,
-		).
-		Update(
-			"position",
-			gorm.Expr("position - 1"),
-		).
-		Error
+		return tx.Model(&domain.TaskStatus{}).
+			Where(statusListPredicate+" AND position > ?", listID, status.Position).
+			Update("position", gorm.Expr("position - 1")).Error
+	})
 }

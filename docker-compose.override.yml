@@ -1,0 +1,19 @@
+services:
+  db:
+    ports:
+      - "5432:5432"
+
+  migrate:
+    build:
+      target: dev
+    entrypoint: ["go", "run", "./cmd/migrate", "-action=up"]
+    volumes:
+      - .:/app
+
+  app:
+    build:
+      target: dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app

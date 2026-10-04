@@ -7,16 +7,24 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/app"
 	"rabbit-hole-server/internal/config"
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
+)
+
+var (
+	integrationDB     *gorm.DB
+	integrationConfig *config.Config
 )
 
 type TestContext struct {
@@ -26,55 +34,142 @@ type TestContext struct {
 	UserID uint
 }
 
-func newTestContext(t *testing.T) *TestContext {
-	t.Helper()
-
+func TestMain(m *testing.M) {
 	_ = godotenv.Load("../../.env")
 	_ = godotenv.Load(".env")
-	dbURL := os.Getenv("TEST_DB_URL")
-	if dbURL == "" {
-		t.Skip("TEST_DB_URL is not set; integration tests require a PostgreSQL test database")
+
+	testDBURL := os.Getenv("TEST_DB_URL")
+	if testDBURL == "" {
+		if integrationDBRequiredInCI(os.Getenv("CI"), testDBURL) {
+			fmt.Fprintln(os.Stderr, "TEST_DB_URL is required in CI for integration tests")
+			os.Exit(1)
+		}
+		os.Exit(m.Run())
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
-		t.Fatalf("load config: %v", err)
+		fmt.Fprintf(os.Stderr, "load integration config: %v\n", err)
+		os.Exit(1)
 	}
-	cfg.DB.URL = dbURL
+	if cfg.Environment == "production" {
+		fmt.Fprintln(os.Stderr, "integration tests cannot reset the database in production")
+		os.Exit(1)
+	}
+	if err := ensureSeparateDatabaseURLs(cfg.DB.URL, testDBURL); err != nil {
+		fmt.Fprintf(os.Stderr, "unsafe integration database configuration: %v\n", err)
+		os.Exit(1)
+	}
 
-	db, err := gorm.Open(postgres.Open(dbURL), &gorm.Config{})
+	bootstrapDB, err := gorm.Open(postgres.Open(testDBURL), &gorm.Config{})
 	if err != nil {
-		t.Fatalf("open test database: %v", err)
+		fmt.Fprintf(os.Stderr, "open integration database: %v\n", err)
+		os.Exit(1)
 	}
-	_ = db.Migrator().DropIndex(&domain.Tag{}, "idx_space_tag_name")
+	if err := bootstrapDB.Exec("DROP SCHEMA IF EXISTS public CASCADE").Error; err != nil {
+		fmt.Fprintf(os.Stderr, "drop integration schema: %v\n", err)
+		os.Exit(1)
+	}
+	if err := bootstrapDB.Exec("CREATE SCHEMA public").Error; err != nil {
+		fmt.Fprintf(os.Stderr, "create integration schema: %v\n", err)
+		os.Exit(1)
+	}
+	bootstrapSQLDB, err := bootstrapDB.DB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "get bootstrap connection pool: %v\n", err)
+		os.Exit(1)
+	}
+	if err := bootstrapSQLDB.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "close bootstrap connection pool: %v\n", err)
+		os.Exit(1)
+	}
 
-	err = db.AutoMigrate(
-		&domain.User{},
-		&domain.UserSession{},
-		&domain.Workspace{},
-		&domain.Space{},
-		&domain.Folder{},
-		&domain.List{},
-		&domain.TaskStatus{},
-		&domain.Tag{},
-		&domain.Task{},
-		&domain.Role{},
-		&domain.Permission{},
-		&domain.RolePermission{},
-		&domain.Member{},
+	for _, action := range []string{"up", "up", "down", "up"} {
+		if _, _, err := database.RunMigrations(testDBURL, action, 0, 0); err != nil {
+			fmt.Fprintf(os.Stderr, "run integration database migrations (%s): %v\n", action, err)
+			os.Exit(1)
+		}
+	}
+
+	cfg.DB.URL = testDBURL
+	integrationDB, err = database.ConnectDB(
+		testDBURL,
+		cfg.Environment,
+		cfg.DB.MaxIdleConnections,
+		cfg.DB.MaxOpenConnections,
+		cfg.DB.ConnMaxLifetime,
 	)
 	if err != nil {
-		t.Fatalf("automigrate: %v", err)
+		fmt.Fprintf(os.Stderr, "connect integration database: %v\n", err)
+		os.Exit(1)
+	}
+	integrationConfig = cfg
+
+	exitCode := m.Run()
+	if sqlDB, err := integrationDB.DB(); err == nil {
+		_ = sqlDB.Close()
+	}
+	os.Exit(exitCode)
+}
+
+func integrationDBRequiredInCI(ci, testDBURL string) bool {
+	return strings.EqualFold(ci, "true") && testDBURL == ""
+}
+
+func newTestContext(t *testing.T) *TestContext {
+	t.Helper()
+
+	if integrationDB == nil || integrationConfig == nil {
+		t.Skip("TEST_DB_URL is not set; integration tests require a dedicated PostgreSQL test database")
 	}
 
-	if err := config.SeedPermissions(db); err != nil {
-		t.Fatalf("seed permissions: %v", err)
-	}
+	t.Cleanup(func() {
+		if err := resetIntegrationDatabase(); err != nil {
+			t.Errorf("reset integration database: %v", err)
+		}
+	})
 
 	return &TestContext{
-		DB:     db,
-		Router: app.SetupRouter(app.NewContainer(db, cfg), cfg),
+		DB:     integrationDB,
+		Router: app.SetupRouter(app.NewContainer(integrationDB, integrationConfig), integrationConfig),
 	}
+}
+
+func ensureSeparateDatabaseURLs(applicationURL, testURL string) error {
+	applicationConfig, err := pgx.ParseConfig(applicationURL)
+	if err != nil {
+		return fmt.Errorf("parse DB_URL: %w", err)
+	}
+	testConfig, err := pgx.ParseConfig(testURL)
+	if err != nil {
+		return fmt.Errorf("parse TEST_DB_URL: %w", err)
+	}
+	if strings.EqualFold(applicationConfig.Database, testConfig.Database) {
+		return fmt.Errorf("TEST_DB_URL must use a different PostgreSQL database name than DB_URL")
+	}
+	return nil
+}
+
+func resetIntegrationDatabase() error {
+	return integrationDB.Exec(`
+		TRUNCATE TABLE
+			task_assignees,
+			task_tags,
+			tasks,
+			tags,
+			task_statuses,
+			lists,
+			folders,
+			spaces,
+			workspace_members,
+			role_permissions,
+			roles,
+			workspaces,
+			user_contacts,
+			user_sessions,
+			users
+		RESTART IDENTITY CASCADE
+	`).Error
 }
 
 func request(t *testing.T, router http.Handler, method, path, token string, body any) *httptest.ResponseRecorder {
