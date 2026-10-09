@@ -67,22 +67,22 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 
 				profile := protected.Group("/profile")
 				{
-					profile.GET("/", deps.UserHandler.GetCurrentUser)
-					profile.PATCH("/", deps.UserHandler.UpdateProfile)
+					profile.GET("", deps.UserHandler.GetCurrentUser)
+					profile.PATCH("", deps.UserHandler.UpdateProfile)
 				}
 				protected.GET("/users/search", deps.ContactHandler.Search)
 
 				contacts := protected.Group("/contacts")
 				{
-					contacts.GET("/", deps.ContactHandler.List)
-					contacts.POST("/", deps.ContactHandler.Add)
+					contacts.GET("", deps.ContactHandler.List)
+					contacts.POST("", deps.ContactHandler.Add)
 					contacts.DELETE("/:id", deps.ContactHandler.Delete)
 				}
 
 				workspaces := protected.Group("/workspaces")
 				{
-					workspaces.POST("/", deps.WorkspaceHandler.Create)
-					workspaces.GET("/", deps.WorkspaceHandler.List)
+					workspaces.POST("", deps.WorkspaceHandler.Create)
+					workspaces.GET("", deps.WorkspaceHandler.List)
 
 					workspaces.POST("/:workspace_id/spaces",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceWorkspace, "space.create"),
@@ -137,10 +137,10 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					folders.GET(routeLists,
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceFolder, "space.read"),
 						deps.ListHandler.ListInFolder)
-					folders.PATCH("/",
+					folders.PATCH("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceFolder, "space.update"),
 						deps.FolderHandler.Update)
-					folders.DELETE("/",
+					folders.DELETE("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceFolder, "space.update"),
 						deps.FolderHandler.Delete)
 				}
@@ -166,23 +166,23 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					lists.GET("/tasks",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "task.read"),
 						deps.TaskHandler.List)
-					lists.PATCH("/",
+					lists.PATCH("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.update"),
 						deps.ListHandler.Update)
-					lists.DELETE("/",
+					lists.DELETE("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.update"),
 						deps.ListHandler.Delete)
 				}
 
 				tasks := protected.Group("/tasks/:id")
 				{
-					tasks.GET("/",
+					tasks.GET("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceTask, "task.read"),
 						deps.TaskHandler.Get)
-					tasks.PATCH("/",
+					tasks.PATCH("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceTask, "task.update"),
 						deps.TaskHandler.Update)
-					tasks.DELETE("/",
+					tasks.DELETE("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceTask, "task.delete"),
 						deps.TaskHandler.Delete)
 				}
