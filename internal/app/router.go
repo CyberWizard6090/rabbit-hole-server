@@ -76,7 +76,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				{
 					contacts.GET("", deps.ContactHandler.List)
 					contacts.POST("", deps.ContactHandler.Add)
-					contacts.DELETE("/:id", deps.ContactHandler.Delete)
+					contacts.DELETE("/:contact_id", deps.ContactHandler.Delete)
 				}
 
 				workspaces := protected.Group("/workspaces")
@@ -174,7 +174,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						deps.ListHandler.Delete)
 				}
 
-				tasks := protected.Group("/tasks/:id")
+				tasks := protected.Group("/tasks/:task_id")
 				{
 					tasks.GET("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceTask, "task.read"),

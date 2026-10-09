@@ -18,7 +18,7 @@ const (
 	ResourceSpace     Resource = "space_id"
 	ResourceFolder    Resource = "folder_id"
 	ResourceList      Resource = "list_id"
-	ResourceTask      Resource = "id"
+	ResourceTask      Resource = "task_id"
 )
 
 func RequirePermission(checker service.PermissionChecker, resource Resource, code string) gin.HandlerFunc {

@@ -80,7 +80,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		return
 	}
 
-	taskID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	taskID, err := strconv.ParseUint(c.Param("task_id"), 10, 64)
 	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_ID", invalidTaskIDMessage, err))
 		return
@@ -148,7 +148,7 @@ func (h *TaskHandler) Get(c *gin.Context) {
 		return
 	}
 
-	taskID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	taskID, err := strconv.ParseUint(c.Param("task_id"), 10, 64)
 	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_ID", invalidTaskIDMessage, err))
 		return
@@ -170,7 +170,7 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	taskID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	taskID, err := strconv.ParseUint(c.Param("task_id"), 10, 64)
 	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_ID", invalidTaskIDMessage, err))
 		return

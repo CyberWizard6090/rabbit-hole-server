@@ -73,7 +73,7 @@ func (h *ContactHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	contactID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	contactID, err := strconv.ParseUint(c.Param("contact_id"), 10, 64)
 	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_CONTACT_ID", "invalid contact id", err))
 		return
