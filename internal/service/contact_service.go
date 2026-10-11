@@ -4,6 +4,7 @@ import "rabbit-hole-server/internal/domain"
 
 type ContactService interface {
 	GetContacts(uid uint) ([]domain.User, error)
+	GetContactsPage(uid uint, limit, offset int) ([]domain.User, int64, error)
 	AddContact(uid uint, contactID uint) error
 	DeleteContact(uid uint, contactID uint) error
 	SearchUsers(uid uint, query string) ([]domain.User, error)
@@ -19,6 +20,10 @@ func NewContactService(repo domain.ContactRepository) ContactService {
 
 func (s *contactService) GetContacts(uid uint) ([]domain.User, error) {
 	return s.repo.GetContacts(uid)
+}
+
+func (s *contactService) GetContactsPage(uid uint, limit, offset int) ([]domain.User, int64, error) {
+	return s.repo.GetContactsPage(uid, limit, offset)
 }
 
 func (s *contactService) AddContact(uid uint, contactID uint) error {

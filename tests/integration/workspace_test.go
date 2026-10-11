@@ -11,7 +11,7 @@ func TestWorkspace_CreateCreatesOwnerRolesAndMember(t *testing.T) {
 	tc := newTestContext(t)
 	registerAndLogin(t, tc)
 
-	rec := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces/", tc.Token, map[string]any{
+	rec := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces", tc.Token, map[string]any{
 		"name":        "Integration Workspace",
 		"description": "integration test",
 	})
@@ -56,7 +56,7 @@ func TestWorkspace_CreateValidatesName(t *testing.T) {
 	tc := newTestContext(t)
 	registerAndLogin(t, tc)
 
-	rec := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces/", tc.Token, map[string]any{
+	rec := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces", tc.Token, map[string]any{
 		"name": " ",
 	})
 	if rec.Code != http.StatusBadRequest {
@@ -69,7 +69,7 @@ func TestWorkspace_ListForUser(t *testing.T) {
 	registerAndLogin(t, tc)
 
 	for _, name := range []string{"Workspace A", "Workspace B"} {
-		rec := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces/", tc.Token, map[string]any{
+		rec := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces", tc.Token, map[string]any{
 			"name": name,
 		})
 		if rec.Code != http.StatusCreated {
@@ -77,7 +77,7 @@ func TestWorkspace_ListForUser(t *testing.T) {
 		}
 	}
 
-	rec := request(t, tc.Router, http.MethodGet, "/api/v1/workspaces/", tc.Token, nil)
+	rec := request(t, tc.Router, http.MethodGet, "/api/v1/workspaces", tc.Token, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list workspaces: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}

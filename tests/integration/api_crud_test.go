@@ -48,7 +48,7 @@ func TestAPI_ProfileSearchAndContactsLifecycle(t *testing.T) {
 
 	firstName := "Ada"
 	bio := "API integration profile"
-	rec = request(t, tc.Router, http.MethodPatch, "/api/v1/profile/", tc.Token, map[string]any{
+	rec = request(t, tc.Router, http.MethodPatch, "/api/v1/profile", tc.Token, map[string]any{
 		"first_name": firstName,
 		"bio":        bio,
 		"time_zone":  "UTC",
@@ -57,7 +57,7 @@ func TestAPI_ProfileSearchAndContactsLifecycle(t *testing.T) {
 		t.Fatalf("update profile: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	rec = request(t, tc.Router, http.MethodGet, "/api/v1/profile/", tc.Token, nil)
+	rec = request(t, tc.Router, http.MethodGet, "/api/v1/profile", tc.Token, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get profile: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -76,14 +76,14 @@ func TestAPI_ProfileSearchAndContactsLifecycle(t *testing.T) {
 		t.Fatalf("search results = %v, want target user", searchBody["data"])
 	}
 
-	rec = request(t, tc.Router, http.MethodPost, "/api/v1/contacts/", tc.Token, map[string]any{
+	rec = request(t, tc.Router, http.MethodPost, "/api/v1/contacts", tc.Token, map[string]any{
 		"contact_id": otherUser.ID,
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("add contact: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	rec = request(t, tc.Router, http.MethodGet, "/api/v1/contacts/", tc.Token, nil)
+	rec = request(t, tc.Router, http.MethodGet, "/api/v1/contacts?page=1&limit=10", tc.Token, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list contacts: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -91,6 +91,9 @@ func TestAPI_ProfileSearchAndContactsLifecycle(t *testing.T) {
 	contacts, ok := contactsBody["data"].([]any)
 	if !ok || len(contacts) != 1 {
 		t.Fatalf("contacts = %v, want one contact", contactsBody["data"])
+	}
+	if contactsBody["pagination"].(map[string]any)["total"] != float64(1) {
+		t.Fatalf("contacts pagination = %v, want total 1", contactsBody["pagination"])
 	}
 
 	var relationCount int64
@@ -167,7 +170,7 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 	}
 
 	updatedFolder := "Updated Folder"
-	rec = request(t, tc.Router, http.MethodPatch, "/api/v1/folders/"+itoa(folderID)+"/", tc.Token, map[string]any{"name": updatedFolder})
+	rec = request(t, tc.Router, http.MethodPatch, "/api/v1/folders/"+itoa(folderID), tc.Token, map[string]any{"name": updatedFolder})
 	if rec.Code != http.StatusOK || dataObject(t, rec)["Name"] != updatedFolder {
 		t.Fatalf("update folder: %d %s", rec.Code, rec.Body.String())
 	}
@@ -195,7 +198,7 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 	folderListID := uint(dataObject(t, rec)["ID"].(float64))
 
 	updatedList := "Updated List"
-	rec = request(t, tc.Router, http.MethodPatch, "/api/v1/lists/"+itoa(listID)+"/", tc.Token, map[string]any{"name": updatedList})
+	rec = request(t, tc.Router, http.MethodPatch, "/api/v1/lists/"+itoa(listID), tc.Token, map[string]any{"name": updatedList})
 	if rec.Code != http.StatusOK || dataObject(t, rec)["name"] != updatedList {
 		t.Fatalf("update list: %d %s", rec.Code, rec.Body.String())
 	}
@@ -244,12 +247,12 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 		t.Fatalf("delete status: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	rec = request(t, tc.Router, http.MethodDelete, "/api/v1/folders/"+itoa(folderID)+"/", tc.Token, nil)
+	rec = request(t, tc.Router, http.MethodDelete, "/api/v1/folders/"+itoa(folderID), tc.Token, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete folder: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	rec = request(t, tc.Router, http.MethodDelete, "/api/v1/lists/"+itoa(folderListID)+"/", tc.Token, nil)
+	rec = request(t, tc.Router, http.MethodDelete, "/api/v1/lists/"+itoa(folderListID), tc.Token, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete folder list: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -306,16 +309,17 @@ func TestAPI_TaskLifecycleAndDatabaseRelations(t *testing.T) {
 		t.Fatalf("stored task = %+v, tags = %+v", task, task.Tags)
 	}
 
-	rec = request(t, tc.Router, http.MethodGet, "/api/v1/lists/"+itoa(listID)+"/tasks?page=1&limit=10", tc.Token, nil)
+	rec = request(t, tc.Router, http.MethodGet, "/api/v1/lists/"+itoa(listID)+"/tasks?limit=10", tc.Token, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list tasks: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	tasksBody := decodeJSON(t, rec)
-	if len(tasksBody["data"].([]any)) != 1 || tasksBody["pagination"].(map[string]any)["total"] != float64(1) {
+	taskPage := tasksBody["data"].(map[string]any)
+	if len(taskPage["items"].([]any)) != 1 || taskPage["has_prev"] != false {
 		t.Fatalf("tasks response = %v", tasksBody)
 	}
 
-	rec = request(t, tc.Router, http.MethodGet, "/api/v1/tasks/"+itoa(taskID)+"/", tc.Token, nil)
+	rec = request(t, tc.Router, http.MethodGet, "/api/v1/tasks/"+itoa(taskID), tc.Token, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get task: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -323,19 +327,79 @@ func TestAPI_TaskLifecycleAndDatabaseRelations(t *testing.T) {
 		t.Fatalf("task response = %v", rec.Body.String())
 	}
 
-	rec = request(t, tc.Router, http.MethodPatch, "/api/v1/tasks/"+itoa(taskID)+"/", tc.Token, map[string]any{
+	rec = request(t, tc.Router, http.MethodPatch, "/api/v1/tasks/"+itoa(taskID), tc.Token, map[string]any{
 		"title": "Updated Task", "priority": 3, "time_estimate": 45,
 	})
 	if rec.Code != http.StatusOK || dataObject(t, rec)["title"] != "Updated Task" {
 		t.Fatalf("update task: %d %s", rec.Code, rec.Body.String())
 	}
 
-	rec = request(t, tc.Router, http.MethodDelete, "/api/v1/tasks/"+itoa(taskID)+"/", tc.Token, nil)
+	rec = request(t, tc.Router, http.MethodDelete, "/api/v1/tasks/"+itoa(taskID), tc.Token, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete task: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if err := tc.DB.First(&task, taskID).Error; !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("task lookup after delete error = %v, want record not found", err)
+	}
+}
+
+func TestAPI_TaskCursorPagination(t *testing.T) {
+	tc := newTestContext(t)
+	registerAndLogin(t, tc)
+	spaceID := createSpace(t, tc)
+	listID := createList(t, tc, spaceID)
+
+	rec := request(t, tc.Router, http.MethodPost, "/api/v1/lists/"+itoa(listID)+"/statuses", tc.Token, map[string]any{
+		"name": "Cursor Status", "color": "#112233", "position": 1, "type": 1, "list_id": listID,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status: expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	statusID := uint(dataObject(t, rec)["ID"].(float64))
+
+	createdAt := time.Now().UTC().Truncate(time.Microsecond)
+	for i := 0; i < 3; i++ {
+		task := domain.Task{
+			SpaceID:  spaceID,
+			ListID:   listID,
+			StatusID: statusID,
+			UserID:   tc.UserID,
+			Title:    fmt.Sprintf("Cursor task %d", i),
+		}
+		task.CreatedAt = createdAt.Add(-time.Duration(i) * time.Hour)
+		if err := tc.DB.Create(&task).Error; err != nil {
+			t.Fatalf("create cursor task: %v", err)
+		}
+	}
+
+	listURL := "/api/v1/lists/" + itoa(listID) + "/tasks"
+	rec = request(t, tc.Router, http.MethodGet, listURL+"?limit=2", tc.Token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list first task page: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	firstPage := dataObject(t, rec)
+	if len(firstPage["items"].([]any)) != 2 || firstPage["has_next"] != true || firstPage["has_prev"] != false {
+		t.Fatalf("first task page = %v", firstPage)
+	}
+	nextCursor := firstPage["next_cursor"].(string)
+
+	rec = request(t, tc.Router, http.MethodGet, listURL+"?limit=2&cursor="+nextCursor, tc.Token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list next task page: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	secondPage := dataObject(t, rec)
+	if len(secondPage["items"].([]any)) != 1 || secondPage["has_next"] != false || secondPage["has_prev"] != true {
+		t.Fatalf("second task page = %v", secondPage)
+	}
+	prevCursor := secondPage["prev_cursor"].(string)
+
+	rec = request(t, tc.Router, http.MethodGet, listURL+"?limit=2&cursor="+prevCursor, tc.Token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("return to first task page: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	returnedPage := dataObject(t, rec)
+	if len(returnedPage["items"].([]any)) != 2 || returnedPage["has_prev"] != false || returnedPage["has_next"] != true {
+		t.Fatalf("returned task page = %v", returnedPage)
 	}
 }
 

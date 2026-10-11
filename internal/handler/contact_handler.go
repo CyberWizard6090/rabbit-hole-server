@@ -11,6 +11,7 @@ import (
 	"rabbit-hole-server/internal/dto"
 	contextutil "rabbit-hole-server/internal/http/context"
 	httperrors "rabbit-hole-server/internal/http/errors"
+	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
 )
@@ -30,13 +31,22 @@ func (h *ContactHandler) List(c *gin.Context) {
 		return
 	}
 
-	contacts, err := h.service.GetContacts(uid)
+	params, err := pagination.ParseOffset(c.Query("page"), c.Query("limit"))
+	if err != nil {
+		response.HandleError(c, httperrors.BadRequest("INVALID_PAGINATION", err.Error(), err))
+		return
+	}
+
+	contacts, total, err := h.service.GetContactsPage(uid, params.Limit, params.Offset)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("CONTACTS_FETCH_FAILED", "internal server error", err))
 		return
 	}
 
-	response.Success(c, http.StatusOK, contacts)
+	pages := (int(total) + params.Limit - 1) / params.Limit
+	response.SuccessWithPagination(c, http.StatusOK, contacts, &response.Pagination{
+		Total: int(total), Page: params.Page, Limit: params.Limit, Pages: pages,
+	})
 }
 
 func (h *ContactHandler) Add(c *gin.Context) {
