@@ -17,89 +17,131 @@ concurrency:
 env:
   GO_VERSION: "1.25"
   GOLANGCI_VERSION: "v2.14.0"
+  GOVULNCHECK_VERSION: "v1.8.0"
 
 jobs:
   fmt:
     name: Check Formatting
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-go@v5.5.0
         with:
           go-version: ${{ env.GO_VERSION }}
-      - name: Run gofmt
+          cache: true
+
+      - name: Check gofmt
+        shell: bash
         run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            echo "The following files need to be formatted:"
+          set -euo pipefail
+
+          unformatted="$(gofmt -l .)"
+
+          if [[ -n "$unformatted" ]]; then
+            echo "Files requiring gofmt:"
             echo "$unformatted"
             exit 1
           fi
 
+      - name: Check go.mod and go.sum
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
   lint:
-    name: Lint with golangci-lint
-    runs-on: ubuntu-latest
+    name: Lint
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-go@v5.5.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
+
+      - uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: ${{ env.GOLANGCI_VERSION }}
 
   vet:
-    name: Run go vet
-    runs-on: ubuntu-latest
+    name: Go Vet
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-go@v5.5.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
       - name: Run go vet
         run: go vet ./...
 
   security:
-    name: Security Checks
-    runs-on: ubuntu-latest
+    name: Vulnerability Scan
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-go@v5.5.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: Run govulncheck
+
+      - name: Install govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+          go install golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}
+
+      - name: Scan Go code
+        run: govulncheck ./...
 
   unit-tests:
     name: Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-go@v5.5.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
+
       - name: Run unit tests
-        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./internal/... ./cmd/...
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        run: |
+          go test -count=1 \
+            -coverprofile=coverage.out \
+            -covermode=atomic \
+            ./internal/... ./cmd/...
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5.5.1
         with:
           files: ./coverage.out
           flags: unittests
           fail_ci_if_error: false
 
+  race:
+    name: Race Detector
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-go@v5.5.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run race tests
+        run: go test -race -count=1 ./internal/... ./cmd/...
+
   integration-tests:
-    name: Integration Tests with PostgreSQL
-    runs-on: ubuntu-latest
+    name: Integration Tests
+    runs-on: ubuntu-24.04
+
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16.10-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -113,8 +155,9 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-go@v5.5.0
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -122,7 +165,11 @@ jobs:
       - name: Create test database
         env:
           PGPASSWORD: postgres
-        run: createdb --host 127.0.0.1 --username postgres rabbit_hole_test
+        run: |
+          createdb \
+            --host 127.0.0.1 \
+            --username postgres \
+            rabbit_hole_test
 
       - name: Run integration tests
         env:
@@ -134,57 +181,86 @@ jobs:
 
   build:
     name: Build Binaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [fmt, lint, vet, unit-tests]
+
     strategy:
+      fail-fast: false
       matrix:
         goos: [linux, darwin, windows]
         goarch: [amd64, arm64]
         exclude:
           - goos: windows
             goarch: arm64
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-go@v5.5.0
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: true
 
       - name: Build server
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+        shell: bash
         run: |
-          go build -trimpath \
+          set -euo pipefail
+          mkdir -p build
+
+          output="build/server-${GOOS}-${GOARCH}"
+          if [[ "$GOOS" == "windows" ]]; then
+            output="${output}.exe"
+          fi
+
+          CGO_ENABLED=0 go build \
+            -trimpath \
             -ldflags="-w -s" \
-            -o build/server-${{ matrix.goos }}-${{ matrix.goarch }} \
+            -o "$output" \
             ./cmd/server
 
       - name: Build migrate
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+        shell: bash
         run: |
-          go build -trimpath \
+          set -euo pipefail
+          mkdir -p build
+
+          output="build/migrate-${GOOS}-${GOARCH}"
+          if [[ "$GOOS" == "windows" ]]; then
+            output="${output}.exe"
+          fi
+
+          CGO_ENABLED=0 go build \
+            -trimpath \
             -ldflags="-w -s" \
-            -o build/migrate-${{ matrix.goos }}-${{ matrix.goarch }} \
+            -o "$output" \
             ./cmd/migrate
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: build/
+          path: build/*
+          if-no-files-found: error
+          retention-days: 7
 
   docker:
-    name: Build Docker Image
-    runs-on: ubuntu-latest
-    needs: [integration-tests]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    name: Docker Build
+    runs-on: ubuntu-24.04
+    needs: [fmt, lint, vet, unit-tests, integration-tests]
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v4.2.2
+
+      - uses: docker/setup-buildx-action@v3.11.1
+
       - name: Build Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6.18.0
         with:
           context: .
           push: false
@@ -194,15 +270,52 @@ jobs:
 
   status:
     name: CI Status
-    runs-on: ubuntu-latest
-    needs: [fmt, lint, vet, security, unit-tests, integration-tests, build]
+    runs-on: ubuntu-24.04
+
+    needs:
+      - fmt
+      - lint
+      - vet
+      - security
+      - unit-tests
+      - race
+      - integration-tests
+      - build
+      - docker
+
     if: always()
+
     steps:
-      - name: Check CI status
+      - name: Verify required checks
+        env:
+          FMT_RESULT: ${{ needs.fmt.result }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          VET_RESULT: ${{ needs.vet.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          UNIT_RESULT: ${{ needs.unit-tests.result }}
+          RACE_RESULT: ${{ needs.race.result }}
+          INTEGRATION_RESULT: ${{ needs.integration-tests.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+        shell: bash
         run: |
-          if [ "${{ contains(needs.*.result, 'failure') }}" = "true" ] || \
-             [ "${{ contains(needs.*.result, 'cancelled') }}" = "true" ]; then
-            echo "CI failed"
-            exit 1
-          fi
-          echo "All CI checks passed"
+          set -euo pipefail
+
+          for result in \
+            "$FMT_RESULT" \
+            "$LINT_RESULT" \
+            "$VET_RESULT" \
+            "$SECURITY_RESULT" \
+            "$UNIT_RESULT" \
+            "$RACE_RESULT" \
+            "$INTEGRATION_RESULT" \
+            "$BUILD_RESULT" \
+            "$DOCKER_RESULT"
+          do
+            if [[ "$result" != "success" ]]; then
+              echo "A required CI check did not succeed: $result"
+              exit 1
+            fi
+          done
+
+          echo "All required CI checks passed."
