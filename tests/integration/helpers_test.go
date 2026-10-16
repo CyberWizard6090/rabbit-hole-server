@@ -129,9 +129,14 @@ func newTestContext(t *testing.T) *TestContext {
 		}
 	})
 
+	container, err := app.NewContainer(integrationDB, integrationConfig)
+	if err != nil {
+		t.Fatalf("create integration app dependencies: %v", err)
+	}
+
 	return &TestContext{
 		DB:     integrationDB,
-		Router: app.SetupRouter(app.NewContainer(integrationDB, integrationConfig), integrationConfig),
+		Router: app.SetupRouter(container, integrationConfig),
 	}
 }
 

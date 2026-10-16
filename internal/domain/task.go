@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+
+	"rabbit-hole-server/internal/http/pagination"
 )
 
 var (
@@ -34,7 +36,7 @@ type Task struct {
 
 type TaskRepository interface {
 	Create(task *Task, assigneeIDs []uint, tagIDs []uint) error
-	GetAll(listID uint, limit, offset int) ([]Task, int64, error)
+	List(listID uint, params pagination.Params) ([]Task, bool, bool, error)
 	GetByID(id uint) (*Task, error)
 	Update(task *Task) error
 	Delete(id uint) error

@@ -32,7 +32,10 @@ func main() {
 		log.Fatal("Failed to init DB:", err)
 	}
 
-	application := app.NewApp(db, env)
+	application, err := app.NewApp(db, env)
+	if err != nil {
+		log.Fatal("Failed to create application: ", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -1,6 +1,9 @@
 package service
 
-import "rabbit-hole-server/internal/domain"
+import (
+	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/http/pagination"
+)
 
 type contactRepositoryMock struct {
 	contacts       []domain.User
@@ -17,10 +20,11 @@ type contactRepositoryMock struct {
 	gotSearchQuery string
 	gotExcludeID   uint
 
-	getContactsFn   func(uint) ([]domain.User, error)
-	addContactFn    func(uint, uint) error
-	deleteContactFn func(uint, uint) error
-	searchUsersFn   func(string, uint) ([]domain.User, error)
+	getContactsFn     func(uint) ([]domain.User, error)
+	getContactsPageFn func(uint, int, int) ([]domain.User, int64, error)
+	addContactFn      func(uint, uint) error
+	deleteContactFn   func(uint, uint) error
+	searchUsersFn     func(string, uint) ([]domain.User, error)
 }
 
 func (m *contactRepositoryMock) GetContacts(userID uint) ([]domain.User, error) {
@@ -29,6 +33,14 @@ func (m *contactRepositoryMock) GetContacts(userID uint) ([]domain.User, error) 
 		return m.getContactsFn(userID)
 	}
 	return m.contacts, m.getErr
+}
+
+func (m *contactRepositoryMock) GetContactsPage(userID uint, limit, offset int) ([]domain.User, int64, error) {
+	m.gotGetUserID = userID
+	if m.getContactsPageFn != nil {
+		return m.getContactsPageFn(userID, limit, offset)
+	}
+	return m.contacts, int64(len(m.contacts)), m.getErr
 }
 func (m *contactRepositoryMock) AddContact(userID, contactID uint) error {
 	m.gotAddUserID, m.gotAddContact = userID, contactID
@@ -388,7 +400,10 @@ func (m *tagRepositoryMock) Merge(spaceID, sourceTagID, targetTagID uint) error 
 type taskRepositoryMock struct {
 	task        *domain.Task
 	tasks       []domain.Task
-	total       int64
+	hasNext     bool
+	hasPrev     bool
+	listParams  pagination.Params
+	listCalled  bool
 	getErr      error
 	createErr   error
 	updateErr   error
@@ -409,8 +424,10 @@ func (m *taskRepositoryMock) Create(task *domain.Task, assigneeIDs []uint, tagID
 	m.tagIDs = append([]uint(nil), tagIDs...)
 	return m.createErr
 }
-func (m *taskRepositoryMock) GetAll(listID uint, limit, offset int) ([]domain.Task, int64, error) {
-	return m.tasks, m.total, m.getErr
+func (m *taskRepositoryMock) List(_ uint, params pagination.Params) ([]domain.Task, bool, bool, error) {
+	m.listCalled = true
+	m.listParams = params
+	return m.tasks, m.hasNext, m.hasPrev, m.getErr
 }
 func (m *taskRepositoryMock) GetByID(id uint) (*domain.Task, error) { return m.task, m.getErr }
 func (m *taskRepositoryMock) Update(task *domain.Task) error {
