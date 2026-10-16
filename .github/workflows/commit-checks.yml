@@ -1,0 +1,127 @@
+
+name: Commit Checks
+
+on:
+  pull_request:
+    branches: [master, develop]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+  push:
+    branches: [master, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: commit-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  commit-checks:
+    name: Commit Convention
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Validate PR title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pattern='^(feat|fix|refactor|test|chore|ci|docs|build)\([a-z0-9][a-z0-9-]*\)!?: .+$'
+
+          if [[ ! "$PR_TITLE" =~ $pattern ]]; then
+            echo "Invalid PR title: $PR_TITLE"
+            echo "Expected: type(scope): description"
+            echo "Example: feat(auth): add refresh token rotation"
+            exit 1
+          fi
+
+          echo "PR title is valid."
+
+      - name: Validate commits in PR
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pattern='^(feat|fix|refactor|test|chore|ci|docs|build)\([a-z0-9][a-z0-9-]*\)!?: .+$'
+
+          gh api --paginate \
+            "repos/${REPOSITORY}/pulls/${PR_NUMBER}/commits" \
+            --jq '.[] | select(.parents | length < 2) | .commit.message | split("\n")[0]' \
+            > /tmp/commit-messages.txt
+
+          if [[ ! -s /tmp/commit-messages.txt ]]; then
+            echo "No commits found to validate."
+            exit 1
+          fi
+
+          failed=0
+
+          while IFS= read -r message; do
+            if [[ ! "$message" =~ $pattern ]]; then
+              echo "Invalid commit message: $message"
+              failed=1
+            fi
+          done < /tmp/commit-messages.txt
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo "One or more commits violate Conventional Commits."
+            exit 1
+          fi
+
+          echo "All PR commits are valid."
+
+      - name: Validate commits in push
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pattern='^(feat|fix|refactor|test|chore|ci|docs|build)\([a-z0-9][a-z0-9-]*\)!?: .+$'
+
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            echo "Initial push detected; validating available commits."
+            range="$AFTER_SHA"
+          else
+            range="${BEFORE_SHA}..${AFTER_SHA}"
+          fi
+
+          git log --format='%s' "$range" > /tmp/commit-messages.txt
+
+          if [[ ! -s /tmp/commit-messages.txt ]]; then
+            echo "No commits found to validate."
+            exit 1
+          fi
+
+          failed=0
+
+          while IFS= read -r message; do
+            if [[ ! "$message" =~ $pattern ]]; then
+              echo "Invalid commit message: $message"
+              failed=1
+            fi
+          done < /tmp/commit-messages.txt
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo "One or more commits violate Conventional Commits."
+            exit 1
+          fi
+
+          echo "All pushed commits are valid."
