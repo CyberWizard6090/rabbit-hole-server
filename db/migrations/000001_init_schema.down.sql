@@ -1,7 +1,4 @@
--- SQLBook: Code
 ALTER TABLE IF EXISTS lists DROP CONSTRAINT IF EXISTS fk_lists_parent_status;
-
--- pg_trgm is shared at database scope and may be used by objects outside this schema.
 
 DROP TABLE IF EXISTS
     task_assignees,

@@ -17,16 +17,19 @@ import (
 )
 
 type TaskHandler struct {
-	service service.TaskService
+	service     service.TaskService
+	cursorCodec *pagination.Codec
 }
 
 const invalidTaskIDMessage = "invalid task id"
 
 func NewTaskHandler(
 	service service.TaskService,
+	cursorCodec *pagination.Codec,
 ) *TaskHandler {
 	return &TaskHandler{
-		service: service,
+		service:     service,
+		cursorCodec: cursorCodec,
 	}
 }
 
@@ -80,7 +83,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		return
 	}
 
-	taskID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	taskID, err := strconv.ParseUint(c.Param("task_id"), 10, 64)
 	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_ID", invalidTaskIDMessage, err))
 		return
@@ -120,25 +123,24 @@ func (h *TaskHandler) List(c *gin.Context) {
 		return
 	}
 
-	p := pagination.Parse(c)
-
 	listID, err := strconv.ParseUint(c.Param("list_id"), 10, 64)
-	if err != nil {
+	if err != nil || listID == 0 {
 		response.HandleError(c, httperrors.BadRequest("INVALID_LIST_ID", "invalid list id", err))
 		return
 	}
 
-	tasks, total, err := h.service.GetAllTasks(uint(listID), p.Limit, p.Offset)
+	params, err := pagination.ParseParams(c.Query("limit"), c.Query("cursor"), h.cursorCodec, pagination.TaskCursorContext(uint(listID)))
+	if err != nil {
+		response.HandleError(c, httperrors.BadRequest("INVALID_PAGINATION", "invalid pagination parameters", err))
+		return
+	}
+
+	tasks, err := h.service.ListTasks(uint(listID), params)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("TASKS_FETCH_FAILED", "internal server error", err))
 		return
 	}
-
-	pages := (int(total) + p.Limit - 1) / p.Limit
-
-	response.SuccessWithPagination(c, http.StatusOK, tasks, &response.Pagination{
-		Total: int(total), Page: p.Page, Limit: p.Limit, Pages: pages,
-	})
+	response.Success(c, http.StatusOK, tasks)
 }
 
 func (h *TaskHandler) Get(c *gin.Context) {
@@ -148,7 +150,7 @@ func (h *TaskHandler) Get(c *gin.Context) {
 		return
 	}
 
-	taskID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	taskID, err := strconv.ParseUint(c.Param("task_id"), 10, 64)
 	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_ID", invalidTaskIDMessage, err))
 		return
@@ -170,7 +172,7 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	taskID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	taskID, err := strconv.ParseUint(c.Param("task_id"), 10, 64)
 	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_ID", invalidTaskIDMessage, err))
 		return

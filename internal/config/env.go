@@ -64,9 +64,6 @@ func Parse() (*Config, error) {
 	return cfg, nil
 }
 
-// ParseDB reads only the database settings. Tools that do not need the full
-// application config (for example cmd/migrate) use it so they do not require
-// unrelated variables such as JWT_SECRET.
 func ParseDB() (*DBConfig, error) {
 	cfg := &DBConfig{}
 	if err := env.Parse(cfg); err != nil {

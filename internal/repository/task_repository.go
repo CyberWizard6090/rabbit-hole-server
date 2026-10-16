@@ -1,9 +1,13 @@
 package repository
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/http/pagination"
 )
 
 type taskRepository struct {
@@ -39,21 +43,111 @@ func (r *taskRepository) Create(task *domain.Task, assigneeIDs []uint, tagIDs []
 	})
 }
 
-func (r *taskRepository) GetAll(listID uint, limit, offset int) ([]domain.Task, int64, error) {
+func (r *taskRepository) List(
+	listID uint,
+	params pagination.Params,
+) ([]domain.Task, bool, bool, error) {
+	fetchLimit, err := pagination.FetchLimit(params.Limit)
+	if err != nil {
+		return nil, false, false, err
+	}
+
 	var tasks []domain.Task
-	var total int64
 
-	r.db.Model(&domain.Task{}).Where("list_id = ?", listID).Count(&total)
-
-	err := r.db.Where("list_id = ?", listID).
+	query := r.db.
+		Where("list_id = ?", listID).
 		Preload("Assignees").
-		Preload("Tags").
-		Limit(limit).
-		Offset(offset).
-		Order("created_at DESC").
-		Find(&tasks).Error
+		Preload("Tags")
 
-	return tasks, total, err
+	if params.Cursor != nil {
+		cursor := params.Cursor
+		position, err := decodeTaskCursorPosition(cursor)
+		if err != nil {
+			return nil, false, false, err
+		}
+
+		switch cursor.Direction {
+		case pagination.DirectionNext:
+			query = query.Where(
+				"(created_at, id) < (?, ?)",
+				position.CreatedAt,
+				position.ID,
+			)
+		case pagination.DirectionPrev:
+			query = query.Where(
+				"(created_at, id) > (?, ?)",
+				position.CreatedAt,
+				position.ID,
+			)
+		default:
+			return nil, false, false, fmt.Errorf(
+				"unsupported cursor direction: %q",
+				cursor.Direction,
+			)
+		}
+	}
+
+	order := "created_at DESC, id DESC"
+
+	if params.Cursor != nil && params.Cursor.Direction == pagination.DirectionPrev {
+		order = "created_at ASC, id ASC"
+	}
+
+	err = query.
+		Order(order).
+		Limit(fetchLimit).
+		Find(&tasks).Error
+	if err != nil {
+		return nil, false, false, err
+	}
+
+	hasMore := len(tasks) > params.Limit
+	if hasMore {
+		tasks = tasks[:params.Limit]
+	}
+
+	hasPrev := hasPreviousPage(params.Cursor, hasMore)
+
+	if params.Cursor != nil && params.Cursor.Direction == pagination.DirectionPrev {
+		for i, j := 0, len(tasks)-1; i < j; i, j = i+1, j-1 {
+			tasks[i], tasks[j] = tasks[j], tasks[i]
+		}
+	}
+
+	hasNext := hasMore
+	if params.Cursor != nil && params.Cursor.Direction == pagination.DirectionPrev {
+		// A previous-page request can become stale after deletions. An empty
+		// result must not advertise a next page without a usable cursor.
+		hasNext = len(tasks) > 0
+	}
+
+	return tasks, hasNext, hasPrev, nil
+}
+
+func decodeTaskCursorPosition(cursor *pagination.Cursor) (pagination.TaskCursorPosition, error) {
+	var position pagination.TaskCursorPosition
+	if cursor == nil {
+		return position, fmt.Errorf("%w: cursor is required", pagination.ErrInvalidCursor)
+	}
+	if err := json.Unmarshal(cursor.Position, &position); err != nil || position.ID == 0 || position.ID > uint64(1<<63-1) {
+		return pagination.TaskCursorPosition{}, fmt.Errorf("%w: invalid task cursor position", pagination.ErrInvalidCursor)
+	}
+	return position, nil
+}
+
+func hasPreviousPage(cursor *pagination.Cursor, hasMore bool) bool {
+	if cursor == nil {
+		return false
+	}
+
+	switch cursor.Direction {
+	case pagination.DirectionNext:
+		return true
+	case pagination.DirectionPrev:
+		return hasMore
+	default:
+		return false
+	}
 }
 
 func (r *taskRepository) GetByID(id uint) (*domain.Task, error) {

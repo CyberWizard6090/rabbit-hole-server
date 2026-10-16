@@ -1,4 +1,3 @@
--- SQLBook: Code
 CREATE TYPE task_status_type AS ENUM ('todo', 'in_progress', 'done');
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -255,7 +254,7 @@ CREATE TABLE tasks (
     CONSTRAINT chk_tasks_parent_not_self CHECK (parent_id IS NULL OR parent_id <> id)
 );
 CREATE INDEX idx_tasks_deleted_at ON tasks (deleted_at);
-CREATE INDEX idx_tasks_list_created_at ON tasks (list_id, created_at DESC);
+CREATE INDEX idx_tasks_list_keyset ON tasks (list_id, created_at DESC, id DESC) WHERE deleted_at IS NULL;
 CREATE INDEX idx_tasks_parent_id ON tasks (parent_id);
 CREATE INDEX idx_tasks_space_id ON tasks (space_id);
 CREATE INDEX idx_tasks_status_id ON tasks (status_id);

@@ -46,7 +46,7 @@ func TestAuth_RegisterLoginAndProfile(t *testing.T) {
 		t.Fatalf("missing access_token: %s", rec.Body.String())
 	}
 
-	rec = request(t, tc.Router, http.MethodGet, "/api/v1/profile/", token, nil)
+	rec = request(t, tc.Router, http.MethodGet, "/api/v1/profile", token, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("profile: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -61,7 +61,7 @@ func TestProfileRejectsEmptyUsername(t *testing.T) {
 	tc := newTestContext(t)
 	registerAndLogin(t, tc)
 
-	rec := request(t, tc.Router, http.MethodPatch, "/api/v1/profile/", tc.Token, map[string]any{
+	rec := request(t, tc.Router, http.MethodPatch, "/api/v1/profile", tc.Token, map[string]any{
 		"username": "",
 	})
 	if rec.Code != http.StatusBadRequest {
@@ -186,7 +186,7 @@ func TestAuth_DuplicateUsernameIsRejectedAsConflict(t *testing.T) {
 func TestAuth_ProtectedRouteRequiresToken(t *testing.T) {
 	tc := newTestContext(t)
 
-	rec := request(t, tc.Router, http.MethodGet, "/api/v1/profile/", "", nil)
+	rec := request(t, tc.Router, http.MethodGet, "/api/v1/profile", "", nil)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -195,7 +195,7 @@ func TestAuth_ProtectedRouteRequiresToken(t *testing.T) {
 func TestAuth_InvalidTokenIsRejected(t *testing.T) {
 	tc := newTestContext(t)
 
-	rec := request(t, tc.Router, http.MethodGet, "/api/v1/profile/", "invalid-token", nil)
+	rec := request(t, tc.Router, http.MethodGet, "/api/v1/profile", "invalid-token", nil)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
 	}

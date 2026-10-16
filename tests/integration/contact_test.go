@@ -32,12 +32,12 @@ func TestContact_DuplicateAddIsRejected(t *testing.T) {
 
 	body := map[string]any{"contact_id": otherUser.ID}
 
-	rec = request(t, tc.Router, http.MethodPost, "/api/v1/contacts/", tc.Token, body)
+	rec = request(t, tc.Router, http.MethodPost, "/api/v1/contacts", tc.Token, body)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("first add: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	rec = request(t, tc.Router, http.MethodPost, "/api/v1/contacts/", tc.Token, body)
+	rec = request(t, tc.Router, http.MethodPost, "/api/v1/contacts", tc.Token, body)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("duplicate add: expected 409, got %d: %s", rec.Code, rec.Body.String())
 	}
