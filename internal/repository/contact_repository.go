@@ -31,12 +31,28 @@ func isContactDuplicate(err error) bool {
 }
 
 func (r *ContactRepository) GetContacts(userID uint) ([]domain.User, error) {
-	var contacts []domain.User
-	err := r.db.Table("users").
-		Joins("JOIN user_contacts ON user_contacts.contact_id = users.id").
-		Where("user_contacts.user_id = ?", userID).
-		Find(&contacts).Error
+	contacts, _, err := r.GetContactsPage(userID, 1000, 0)
 	return contacts, err
+}
+
+func (r *ContactRepository) GetContactsPage(userID uint, limit, offset int) ([]domain.User, int64, error) {
+	var contacts []domain.User
+	var total int64
+
+	baseQuery := r.db.Table("users").
+		Joins("JOIN user_contacts ON user_contacts.contact_id = users.id").
+		Where("user_contacts.user_id = ?", userID)
+
+	if err := baseQuery.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	err := baseQuery.
+		Order("users.id ASC").
+		Limit(limit).
+		Offset(offset).
+		Find(&contacts).Error
+	return contacts, total, err
 }
 
 func (r *ContactRepository) DeleteContact(userID, contactID uint) error {

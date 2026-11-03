@@ -46,43 +46,45 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	rateLimiter := middleware.RateLimiter(10, time.Minute)
+	r.Use(middleware.BodyLimit(middleware.DefaultMaxBodyBytes))
 
 	api := r.Group("/api")
 	{
 		v1 := api.Group("/v1")
 		{
+			// Each auth endpoint gets its own limiter instance, so a burst of
+			// token refreshes cannot exhaust the login or registration budget.
 			auth := v1.Group("/auth")
-			auth.Use(rateLimiter)
 			{
-				auth.POST("/register", deps.AuthHandler.Register)
-				auth.POST("/login", deps.AuthHandler.Login)
-				auth.POST("/refresh", deps.AuthHandler.Refresh)
+				auth.POST("/register", middleware.RateLimiter(5, time.Minute), deps.AuthHandler.Register)
+				auth.POST("/login", middleware.RateLimiter(10, time.Minute), deps.AuthHandler.Login)
+				auth.POST("/refresh", middleware.RateLimiter(30, time.Minute), deps.AuthHandler.Refresh)
+				// Logout authenticates with the refresh cookie, not the access
+				// token, so it must work after the access token has expired.
+				auth.POST("/logout", middleware.RateLimiter(30, time.Minute), deps.AuthHandler.Logout)
 			}
 
 			protected := v1.Group("/")
 			protected.Use(middleware.AuthMiddleware(deps.AuthService))
 			{
-				protected.POST("/auth/logout", deps.AuthHandler.Logout)
-
 				profile := protected.Group("/profile")
 				{
-					profile.GET("/", deps.UserHandler.GetCurrentUser)
-					profile.PATCH("/", deps.UserHandler.UpdateProfile)
+					profile.GET("", deps.UserHandler.GetCurrentUser)
+					profile.PATCH("", deps.UserHandler.UpdateProfile)
 				}
 				protected.GET("/users/search", deps.ContactHandler.Search)
 
 				contacts := protected.Group("/contacts")
 				{
-					contacts.GET("/", deps.ContactHandler.List)
-					contacts.POST("/", deps.ContactHandler.Add)
-					contacts.DELETE("/:id", deps.ContactHandler.Delete)
+					contacts.GET("", deps.ContactHandler.List)
+					contacts.POST("", deps.ContactHandler.Add)
+					contacts.DELETE("/:contact_id", deps.ContactHandler.Delete)
 				}
 
 				workspaces := protected.Group("/workspaces")
 				{
-					workspaces.POST("/", deps.WorkspaceHandler.Create)
-					workspaces.GET("/", deps.WorkspaceHandler.List)
+					workspaces.POST("", deps.WorkspaceHandler.Create)
+					workspaces.GET("", deps.WorkspaceHandler.List)
 
 					workspaces.POST("/:workspace_id/spaces",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceWorkspace, "space.create"),
@@ -137,10 +139,10 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					folders.GET(routeLists,
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceFolder, "space.read"),
 						deps.ListHandler.ListInFolder)
-					folders.PATCH("/",
+					folders.PATCH("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceFolder, "space.update"),
 						deps.FolderHandler.Update)
-					folders.DELETE("/",
+					folders.DELETE("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceFolder, "space.update"),
 						deps.FolderHandler.Delete)
 				}
@@ -166,23 +168,23 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					lists.GET("/tasks",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "task.read"),
 						deps.TaskHandler.List)
-					lists.PATCH("/",
+					lists.PATCH("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.update"),
 						deps.ListHandler.Update)
-					lists.DELETE("/",
+					lists.DELETE("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.update"),
 						deps.ListHandler.Delete)
 				}
 
-				tasks := protected.Group("/tasks/:id")
+				tasks := protected.Group("/tasks/:task_id")
 				{
-					tasks.GET("/",
+					tasks.GET("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceTask, "task.read"),
 						deps.TaskHandler.Get)
-					tasks.PATCH("/",
+					tasks.PATCH("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceTask, "task.update"),
 						deps.TaskHandler.Update)
-					tasks.DELETE("/",
+					tasks.DELETE("",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceTask, "task.delete"),
 						deps.TaskHandler.Delete)
 				}
