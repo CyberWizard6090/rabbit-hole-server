@@ -74,6 +74,13 @@ func (s *tagService) GetOrCreateByName(spaceID uint, name string, defaultColor s
 
 	tag := &domain.Tag{SpaceID: spaceID, Name: name, Color: defaultColor}
 	if err := s.tagRepo.Create(tag); err != nil {
+		if errors.Is(err, domain.ErrTagNameTaken) {
+			existing, lookupErr := s.tagRepo.GetByName(spaceID, name)
+			if lookupErr != nil {
+				return nil, fmt.Errorf("lookup tag after concurrent create: %w", lookupErr)
+			}
+			return existing, nil
+		}
 		return nil, fmt.Errorf("create tag on the fly: %w", err)
 	}
 	return tag, nil

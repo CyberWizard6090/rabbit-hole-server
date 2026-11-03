@@ -351,6 +351,8 @@ func (m *statusRepositoryMock) Delete(listID uint, statusID uint, replacementID 
 }
 
 type tagRepositoryMock struct {
+	byNameFn       func(call int) (*domain.Tag, error)
+	byNameCalls    int
 	tag            *domain.Tag
 	tags           []domain.Tag
 	byID           map[uint]*domain.Tag
@@ -390,6 +392,10 @@ func (m *tagRepositoryMock) GetByID(tagID uint) (*domain.Tag, error) {
 	return m.tag, m.byIDErr
 }
 func (m *tagRepositoryMock) GetByName(spaceID uint, name string) (*domain.Tag, error) {
+	m.byNameCalls++
+	if m.byNameFn != nil {
+		return m.byNameFn(m.byNameCalls)
+	}
 	return m.tag, m.byNameErr
 }
 func (m *tagRepositoryMock) Update(tag *domain.Tag) error {

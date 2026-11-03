@@ -231,3 +231,32 @@ func TestTagServiceGetTagReturnsUsageAndEnforcesSpace(t *testing.T) {
 		t.Fatalf("missing tag: err=%v, want ErrTagNotFound", err)
 	}
 }
+
+func TestGetOrCreateByNameRecoversFromConcurrentCreate(t *testing.T) {
+	winner := &domain.Tag{ID: 11, SpaceID: 5, Name: "Bug"}
+	repo := &tagRepositoryMock{
+		createErr: domain.ErrTagNameTaken,
+		byNameFn: func(call int) (*domain.Tag, error) {
+			if call == 1 {
+				return nil, gorm.ErrRecordNotFound
+			}
+			return winner, nil
+		},
+	}
+
+	got, err := NewTagService(repo).GetOrCreateByName(5, "bug", "#112233")
+	if err != nil || got != winner {
+		t.Fatalf("GetOrCreateByName = %v, %v; want the concurrently created tag", got, err)
+	}
+	if repo.byNameCalls != 2 {
+		t.Fatalf("expected a lookup, a failed insert and a re-read; lookups = %d", repo.byNameCalls)
+	}
+}
+
+func TestGetOrCreateByNameStillFailsOnOtherCreateErrors(t *testing.T) {
+	boom := errors.New("disk full")
+	repo := &tagRepositoryMock{createErr: boom, byNameErr: gorm.ErrRecordNotFound}
+	if _, err := NewTagService(repo).GetOrCreateByName(5, "x", "#112233"); !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want the create error to surface", err)
+	}
+}
