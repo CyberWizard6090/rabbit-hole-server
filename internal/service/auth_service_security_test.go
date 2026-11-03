@@ -43,7 +43,7 @@ func TestAuthServiceParseTokenRejectsWrongTokenType(t *testing.T) {
 func TestBurnPasswordHashIsSafeAndRepeatable(t *testing.T) {
 	burnPasswordHash("anything")
 	burnPasswordHash("anything else")
-	if !strings.HasPrefix(dummyHash, "$argon2id$") || !verifyPassword("timing-equaliser-not-a-real-password", dummyHash) {
+	if !strings.HasPrefix(dummyHash, "$argon2id$") || !verifyPassword("timing-equalizer-not-a-real-password", dummyHash) {
 		t.Fatalf("dummy hash is not a valid argon2id hash: %q", dummyHash)
 	}
 }

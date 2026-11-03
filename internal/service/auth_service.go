@@ -168,7 +168,7 @@ var (
 
 func burnPasswordHash(password string) {
 	dummyHashOnce.Do(func() {
-		dummyHash, _ = hashPassword("timing-equaliser-not-a-real-password")
+		dummyHash, _ = hashPassword("timing-equalizer-not-a-real-password")
 	})
 	_ = verifyPassword(password, dummyHash)
 }
