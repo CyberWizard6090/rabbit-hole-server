@@ -21,6 +21,9 @@ var (
 	selfScopedRoutes = map[string]string{
 		"GET /api/v1/profile":                 "caller's own profile",
 		"PATCH /api/v1/profile":               "caller's own profile",
+		"DELETE /api/v1/profile":              "deletes the caller's own account",
+		"POST /api/v1/profile/password":       "changes the caller's own password",
+		"POST /api/v1/auth/logout-all":        "revokes the caller's own sessions",
 		"GET /api/v1/users/search":            "public projection only",
 		"GET /api/v1/contacts":                "caller's own contacts",
 		"POST /api/v1/contacts":               "caller's own contacts",

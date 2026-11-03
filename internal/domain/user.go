@@ -21,6 +21,7 @@ type User struct {
 	AvatarURL     string        `json:"avatar_url"`
 	Bio           string        `gorm:"type:text" json:"bio"`
 	TimeZone      string        `gorm:"not null;default:'UTC'" json:"time_zone"`
+	TokenVersion  int           `gorm:"not null;default:0" json:"-"`
 	Contacts      []*User       `gorm:"many2many:user_contacts;foreignKey:ID;joinForeignKey:UserID;References:ID;joinReferences:ContactID" json:"contacts"`
 	CreatedAt     time.Time     `gorm:"not null" json:"created_at"`
 	UpdatedAt     time.Time     `gorm:"not null" json:"updated_at"`

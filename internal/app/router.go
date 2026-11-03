@@ -93,10 +93,14 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 			protected := v1.Group("/")
 			protected.Use(middleware.AuthMiddleware(deps.AuthService))
 			{
+				protected.POST("/auth/logout-all", middleware.RateLimiter(10, time.Minute), deps.AuthHandler.LogoutAll)
+
 				profile := protected.Group("/profile")
 				{
 					profile.GET("", deps.UserHandler.GetCurrentUser)
 					profile.PATCH("", deps.UserHandler.UpdateProfile)
+					profile.POST("/password", middleware.RateLimiter(5, time.Minute), deps.AuthHandler.ChangePassword)
+					profile.DELETE("", middleware.RateLimiter(5, time.Minute), deps.AuthHandler.DeleteAccount)
 				}
 				protected.GET("/users/search", deps.ContactHandler.Search)
 

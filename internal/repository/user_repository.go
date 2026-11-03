@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -70,7 +71,88 @@ func (r *UserRepository) GetByID(id uint) (*domain.User, error) {
 }
 
 func (r *UserRepository) Update(user *domain.User) error {
-	return r.db.Save(user).Error
+	return r.db.Omit("PasswordHash", "TokenVersion").Save(user).Error
+}
+
+func (r *UserRepository) GetTokenVersion(userID uint) (int, error) {
+	var version int
+	res := r.db.Model(&domain.User{}).Select("token_version").Where("id = ?", userID).Limit(1).Scan(&version)
+	if res.Error != nil {
+		return 0, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return 0, gorm.ErrRecordNotFound
+	}
+	return version, nil
+}
+
+func (r *UserRepository) RevokeAll(userID uint) (int, error) {
+	var version int
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		return revokeAll(tx, userID, &version)
+	})
+	return version, err
+}
+
+func revokeAll(tx *gorm.DB, userID uint, version *int) error {
+	res := tx.Model(&domain.User{}).Where("id = ?", userID).
+		UpdateColumn("token_version", gorm.Expr("token_version + 1"))
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	if err := tx.Where("user_id = ?", userID).Delete(&domain.UserSession{}).Error; err != nil {
+		return err
+	}
+	return tx.Model(&domain.User{}).Select("token_version").Where("id = ?", userID).Scan(version).Error
+}
+
+func (r *UserRepository) UpdatePasswordAndRevoke(userID uint, passwordHash string) (int, error) {
+	var version int
+	err := r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&domain.User{}).Where("id = ?", userID).
+			UpdateColumn("password_hash", passwordHash).Error; err != nil {
+			return err
+		}
+		return revokeAll(tx, userID, &version)
+	})
+	return version, err
+}
+
+func (r *UserRepository) CountOwnedWorkspaces(userID uint) (int64, error) {
+	var count int64
+	err := r.db.Model(&domain.Workspace{}).Where("owner_id = ?", userID).Count(&count).Error
+	return count, err
+}
+
+func (r *UserRepository) Anonymize(userID uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		var version int
+		if err := revokeAll(tx, userID, &version); err != nil {
+			return err
+		}
+		tombstone := map[string]any{
+			"email":         fmt.Sprintf("deleted-%d@deleted.invalid", userID),
+			"username":      fmt.Sprintf("deleted-%d", userID),
+			"password_hash": "!",
+			"first_name":    "",
+			"last_name":     "",
+			"avatar_url":    "",
+			"bio":           "",
+		}
+		if err := tx.Model(&domain.User{}).Where("id = ?", userID).UpdateColumns(tombstone).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM user_contacts WHERE user_id = ? OR contact_id = ?", userID, userID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM task_assignees WHERE user_id = ?", userID).Error; err != nil {
+			return err
+		}
+		return tx.Where("user_id = ?", userID).Delete(&domain.Member{}).Error
+	})
 }
 
 func (r *UserRepository) CreateSession(session *domain.UserSession) error {
