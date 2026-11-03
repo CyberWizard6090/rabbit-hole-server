@@ -137,3 +137,66 @@ func TestTag_GetByIDIsScopedToItsSpace(t *testing.T) {
 		t.Fatalf("missing tag: expected 404, got %d", rec.Code)
 	}
 }
+
+func TestTag_ListReportsUsageCountsPerTag(t *testing.T) {
+	tc := newTestContext(t)
+	registerAndLogin(t, tc)
+	spaceID := createSpace(t, tc)
+	listID := createList(t, tc, spaceID)
+
+	createTag := func(name string) uint {
+		t.Helper()
+		rec := request(t, tc.Router, http.MethodPost, "/api/v1/spaces/"+itoa(spaceID)+"/tags", tc.Token,
+			map[string]any{"name": name, "color": "#00ff00"})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create tag %s: %d: %s", name, rec.Code, rec.Body.String())
+		}
+		return responseID(t, rec)
+	}
+	busy, light, unused := createTag("busy"), createTag("light"), createTag("unused")
+
+	rec := request(t, tc.Router, http.MethodPost, "/api/v1/lists/"+itoa(listID)+"/statuses", tc.Token,
+		map[string]any{"name": "Todo", "color": "#112233", "type": 1, "list_id": listID})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status: %d: %s", rec.Code, rec.Body.String())
+	}
+	statusID := responseID(t, rec)
+
+	for i, tags := range [][]uint{{busy, light}, {busy}, {busy}} {
+		rec = request(t, tc.Router, http.MethodPost, "/api/v1/lists/"+itoa(listID)+"/tasks", tc.Token,
+			map[string]any{"title": "task", "status_id": statusID, "tag_ids": tags})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create task %d: %d: %s", i, rec.Code, rec.Body.String())
+		}
+	}
+
+	otherSpace := createSpace(t, tc)
+	otherList := createList(t, tc, otherSpace)
+	rec = request(t, tc.Router, http.MethodPost, "/api/v1/spaces/"+itoa(otherSpace)+"/tags", tc.Token,
+		map[string]any{"name": "busy", "color": "#00ff00"})
+	otherTag := responseID(t, rec)
+	rec = request(t, tc.Router, http.MethodPost, "/api/v1/lists/"+itoa(otherList)+"/statuses", tc.Token,
+		map[string]any{"name": "Todo", "color": "#112233", "type": 1, "list_id": otherList})
+	otherStatus := responseID(t, rec)
+	request(t, tc.Router, http.MethodPost, "/api/v1/lists/"+itoa(otherList)+"/tasks", tc.Token,
+		map[string]any{"title": "other", "status_id": otherStatus, "tag_ids": []uint{otherTag}})
+
+	rec = request(t, tc.Router, http.MethodGet, "/api/v1/spaces/"+itoa(spaceID)+"/tags", tc.Token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list tags: %d: %s", rec.Code, rec.Body.String())
+	}
+	got := map[uint]float64{}
+	for _, item := range decodeJSON(t, rec)["data"].([]any) {
+		m := item.(map[string]any)
+		got[uint(m["id"].(float64))] = m["usage_count"].(float64)
+	}
+	want := map[uint]float64{busy: 3, light: 1, unused: 0}
+	if len(got) != len(want) {
+		t.Fatalf("tags = %v, want %v", got, want)
+	}
+	for id, n := range want {
+		if got[id] != n {
+			t.Errorf("usage_count for tag %d = %v, want %v", id, got[id], n)
+		}
+	}
+}

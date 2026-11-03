@@ -17,10 +17,26 @@ func NewTagRepository(db *gorm.DB) domain.TagRepository {
 	return &tagRepository{db: db}
 }
 
-func (r *tagRepository) CountUsage(tagID uint) (int64, error) {
-	var count int64
-	err := r.db.Table("task_tags").Where("tag_id = ?", tagID).Count(&count).Error
-	return count, err
+func (r *tagRepository) CountUsageBySpace(spaceID uint) (map[uint]int64, error) {
+	var rows []struct {
+		TagID uint
+		Count int64
+	}
+	err := r.db.Table("task_tags").
+		Select("task_tags.tag_id AS tag_id, COUNT(*) AS count").
+		Joins("JOIN tags ON tags.id = task_tags.tag_id").
+		Where("tags.space_id = ?", spaceID).
+		Group("task_tags.tag_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	usage := make(map[uint]int64, len(rows))
+	for _, row := range rows {
+		usage[row.TagID] = row.Count
+	}
+	return usage, nil
 }
 
 func (r *tagRepository) Create(tag *domain.Tag) error {

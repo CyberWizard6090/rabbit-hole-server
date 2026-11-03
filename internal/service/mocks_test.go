@@ -400,11 +400,8 @@ func (m *tagRepositoryMock) Delete(spaceID, tagID uint) error {
 	m.deletedSpaceID, m.deletedTagID = spaceID, tagID
 	return m.deleteErr
 }
-func (m *tagRepositoryMock) CountUsage(tagID uint) (int64, error) {
-	if m.usageByID != nil {
-		return m.usageByID[tagID], m.usageErr
-	}
-	return 0, m.usageErr
+func (m *tagRepositoryMock) CountUsageBySpace(spaceID uint) (map[uint]int64, error) {
+	return m.usageByID, m.usageErr
 }
 func (m *tagRepositoryMock) Merge(spaceID, sourceTagID, targetTagID uint) error {
 	m.mergedSpaceID, m.mergedSourceID, m.mergedTargetID = spaceID, sourceTagID, targetTagID
