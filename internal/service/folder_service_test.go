@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -17,14 +18,14 @@ func TestFolderServiceCreateAndList(t *testing.T) {
 		updateFn: func(*domain.Folder) error { return nil }, deleteFn: func(uint) error { return nil },
 	}
 	s := NewFolderService(repo)
-	f, err := s.CreateFolder(5, "docs")
+	f, err := s.CreateFolder(context.Background(), 5, "docs")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if f.SpaceID != 5 || f.Name != "docs" || f.ID != 10 {
 		t.Fatalf("unexpected folder: %+v", f)
 	}
-	folders, err := s.GetAllFolders(5)
+	folders, err := s.GetAllFolders(context.Background(), 5)
 	if err != nil || len(folders) != 1 || folders[0].SpaceID != 5 {
 		t.Fatalf("folders=%+v err=%v", folders, err)
 	}
@@ -54,11 +55,11 @@ func TestFolderServiceUpdateAndDelete(t *testing.T) {
 	}
 	s := NewFolderService(repo)
 	name := "new"
-	got, err := s.UpdateFolder(3, &name)
+	got, err := s.UpdateFolder(context.Background(), 3, &name)
 	if err != nil || got.Name != "new" || !updated {
 		t.Fatalf("got=%+v err=%v updated=%v", got, err, updated)
 	}
-	if err := s.DeleteFolder(3); err != nil || deleted != 3 {
+	if err := s.DeleteFolder(context.Background(), 3); err != nil || deleted != 3 {
 		t.Fatalf("err=%v deleted=%d", err, deleted)
 	}
 }
@@ -72,19 +73,19 @@ func TestFolderServicePropagatesErrors(t *testing.T) {
 		updateFn:        func(*domain.Folder) error { return want }, deleteFn: func(uint) error { return want },
 	}
 	s := NewFolderService(repo)
-	if _, err := s.CreateFolder(1, "x"); !errors.Is(err, want) {
+	if _, err := s.CreateFolder(context.Background(), 1, "x"); !errors.Is(err, want) {
 		t.Fatal(err)
 	}
-	if _, err := s.GetAllFolders(1); !errors.Is(err, want) {
+	if _, err := s.GetAllFolders(context.Background(), 1); !errors.Is(err, want) {
 		t.Fatal(err)
 	}
-	if _, err := s.GetFolderByID(1); !errors.Is(err, want) {
+	if _, err := s.GetFolderByID(context.Background(), 1); !errors.Is(err, want) {
 		t.Fatal(err)
 	}
-	if _, err := s.UpdateFolder(1, nil); !errors.Is(err, want) {
+	if _, err := s.UpdateFolder(context.Background(), 1, nil); !errors.Is(err, want) {
 		t.Fatal(err)
 	}
-	if err := s.DeleteFolder(1); !errors.Is(err, want) {
+	if err := s.DeleteFolder(context.Background(), 1); !errors.Is(err, want) {
 		t.Fatal(err)
 	}
 }

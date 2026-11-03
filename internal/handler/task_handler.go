@@ -78,7 +78,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.CreateTask(uid, service.CreateTaskParams{
+	task, err := h.service.CreateTask(c.Request.Context(), uid, service.CreateTaskParams{
 		Title:        req.Title,
 		Description:  req.Description,
 		ListID:       uint(listID),
@@ -122,7 +122,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.UpdateTask(uint(taskID), service.UpdateTaskParams{
+	task, err := h.service.UpdateTask(c.Request.Context(), uint(taskID), service.UpdateTaskParams{
 		Title:        req.Title,
 		Description:  req.Description,
 		StatusID:     req.StatusID,
@@ -163,7 +163,7 @@ func (h *TaskHandler) List(c *gin.Context) {
 		return
 	}
 
-	tasks, err := h.service.ListTasks(uint(listID), params)
+	tasks, err := h.service.ListTasks(c.Request.Context(), uint(listID), params)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("TASKS_FETCH_FAILED", "internal server error", err))
 		return
@@ -184,7 +184,7 @@ func (h *TaskHandler) Get(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.GetTaskByID(uint(taskID))
+	task, err := h.service.GetTaskByID(c.Request.Context(), uint(taskID))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			response.HandleError(c, httperrors.NotFound("TASK_NOT_FOUND", "task not found", err))
@@ -212,10 +212,10 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 
 	var existing *domain.Task
 	if h.publisher != nil {
-		existing, _ = h.service.GetTaskByID(uint(taskID))
+		existing, _ = h.service.GetTaskByID(c.Request.Context(), uint(taskID))
 	}
 
-	if err := h.service.DeleteTask(uint(taskID)); err != nil {
+	if err := h.service.DeleteTask(c.Request.Context(), uint(taskID)); err != nil {
 		response.HandleError(c, httperrors.Internal("TASK_DELETE_FAILED", "internal server error", err))
 		return
 	}

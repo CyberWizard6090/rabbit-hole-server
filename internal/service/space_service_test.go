@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -21,7 +22,7 @@ func TestSpaceServiceCreateSpaceBuildsDefaults(t *testing.T) {
 		return nil
 	}
 
-	got, err := NewSpaceService(repo).CreateSpace(7, "Work", "USD", 9)
+	got, err := NewSpaceService(repo).CreateSpace(context.Background(), 7, "Work", "USD", 9)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +49,7 @@ func TestSpaceServiceCreateSpaceReturnsTransactionError(t *testing.T) {
 	repo := newMockSpaceRepository()
 	repo.createWithDefaultsFn = func(*domain.Space, *domain.List, []domain.TaskStatus) error { return want }
 
-	got, err := NewSpaceService(repo).CreateSpace(1, "x", "USD", 2)
+	got, err := NewSpaceService(repo).CreateSpace(context.Background(), 1, "x", "USD", 2)
 	if !errors.Is(err, want) || got != nil {
 		t.Fatalf("got=%v err=%v, want nil space and the repository error", got, err)
 	}
@@ -78,31 +79,31 @@ func TestSpaceServiceSimpleOperations(t *testing.T) {
 	}
 
 	svc := NewSpaceService(repo)
-	if got, err := svc.GetSpaceByID(1); err != nil || got.ID != 1 {
+	if got, err := svc.GetSpaceByID(context.Background(), 1); err != nil || got.ID != 1 {
 		t.Fatalf("GetSpaceByID: %+v %v", got, err)
 	}
-	if got, total, err := svc.GetAllSpaces(2, 10, 5); err != nil || total != 11 || len(got) != 1 {
+	if got, total, err := svc.GetAllSpaces(context.Background(), 2, 10, 5); err != nil || total != 11 || len(got) != 1 {
 		t.Fatalf("GetAllSpaces: %+v %d %v", got, total, err)
 	}
-	if got, err := svc.GetDashboard(3); err != nil || got.ID != 3 {
+	if got, err := svc.GetDashboard(context.Background(), 3); err != nil || got.ID != 3 {
 		t.Fatalf("GetDashboard: %+v %v", got, err)
 	}
-	if got, err := svc.CreateList(3, "L", nil); err != nil || got.ID != 4 {
+	if got, err := svc.CreateList(context.Background(), 3, "L", nil); err != nil || got.ID != 4 {
 		t.Fatalf("CreateList: %+v %v", got, err)
 	}
-	got, err := svc.CreateListInFolder(3, 8, "L")
+	got, err := svc.CreateListInFolder(context.Background(), 3, 8, "L")
 	if err != nil || got.FolderID == nil || *got.FolderID != 8 {
 		t.Fatalf("CreateListInFolder: %+v %v", got, err)
 	}
-	if got, err := svc.GetListsByFolder(8); err != nil || len(got) != 1 {
+	if got, err := svc.GetListsByFolder(context.Background(), 8); err != nil || len(got) != 1 {
 		t.Fatalf("GetListsByFolder: %+v %v", got, err)
 	}
 	name := "new"
-	got, err = svc.UpdateList(4, &name)
+	got, err = svc.UpdateList(context.Background(), 4, &name)
 	if err != nil || got.Name != "saved" {
 		t.Fatalf("UpdateList: %+v %v", got, err)
 	}
-	if err := svc.DeleteList(4); err != nil {
+	if err := svc.DeleteList(context.Background(), 4); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -1,6 +1,9 @@
 package domain
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 var ErrTagNameTaken = errors.New("tag with this name already exists in this space")
 
@@ -12,12 +15,12 @@ type Tag struct {
 }
 
 type TagRepository interface {
-	Create(tag *Tag) error
-	GetAllBySpace(spaceID uint) ([]Tag, error)
-	GetByID(tagID uint) (*Tag, error)
-	GetByName(spaceID uint, name string) (*Tag, error)
-	Update(tag *Tag) error
-	Delete(spaceID, tagID uint) error
-	CountUsageBySpace(spaceID uint) (map[uint]int64, error)
-	Merge(spaceID, sourceTagID, targetTagID uint) error
+	Create(ctx context.Context, tag *Tag) error
+	GetAllBySpace(ctx context.Context, spaceID uint) ([]Tag, error)
+	GetByID(ctx context.Context, tagID uint) (*Tag, error)
+	GetByName(ctx context.Context, spaceID uint, name string) (*Tag, error)
+	Update(ctx context.Context, tag *Tag) error
+	Delete(ctx context.Context, spaceID, tagID uint) error
+	CountUsageBySpace(ctx context.Context, spaceID uint) (map[uint]int64, error)
+	Merge(ctx context.Context, spaceID, sourceTagID, targetTagID uint) error
 }

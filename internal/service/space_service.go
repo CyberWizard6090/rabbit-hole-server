@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -10,18 +11,18 @@ import (
 var ErrSpaceNameRequired = errors.New("space name is required")
 
 type SpaceService interface {
-	CreateSpace(workspaceID uint, name string, currency string, userID uint) (*domain.Space, error)
-	GetSpaceByID(id uint) (*domain.Space, error)
-	GetAllSpaces(workspaceID uint, limit, offset int) ([]domain.Space, int64, error)
-	GetDashboard(spaceID uint) (*domain.Space, error)
-	UpdateSpace(id uint, name, currency *string) (*domain.Space, error)
-	DeleteSpace(id uint) error
-	CreateList(spaceID uint, name string, parentStatusID *uint) (*domain.List, error)
+	CreateSpace(ctx context.Context, workspaceID uint, name string, currency string, userID uint) (*domain.Space, error)
+	GetSpaceByID(ctx context.Context, id uint) (*domain.Space, error)
+	GetAllSpaces(ctx context.Context, workspaceID uint, limit, offset int) ([]domain.Space, int64, error)
+	GetDashboard(ctx context.Context, spaceID uint) (*domain.Space, error)
+	UpdateSpace(ctx context.Context, id uint, name, currency *string) (*domain.Space, error)
+	DeleteSpace(ctx context.Context, id uint) error
+	CreateList(ctx context.Context, spaceID uint, name string, parentStatusID *uint) (*domain.List, error)
 
-	CreateListInFolder(spaceID, folderID uint, name string) (*domain.List, error)
-	GetListsByFolder(folderID uint) ([]domain.List, error)
-	UpdateList(listID uint, name *string) (*domain.List, error)
-	DeleteList(listID uint) error
+	CreateListInFolder(ctx context.Context, spaceID, folderID uint, name string) (*domain.List, error)
+	GetListsByFolder(ctx context.Context, folderID uint) ([]domain.List, error)
+	UpdateList(ctx context.Context, listID uint, name *string) (*domain.List, error)
+	DeleteList(ctx context.Context, listID uint) error
 }
 
 type spaceService struct {
@@ -32,7 +33,7 @@ func NewSpaceService(repo domain.SpaceRepository) SpaceService {
 	return &spaceService{repo: repo}
 }
 
-func (s *spaceService) CreateSpace(workspaceID uint, name string, currency string, userID uint) (*domain.Space, error) {
+func (s *spaceService) CreateSpace(ctx context.Context, workspaceID uint, name string, currency string, userID uint) (*domain.Space, error) {
 	space := &domain.Space{
 		WorkspaceID: workspaceID,
 		Name:        name,
@@ -47,65 +48,65 @@ func (s *spaceService) CreateSpace(workspaceID uint, name string, currency strin
 		{Name: "Готово", Color: "#22C55E", Position: 3, Type: domain.StatusDone},
 	}
 
-	if err := s.repo.CreateWithDefaults(space, defaultList, defaultStatuses); err != nil {
+	if err := s.repo.CreateWithDefaults(ctx, space, defaultList, defaultStatuses); err != nil {
 		return nil, err
 	}
 
 	return space, nil
 }
 
-func (s *spaceService) GetSpaceByID(id uint) (*domain.Space, error) {
-	return s.repo.GetByID(id)
+func (s *spaceService) GetSpaceByID(ctx context.Context, id uint) (*domain.Space, error) {
+	return s.repo.GetByID(ctx, id)
 }
 
-func (s *spaceService) GetAllSpaces(workspaceID uint, limit, offset int) ([]domain.Space, int64, error) {
-	return s.repo.GetAll(workspaceID, limit, offset)
+func (s *spaceService) GetAllSpaces(ctx context.Context, workspaceID uint, limit, offset int) ([]domain.Space, int64, error) {
+	return s.repo.GetAll(ctx, workspaceID, limit, offset)
 }
 
-func (s *spaceService) GetDashboard(spaceID uint) (*domain.Space, error) {
-	return s.repo.GetDashboard(spaceID)
+func (s *spaceService) GetDashboard(ctx context.Context, spaceID uint) (*domain.Space, error) {
+	return s.repo.GetDashboard(ctx, spaceID)
 }
 
-func (s *spaceService) CreateList(spaceID uint, name string, parentStatusID *uint) (*domain.List, error) {
+func (s *spaceService) CreateList(ctx context.Context, spaceID uint, name string, parentStatusID *uint) (*domain.List, error) {
 	list := &domain.List{SpaceID: spaceID, Name: name, ParentStatusID: parentStatusID}
-	if err := s.repo.CreateList(list); err != nil {
+	if err := s.repo.CreateList(ctx, list); err != nil {
 		return nil, err
 	}
 	return list, nil
 }
 
-func (s *spaceService) CreateListInFolder(spaceID, folderID uint, name string) (*domain.List, error) {
+func (s *spaceService) CreateListInFolder(ctx context.Context, spaceID, folderID uint, name string) (*domain.List, error) {
 	list := &domain.List{SpaceID: spaceID, FolderID: &folderID, Name: name}
-	if err := s.repo.CreateList(list); err != nil {
+	if err := s.repo.CreateList(ctx, list); err != nil {
 		return nil, err
 	}
 	return list, nil
 }
 
-func (s *spaceService) GetListsByFolder(folderID uint) ([]domain.List, error) {
-	return s.repo.GetListsByFolder(folderID)
+func (s *spaceService) GetListsByFolder(ctx context.Context, folderID uint) ([]domain.List, error) {
+	return s.repo.GetListsByFolder(ctx, folderID)
 }
 
-func (s *spaceService) UpdateList(listID uint, name *string) (*domain.List, error) {
-	list, err := s.repo.GetListByID(listID)
+func (s *spaceService) UpdateList(ctx context.Context, listID uint, name *string) (*domain.List, error) {
+	list, err := s.repo.GetListByID(ctx, listID)
 	if err != nil {
 		return nil, err
 	}
 	if name != nil {
 		list.Name = *name
 	}
-	if err := s.repo.UpdateList(list); err != nil {
+	if err := s.repo.UpdateList(ctx, list); err != nil {
 		return nil, err
 	}
 	return list, nil
 }
 
-func (s *spaceService) DeleteList(listID uint) error {
-	return s.repo.DeleteList(listID)
+func (s *spaceService) DeleteList(ctx context.Context, listID uint) error {
+	return s.repo.DeleteList(ctx, listID)
 }
 
-func (s *spaceService) UpdateSpace(id uint, name, currency *string) (*domain.Space, error) {
-	space, err := s.repo.GetByID(id)
+func (s *spaceService) UpdateSpace(ctx context.Context, id uint, name, currency *string) (*domain.Space, error) {
+	space, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -121,12 +122,12 @@ func (s *spaceService) UpdateSpace(id uint, name, currency *string) (*domain.Spa
 		space.Currency = strings.ToUpper(strings.TrimSpace(*currency))
 	}
 
-	if err := s.repo.Update(space); err != nil {
+	if err := s.repo.Update(ctx, space); err != nil {
 		return nil, err
 	}
 	return space, nil
 }
 
-func (s *spaceService) DeleteSpace(id uint) error {
-	return s.repo.Delete(id)
+func (s *spaceService) DeleteSpace(ctx context.Context, id uint) error {
+	return s.repo.Delete(ctx, id)
 }

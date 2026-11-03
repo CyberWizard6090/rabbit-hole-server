@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -27,21 +28,21 @@ type eventsServiceStub struct {
 	calls                      []string
 }
 
-func (s *eventsServiceStub) CreateTask(uint, service.CreateTaskParams) (*domain.Task, error) {
+func (s *eventsServiceStub) CreateTask(context.Context, uint, service.CreateTaskParams) (*domain.Task, error) {
 	return s.created, s.createErr
 }
-func (s *eventsServiceStub) UpdateTask(uint, service.UpdateTaskParams) (*domain.Task, error) {
+func (s *eventsServiceStub) UpdateTask(context.Context, uint, service.UpdateTaskParams) (*domain.Task, error) {
 	return s.updated, s.updateErr
 }
-func (s *eventsServiceStub) GetTaskByID(uint) (*domain.Task, error) {
+func (s *eventsServiceStub) GetTaskByID(context.Context, uint) (*domain.Task, error) {
 	s.calls = append(s.calls, "get")
 	return s.existing, s.getErr
 }
-func (s *eventsServiceStub) DeleteTask(uint) error {
+func (s *eventsServiceStub) DeleteTask(context.Context, uint) error {
 	s.calls = append(s.calls, "delete")
 	return s.deleteErr
 }
-func (s *eventsServiceStub) ListTasks(uint, pagination.Params) (pagination.Response[domain.Task], error) {
+func (s *eventsServiceStub) ListTasks(context.Context, uint, pagination.Params) (pagination.Response[domain.Task], error) {
 	return pagination.Response[domain.Task]{}, nil
 }
 

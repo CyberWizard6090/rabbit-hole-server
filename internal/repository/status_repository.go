@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 
 	"gorm.io/gorm"
@@ -22,8 +23,8 @@ func NewStatusRepository(db *gorm.DB) domain.StatusRepository {
 	return &statusRepository{db: db}
 }
 
-func (r *statusRepository) Create(status *domain.TaskStatus) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *statusRepository) Create(ctx context.Context, status *domain.TaskStatus) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var list domain.List
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, status.ListID).Error; err != nil {
 			return err
@@ -52,11 +53,11 @@ func (r *statusRepository) Create(status *domain.TaskStatus) error {
 	})
 }
 
-func (r *statusRepository) GetAllByList(listID uint) ([]domain.TaskStatus, error) {
+func (r *statusRepository) GetAllByList(ctx context.Context, listID uint) ([]domain.TaskStatus, error) {
 
 	var statuses []domain.TaskStatus
 
-	err := r.db.
+	err := r.db.WithContext(ctx).
 		Where("list_id = ?", listID).
 		Order("position ASC").
 		Find(&statuses).
@@ -65,11 +66,11 @@ func (r *statusRepository) GetAllByList(listID uint) ([]domain.TaskStatus, error
 	return statuses, err
 }
 
-func (r *statusRepository) GetByID(statusID uint) (*domain.TaskStatus, error) {
+func (r *statusRepository) GetByID(ctx context.Context, statusID uint) (*domain.TaskStatus, error) {
 
 	var status domain.TaskStatus
 
-	err := r.db.
+	err := r.db.WithContext(ctx).
 		First(&status, statusID).
 		Error
 
@@ -80,15 +81,15 @@ func (r *statusRepository) GetByID(statusID uint) (*domain.TaskStatus, error) {
 	return &status, nil
 }
 
-func (r *statusRepository) Update(status *domain.TaskStatus) error {
+func (r *statusRepository) Update(ctx context.Context, status *domain.TaskStatus) error {
 
-	return r.db.
+	return r.db.WithContext(ctx).
 		Save(status).
 		Error
 }
 
-func (r *statusRepository) UpdatePosition(status *domain.TaskStatus, position int) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *statusRepository) UpdatePosition(ctx context.Context, status *domain.TaskStatus, position int) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var list domain.List
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, status.ListID).Error; err != nil {
 			return err
@@ -129,8 +130,8 @@ func (r *statusRepository) UpdatePosition(status *domain.TaskStatus, position in
 	})
 }
 
-func (r *statusRepository) Delete(listID uint, statusID uint, replacementID *uint) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *statusRepository) Delete(ctx context.Context, listID uint, statusID uint, replacementID *uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var list domain.List
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, listID).Error; err != nil {
 			return err

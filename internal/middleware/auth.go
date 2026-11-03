@@ -27,7 +27,7 @@ func AuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
 
 		tokenString := strings.TrimPrefix(header, "Bearer ")
 
-		claims, err := authService.Authenticate(tokenString)
+		claims, err := authService.Authenticate(c.Request.Context(), tokenString)
 		if err != nil {
 			response.Error(c, http.StatusUnauthorized, "Invalid or expired token")
 			c.Abort()

@@ -54,7 +54,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	if err := h.authService.Register(input.Email, input.Password, input.Username); err != nil {
+	if err := h.authService.Register(c.Request.Context(), input.Email, input.Password, input.Username); err != nil {
 		if errors.Is(err, domain.ErrEmailTaken) {
 			response.HandleError(c, httperrors.Conflict("EMAIL_TAKEN", "email is already registered", err))
 			return
@@ -86,7 +86,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	tokenPair, err := h.authService.Login(input.Email, input.Password)
+	tokenPair, err := h.authService.Login(c.Request.Context(), input.Email, input.Password)
 	if err != nil {
 		response.HandleError(c, httperrors.Unauthorized("INVALID_CREDENTIALS", "invalid email or password", err))
 		return
@@ -104,7 +104,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	tokenPair, err := h.authService.Refresh(refreshToken)
+	tokenPair, err := h.authService.Refresh(c.Request.Context(), refreshToken)
 	if err != nil {
 		response.HandleError(c, httperrors.Unauthorized("TOKEN_EXPIRED", "invalid or expired refresh token", err))
 		return
@@ -122,7 +122,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		return
 	}
 
-	if err := h.authService.Logout(refreshToken); err != nil {
+	if err := h.authService.Logout(c.Request.Context(), refreshToken); err != nil {
 		response.HandleError(c, httperrors.Internal("LOGOUT_FAILED", "failed to logout", err))
 		return
 	}
@@ -145,7 +145,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	tokenPair, err := h.authService.ChangePassword(uid, req.CurrentPassword, req.NewPassword)
+	tokenPair, err := h.authService.ChangePassword(c.Request.Context(), uid, req.CurrentPassword, req.NewPassword)
 	switch {
 	case errors.Is(err, service.ErrWeakPassword):
 		response.HandleError(c, httperrors.BadRequest("WEAK_PASSWORD", err.Error(), err))
@@ -168,7 +168,7 @@ func (h *AuthHandler) LogoutAll(c *gin.Context) {
 		response.Unauthorized(c)
 		return
 	}
-	if err := h.authService.LogoutAll(uid); err != nil {
+	if err := h.authService.LogoutAll(c.Request.Context(), uid); err != nil {
 		response.HandleError(c, httperrors.Internal("LOGOUT_FAILED", "failed to logout", err))
 		return
 	}
@@ -189,7 +189,7 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 		return
 	}
 
-	err = h.authService.DeleteAccount(uid, req.Password)
+	err = h.authService.DeleteAccount(c.Request.Context(), uid, req.Password)
 	switch {
 	case errors.Is(err, service.ErrInvalidCredentials):
 		response.HandleError(c, httperrors.Unauthorized("INVALID_CREDENTIALS", "password is incorrect", err))

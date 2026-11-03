@@ -42,15 +42,15 @@ func RequirePermission(checker service.PermissionChecker, resource Resource, cod
 
 		switch resource {
 		case ResourceWorkspace:
-			ok, checkErr = checker.HasWorkspacePermission(uid, uint(id), code)
+			ok, checkErr = checker.HasWorkspacePermission(c.Request.Context(), uid, uint(id), code)
 		case ResourceSpace:
-			ok, checkErr = checker.HasSpacePermission(uid, uint(id), code)
+			ok, checkErr = checker.HasSpacePermission(c.Request.Context(), uid, uint(id), code)
 		case ResourceFolder:
-			ok, checkErr = checker.HasFolderPermission(uid, uint(id), code)
+			ok, checkErr = checker.HasFolderPermission(c.Request.Context(), uid, uint(id), code)
 		case ResourceList:
-			ok, checkErr = checker.HasListPermission(uid, uint(id), code)
+			ok, checkErr = checker.HasListPermission(c.Request.Context(), uid, uint(id), code)
 		case ResourceTask:
-			ok, checkErr = checker.HasTaskPermission(uid, uint(id), code)
+			ok, checkErr = checker.HasTaskPermission(c.Request.Context(), uid, uint(id), code)
 		}
 
 		if checkErr != nil {

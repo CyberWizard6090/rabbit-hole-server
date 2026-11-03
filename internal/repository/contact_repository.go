@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -18,8 +19,8 @@ func NewContactRepository(db *gorm.DB) *ContactRepository {
 	return &ContactRepository{db: db}
 }
 
-func (r *ContactRepository) AddContact(userID, contactID uint) error {
-	err := r.db.Exec("INSERT INTO user_contacts (user_id, contact_id) VALUES (?, ?)", userID, contactID).Error
+func (r *ContactRepository) AddContact(ctx context.Context, userID, contactID uint) error {
+	err := r.db.WithContext(ctx).Exec("INSERT INTO user_contacts (user_id, contact_id) VALUES (?, ?)", userID, contactID).Error
 	if err != nil && isContactDuplicate(err) {
 		return domain.ErrContactAlreadyAdded
 	}
@@ -31,16 +32,16 @@ func isContactDuplicate(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
-func (r *ContactRepository) GetContacts(userID uint) ([]domain.User, error) {
-	contacts, _, err := r.GetContactsPage(userID, 1000, 0)
+func (r *ContactRepository) GetContacts(ctx context.Context, userID uint) ([]domain.User, error) {
+	contacts, _, err := r.GetContactsPage(ctx, userID, 1000, 0)
 	return contacts, err
 }
 
-func (r *ContactRepository) GetContactsPage(userID uint, limit, offset int) ([]domain.User, int64, error) {
+func (r *ContactRepository) GetContactsPage(ctx context.Context, userID uint, limit, offset int) ([]domain.User, int64, error) {
 	var contacts []domain.User
 	var total int64
 
-	baseQuery := r.db.Table("users").
+	baseQuery := r.db.WithContext(ctx).Table("users").
 		Joins("JOIN user_contacts ON user_contacts.contact_id = users.id").
 		Where("user_contacts.user_id = ?", userID)
 
@@ -56,8 +57,8 @@ func (r *ContactRepository) GetContactsPage(userID uint, limit, offset int) ([]d
 	return contacts, total, err
 }
 
-func (r *ContactRepository) DeleteContact(userID, contactID uint) error {
-	res := r.db.Exec("DELETE FROM user_contacts WHERE user_id = ? AND contact_id = ?", userID, contactID)
+func (r *ContactRepository) DeleteContact(ctx context.Context, userID, contactID uint) error {
+	res := r.db.WithContext(ctx).Exec("DELETE FROM user_contacts WHERE user_id = ? AND contact_id = ?", userID, contactID)
 	if res.Error != nil {
 		return res.Error
 	}
@@ -71,11 +72,11 @@ func escapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
-func (r *ContactRepository) SearchUsers(query string, excludeID uint) ([]domain.User, error) {
+func (r *ContactRepository) SearchUsers(ctx context.Context, query string, excludeID uint) ([]domain.User, error) {
 	var users []domain.User
 
 	query = strings.ToLower(strings.TrimSpace(query))
-	err := r.db.
+	err := r.db.WithContext(ctx).
 		Where(`(LOWER(username) LIKE ? ESCAPE '\' OR LOWER(email) = ?) AND id != ?`,
 			escapeLike(query)+"%", query, excludeID).
 		Order("username ASC, id ASC").

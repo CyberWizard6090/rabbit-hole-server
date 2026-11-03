@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -37,6 +38,6 @@ type UserSession struct {
 }
 
 type UserRepository interface {
-	GetByID(id uint) (*User, error)
-	Update(user *User) error
+	GetByID(ctx context.Context, id uint) (*User, error)
+	Update(ctx context.Context, user *User) error
 }

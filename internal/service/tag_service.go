@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -33,15 +34,15 @@ type TagWithUsage struct {
 }
 
 type TagService interface {
-	CreateTag(spaceID uint, params CreateTagParams) (*domain.Tag, error)
-	GetAllBySpace(spaceID uint) ([]TagWithUsage, error)
-	GetTag(spaceID, tagID uint) (*TagWithUsage, error)
-	UpdateTag(spaceID, tagID uint, params UpdateTagParams) (*domain.Tag, error)
-	DeleteTag(spaceID, tagID uint) error
+	CreateTag(ctx context.Context, spaceID uint, params CreateTagParams) (*domain.Tag, error)
+	GetAllBySpace(ctx context.Context, spaceID uint) ([]TagWithUsage, error)
+	GetTag(ctx context.Context, spaceID, tagID uint) (*TagWithUsage, error)
+	UpdateTag(ctx context.Context, spaceID, tagID uint, params UpdateTagParams) (*domain.Tag, error)
+	DeleteTag(ctx context.Context, spaceID, tagID uint) error
 
-	GetOrCreateByName(spaceID uint, name string, defaultColor string) (*domain.Tag, error)
+	GetOrCreateByName(ctx context.Context, spaceID uint, name string, defaultColor string) (*domain.Tag, error)
 
-	MergeTags(spaceID, sourceTagID, targetTagID uint) error
+	MergeTags(ctx context.Context, spaceID, sourceTagID, targetTagID uint) error
 }
 
 type tagService struct {
@@ -52,9 +53,9 @@ func NewTagService(tagRepo domain.TagRepository) TagService {
 	return &tagService{tagRepo: tagRepo}
 }
 
-func (s *tagService) CreateTag(spaceID uint, params CreateTagParams) (*domain.Tag, error) {
+func (s *tagService) CreateTag(ctx context.Context, spaceID uint, params CreateTagParams) (*domain.Tag, error) {
 	tag := &domain.Tag{SpaceID: spaceID, Name: params.Name, Color: params.Color}
-	if err := s.tagRepo.Create(tag); err != nil {
+	if err := s.tagRepo.Create(ctx, tag); err != nil {
 		if errors.Is(err, domain.ErrTagNameTaken) {
 			return nil, err
 		}
@@ -63,8 +64,8 @@ func (s *tagService) CreateTag(spaceID uint, params CreateTagParams) (*domain.Ta
 	return tag, nil
 }
 
-func (s *tagService) GetOrCreateByName(spaceID uint, name string, defaultColor string) (*domain.Tag, error) {
-	existing, err := s.tagRepo.GetByName(spaceID, name)
+func (s *tagService) GetOrCreateByName(ctx context.Context, spaceID uint, name string, defaultColor string) (*domain.Tag, error) {
+	existing, err := s.tagRepo.GetByName(ctx, spaceID, name)
 	if err == nil {
 		return existing, nil
 	}
@@ -73,9 +74,9 @@ func (s *tagService) GetOrCreateByName(spaceID uint, name string, defaultColor s
 	}
 
 	tag := &domain.Tag{SpaceID: spaceID, Name: name, Color: defaultColor}
-	if err := s.tagRepo.Create(tag); err != nil {
+	if err := s.tagRepo.Create(ctx, tag); err != nil {
 		if errors.Is(err, domain.ErrTagNameTaken) {
-			existing, lookupErr := s.tagRepo.GetByName(spaceID, name)
+			existing, lookupErr := s.tagRepo.GetByName(ctx, spaceID, name)
 			if lookupErr != nil {
 				return nil, fmt.Errorf("lookup tag after concurrent create: %w", lookupErr)
 			}
@@ -86,13 +87,13 @@ func (s *tagService) GetOrCreateByName(spaceID uint, name string, defaultColor s
 	return tag, nil
 }
 
-func (s *tagService) GetAllBySpace(spaceID uint) ([]TagWithUsage, error) {
-	tags, err := s.tagRepo.GetAllBySpace(spaceID)
+func (s *tagService) GetAllBySpace(ctx context.Context, spaceID uint) ([]TagWithUsage, error) {
+	tags, err := s.tagRepo.GetAllBySpace(ctx, spaceID)
 	if err != nil {
 		return nil, fmt.Errorf("get all tags by space from repo: %w", err)
 	}
 
-	usage, err := s.tagRepo.CountUsageBySpace(spaceID)
+	usage, err := s.tagRepo.CountUsageBySpace(ctx, spaceID)
 	if err != nil {
 		return nil, fmt.Errorf("count tag usage: %w", err)
 	}
@@ -104,23 +105,23 @@ func (s *tagService) GetAllBySpace(spaceID uint) ([]TagWithUsage, error) {
 	return result, nil
 }
 
-func (s *tagService) GetTag(spaceID, tagID uint) (*TagWithUsage, error) {
-	tag, err := s.tagRepo.GetByID(tagID)
+func (s *tagService) GetTag(ctx context.Context, spaceID, tagID uint) (*TagWithUsage, error) {
+	tag, err := s.tagRepo.GetByID(ctx, tagID)
 	if err != nil {
 		return nil, ErrTagNotFound
 	}
 	if tag.SpaceID != spaceID {
 		return nil, ErrTagSpaceMismatch
 	}
-	usage, err := s.tagRepo.CountUsageBySpace(spaceID)
+	usage, err := s.tagRepo.CountUsageBySpace(ctx, spaceID)
 	if err != nil {
 		return nil, fmt.Errorf("count tag usage: %w", err)
 	}
 	return &TagWithUsage{Tag: *tag, UsageCount: usage[tagID]}, nil
 }
 
-func (s *tagService) UpdateTag(spaceID, tagID uint, params UpdateTagParams) (*domain.Tag, error) {
-	tag, err := s.tagRepo.GetByID(tagID)
+func (s *tagService) UpdateTag(ctx context.Context, spaceID, tagID uint, params UpdateTagParams) (*domain.Tag, error) {
+	tag, err := s.tagRepo.GetByID(ctx, tagID)
 	if err != nil {
 		return nil, ErrTagNotFound
 	}
@@ -135,7 +136,7 @@ func (s *tagService) UpdateTag(spaceID, tagID uint, params UpdateTagParams) (*do
 		tag.Color = *params.Color
 	}
 
-	if err := s.tagRepo.Update(tag); err != nil {
+	if err := s.tagRepo.Update(ctx, tag); err != nil {
 		if errors.Is(err, domain.ErrTagNameTaken) {
 			return nil, err
 		}
@@ -144,30 +145,30 @@ func (s *tagService) UpdateTag(spaceID, tagID uint, params UpdateTagParams) (*do
 	return tag, nil
 }
 
-func (s *tagService) DeleteTag(spaceID, tagID uint) error {
-	tag, err := s.tagRepo.GetByID(tagID)
+func (s *tagService) DeleteTag(ctx context.Context, spaceID, tagID uint) error {
+	tag, err := s.tagRepo.GetByID(ctx, tagID)
 	if err != nil {
 		return ErrTagNotFound
 	}
 	if tag.SpaceID != spaceID {
 		return ErrTagSpaceMismatch
 	}
-	if err := s.tagRepo.Delete(spaceID, tagID); err != nil {
+	if err := s.tagRepo.Delete(ctx, spaceID, tagID); err != nil {
 		return fmt.Errorf("delete tag from repo: %w", err)
 	}
 	return nil
 }
 
-func (s *tagService) MergeTags(spaceID, sourceTagID, targetTagID uint) error {
+func (s *tagService) MergeTags(ctx context.Context, spaceID, sourceTagID, targetTagID uint) error {
 	if sourceTagID == targetTagID {
 		return ErrCannotMergeSame
 	}
 
-	source, err := s.tagRepo.GetByID(sourceTagID)
+	source, err := s.tagRepo.GetByID(ctx, sourceTagID)
 	if err != nil {
 		return ErrTagNotFound
 	}
-	target, err := s.tagRepo.GetByID(targetTagID)
+	target, err := s.tagRepo.GetByID(ctx, targetTagID)
 	if err != nil {
 		return ErrTagNotFound
 	}
@@ -175,5 +176,5 @@ func (s *tagService) MergeTags(spaceID, sourceTagID, targetTagID uint) error {
 		return ErrTagSpaceMismatch
 	}
 
-	return s.tagRepo.Merge(spaceID, sourceTagID, targetTagID)
+	return s.tagRepo.Merge(ctx, spaceID, sourceTagID, targetTagID)
 }
