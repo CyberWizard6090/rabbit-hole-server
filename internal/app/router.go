@@ -46,25 +46,27 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	rateLimiter := middleware.RateLimiter(10, time.Minute)
+	r.Use(middleware.BodyLimit(middleware.DefaultMaxBodyBytes))
 
 	api := r.Group("/api")
 	{
 		v1 := api.Group("/v1")
 		{
+			// Each auth endpoint gets its own limiter instance, so a burst of
+			// token refreshes cannot exhaust the login or registration budget.
 			auth := v1.Group("/auth")
-			auth.Use(rateLimiter)
 			{
-				auth.POST("/register", deps.AuthHandler.Register)
-				auth.POST("/login", deps.AuthHandler.Login)
-				auth.POST("/refresh", deps.AuthHandler.Refresh)
+				auth.POST("/register", middleware.RateLimiter(5, time.Minute), deps.AuthHandler.Register)
+				auth.POST("/login", middleware.RateLimiter(10, time.Minute), deps.AuthHandler.Login)
+				auth.POST("/refresh", middleware.RateLimiter(30, time.Minute), deps.AuthHandler.Refresh)
+				// Logout authenticates with the refresh cookie, not the access
+				// token, so it must work after the access token has expired.
+				auth.POST("/logout", middleware.RateLimiter(30, time.Minute), deps.AuthHandler.Logout)
 			}
 
 			protected := v1.Group("/")
 			protected.Use(middleware.AuthMiddleware(deps.AuthService))
 			{
-				protected.POST("/auth/logout", deps.AuthHandler.Logout)
-
 				profile := protected.Group("/profile")
 				{
 					profile.GET("/", deps.UserHandler.GetCurrentUser)
