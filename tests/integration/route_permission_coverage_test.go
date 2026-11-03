@@ -13,10 +13,12 @@ import (
 
 var (
 	publicRoutes = map[string]string{
-		"POST /api/v1/auth/register": "anonymous",
-		"POST /api/v1/auth/login":    "anonymous",
-		"POST /api/v1/auth/refresh":  "authenticated by refresh cookie",
-		"POST /api/v1/auth/logout":   "authenticated by refresh cookie",
+		"POST /api/v1/auth/register":          "anonymous",
+		"POST /api/v1/auth/login":             "anonymous",
+		"POST /api/v1/auth/refresh":           "authenticated by refresh cookie",
+		"POST /api/v1/auth/logout":            "authenticated by refresh cookie",
+		"GET /api/v1/lists/:list_id/events":   "authenticated by a single-use ticket issued after a permission check",
+		"GET /api/v1/spaces/:space_id/events": "authenticated by a single-use ticket issued after a permission check",
 	}
 	selfScopedRoutes = map[string]string{
 		"GET /api/v1/profile":                 "caller's own profile",

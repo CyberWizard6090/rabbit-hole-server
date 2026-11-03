@@ -4,6 +4,7 @@ go 1.26.10
 
 require (
 	github.com/caarlos0/env/v10 v10.0.0
+	github.com/coder/websocket v1.8.15
 	github.com/gin-contrib/cors v1.7.7
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-playground/validator/v10 v10.30.4

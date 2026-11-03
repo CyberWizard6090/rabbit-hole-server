@@ -1,0 +1,170 @@
+package handler
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/coder/websocket"
+	"github.com/gin-gonic/gin"
+
+	contextutil "rabbit-hole-server/internal/http/context"
+	httperrors "rabbit-hole-server/internal/http/errors"
+	"rabbit-hole-server/internal/http/response"
+	"rabbit-hole-server/internal/middleware"
+	"rabbit-hole-server/internal/realtime"
+	"rabbit-hole-server/internal/service"
+)
+
+const permissionTaskRead = "task.read"
+
+type RealtimeHandler struct {
+	hub            *realtime.Hub
+	tickets        *realtime.TicketStore
+	checker        service.PermissionChecker
+	originPatterns []string
+	opts           realtime.Options
+}
+
+func NewRealtimeHandler(
+	hub *realtime.Hub,
+	tickets *realtime.TicketStore,
+	checker service.PermissionChecker,
+	allowedOrigins []string,
+) *RealtimeHandler {
+	return &RealtimeHandler{
+		hub:            hub,
+		tickets:        tickets,
+		checker:        checker,
+		originPatterns: originHosts(allowedOrigins),
+	}
+}
+
+func (h *RealtimeHandler) WithOptions(opts realtime.Options) *RealtimeHandler {
+	h.opts = opts
+	return h
+}
+
+func originHosts(origins []string) []string {
+	hosts := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		if u, err := url.Parse(origin); err == nil && u.Host != "" {
+			hosts = append(hosts, u.Host)
+		}
+	}
+	return hosts
+}
+
+func idParam(c *gin.Context, name string) (uint, bool) {
+	id, err := strconv.ParseUint(c.Param(name), 10, 64)
+	if err != nil || id == 0 {
+		response.HandleError(c, httperrors.BadRequest("INVALID_"+strings.ToUpper(name), "invalid "+name, err))
+		return 0, false
+	}
+	return uint(id), true
+}
+
+func (h *RealtimeHandler) issueTicket(c *gin.Context, topic string) {
+	userID, err := contextutil.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
+
+	ticket, err := h.tickets.Issue(userID, topic)
+	if err != nil {
+		if errors.Is(err, realtime.ErrTooManyTickets) {
+			response.HandleError(c, httperrors.TooManyRequests("TOO_MANY_TICKETS", err.Error(), err))
+			return
+		}
+		response.HandleError(c, httperrors.Internal("TICKET_ISSUE_FAILED", "internal server error", err))
+		return
+	}
+
+	response.Success(c, http.StatusOK, gin.H{
+		"ticket":     ticket,
+		"expires_in": int(h.tickets.TTL().Seconds()),
+		"topic":      topic,
+	})
+}
+
+func (h *RealtimeHandler) IssueListTicket(c *gin.Context) {
+	if listID, ok := idParam(c, "list_id"); ok {
+		h.issueTicket(c, realtime.ListTopic(listID))
+	}
+}
+
+func (h *RealtimeHandler) IssueSpaceTicket(c *gin.Context) {
+	if spaceID, ok := idParam(c, "space_id"); ok {
+		h.issueTicket(c, realtime.SpaceTopic(spaceID))
+	}
+}
+
+func (h *RealtimeHandler) ConnectList(c *gin.Context) {
+	listID, ok := idParam(c, "list_id")
+	if !ok {
+		return
+	}
+	h.connect(c, realtime.ListTopic(listID), func(userID uint) (bool, error) {
+		return h.checker.HasListPermission(userID, listID, permissionTaskRead)
+	})
+}
+
+func (h *RealtimeHandler) ConnectSpace(c *gin.Context) {
+	spaceID, ok := idParam(c, "space_id")
+	if !ok {
+		return
+	}
+	h.connect(c, realtime.SpaceTopic(spaceID), func(userID uint) (bool, error) {
+		return h.checker.HasSpacePermission(userID, spaceID, permissionTaskRead)
+	})
+}
+
+func (h *RealtimeHandler) connect(c *gin.Context, topic string, authorize func(userID uint) (bool, error)) {
+	userID, err := h.tickets.Redeem(c.GetString(middleware.WSTicketKey), topic)
+	if err != nil {
+		response.HandleError(c, httperrors.Unauthorized("INVALID_TICKET", "invalid or expired ticket", err))
+		return
+	}
+
+	allowed, err := authorize(userID)
+	if err != nil {
+		response.HandleError(c, httperrors.Internal("PERMISSION_CHECK_FAILED", "internal server error", err))
+		return
+	}
+	if !allowed {
+		response.Forbidden(c, "")
+		return
+	}
+
+	sub, err := h.hub.Subscribe(userID, topic)
+	if err != nil {
+		switch {
+		case errors.Is(err, realtime.ErrTooManyConnections):
+			response.HandleError(c, httperrors.TooManyRequests("TOO_MANY_CONNECTIONS", err.Error(), err))
+		case errors.Is(err, realtime.ErrHubClosed):
+			response.HandleError(c, httperrors.ServiceUnavailable("SHUTTING_DOWN", err.Error(), err))
+		default:
+			response.HandleError(c, httperrors.Internal("SUBSCRIBE_FAILED", "internal server error", err))
+		}
+		return
+	}
+	defer h.hub.Unsubscribe(sub)
+
+	conn, err := websocket.Accept(c.Writer, c.Request, &websocket.AcceptOptions{OriginPatterns: h.originPatterns})
+	if err != nil {
+		slog.Debug("websocket handshake rejected", "error", err)
+		return
+	}
+
+	slog.Debug("websocket connected", "user_id", userID, "topic", topic)
+	realtime.Serve(c.Request.Context(), conn, sub, func(_ context.Context) bool {
+		stillAllowed, err := authorize(userID)
+		return err == nil && stillAllowed
+	}, h.opts)
+	slog.Debug("websocket disconnected", "user_id", userID, "topic", topic)
+}
