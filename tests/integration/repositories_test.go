@@ -270,13 +270,13 @@ func TestStatusRepository_PositionsStayContiguous(t *testing.T) {
 		t.Fatalf("after move a->end = %s", got)
 	}
 
-	if err := statuses.Delete(list.ID, b.ID); err != nil {
+	if err := statuses.Delete(list.ID, b.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := order(); got != "[c x a]" {
 		t.Fatalf("after delete b = %s", got)
 	}
-	if err := statuses.Delete(list.ID, b.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := statuses.Delete(list.ID, b.ID, nil); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("deleting twice err = %v, want not found", err)
 	}
 }
