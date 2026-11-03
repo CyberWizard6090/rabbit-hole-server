@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/dto"
@@ -158,7 +159,11 @@ func (h *TaskHandler) Get(c *gin.Context) {
 
 	task, err := h.service.GetTaskByID(uint(taskID))
 	if err != nil {
-		response.HandleError(c, httperrors.NotFound("TASK_NOT_FOUND", "task not found", err))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.HandleError(c, httperrors.NotFound("TASK_NOT_FOUND", "task not found", err))
+			return
+		}
+		response.HandleError(c, httperrors.Internal("TASK_FETCH_FAILED", "internal server error", err))
 		return
 	}
 

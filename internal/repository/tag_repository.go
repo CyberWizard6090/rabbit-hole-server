@@ -50,8 +50,10 @@ func (r *tagRepository) GetAllBySpace(spaceID uint) ([]domain.Tag, error) {
 
 func (r *tagRepository) GetByID(tagID uint) (*domain.Tag, error) {
 	var tag domain.Tag
-	err := r.db.First(&tag, tagID).Error
-	return &tag, err
+	if err := r.db.First(&tag, tagID).Error; err != nil {
+		return nil, err
+	}
+	return &tag, nil
 }
 
 func (r *tagRepository) GetByName(spaceID uint, name string) (*domain.Tag, error) {
