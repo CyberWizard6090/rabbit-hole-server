@@ -542,3 +542,5 @@ func (m *tagServiceMock) GetOrCreateByName(spaceID uint, name string, defaultCol
 	return &domain.Tag{ID: uint(len(m.calls)), SpaceID: spaceID, Name: name, Color: defaultColor}, nil
 }
 func (m *tagServiceMock) MergeTags(spaceID, sourceTagID, targetTagID uint) error { return nil }
+
+func (m *tagServiceMock) GetTag(spaceID, tagID uint) (*TagWithUsage, error) { return nil, nil }

@@ -212,3 +212,22 @@ func TestTagServiceMergeTagsCallsRepository(t *testing.T) {
 		t.Fatalf("merge args=(%d,%d,%d)", repo.mergedSpaceID, repo.mergedSourceID, repo.mergedTargetID)
 	}
 }
+
+func TestTagServiceGetTagReturnsUsageAndEnforcesSpace(t *testing.T) {
+	repo := &tagRepositoryMock{tag: &domain.Tag{ID: 3, SpaceID: 9, Name: "bug"}, usageByID: map[uint]int64{3: 4}}
+	svc := NewTagService(repo)
+
+	got, err := svc.GetTag(9, 3)
+	if err != nil || got.ID != 3 || got.UsageCount != 4 {
+		t.Fatalf("GetTag = %+v, err=%v, want tag 3 with usage 4", got, err)
+	}
+
+	if _, err := svc.GetTag(10, 3); !errors.Is(err, ErrTagSpaceMismatch) {
+		t.Fatalf("tag of another space: err=%v, want ErrTagSpaceMismatch", err)
+	}
+
+	missing := NewTagService(&tagRepositoryMock{byIDErr: errors.New("not found")})
+	if _, err := missing.GetTag(9, 3); !errors.Is(err, ErrTagNotFound) {
+		t.Fatalf("missing tag: err=%v, want ErrTagNotFound", err)
+	}
+}
