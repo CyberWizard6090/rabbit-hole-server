@@ -2,9 +2,10 @@ package service
 
 import (
 	"errors"
-	"gorm.io/gorm"
 	"reflect"
 	"testing"
+
+	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
 )
