@@ -11,6 +11,7 @@ import (
 
 	"rabbit-hole-server/db/migrations"
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 	"rabbit-hole-server/internal/repository"
 	"rabbit-hole-server/internal/service"
 
@@ -68,24 +69,24 @@ func TestQueryIndexesAndTrigramExtensionExist(t *testing.T) {
 
 func TestDatabaseRejectsBlankNames(t *testing.T) {
 	tc := newTestContext(t)
-	user := domain.User{Email: "blank-name-owner@example.test", PasswordHash: "x"}
+	user := persistence.User{Email: "blank-name-owner@example.test", PasswordHash: "x"}
 	if err := tc.DB.Create(&user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	workspace := domain.Workspace{Name: "Workspace", OwnerID: user.ID}
+	workspace := persistence.Workspace{Name: "Workspace", OwnerID: user.ID}
 	if err := tc.DB.Create(&workspace).Error; err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
-	space := domain.Space{Name: "Space", WorkspaceID: workspace.ID, OwnerID: user.ID}
+	space := persistence.Space{Name: "Space", WorkspaceID: workspace.ID, OwnerID: user.ID}
 	if err := tc.DB.Create(&space).Error; err != nil {
 		t.Fatalf("create space: %v", err)
 	}
-	list := domain.List{Name: "List", SpaceID: space.ID}
+	list := persistence.List{Name: "List", SpaceID: space.ID}
 	if err := tc.DB.Create(&list).Error; err != nil {
 		t.Fatalf("create list: %v", err)
 	}
-	status := domain.TaskStatus{
-		SpaceID: space.ID, ListID: list.ID, Name: "Status", Color: "#000000", Position: 1, Type: domain.StatusTodo,
+	status := persistence.TaskStatus{
+		SpaceID: space.ID, ListID: list.ID, Name: "Status", Color: "#000000", Position: 1, Type: persistence.StatusTodo,
 	}
 	if err := tc.DB.Create(&status).Error; err != nil {
 		t.Fatalf("create status: %v", err)
@@ -165,7 +166,7 @@ func TestIntegrationDatabaseURLMustBeDistinct(t *testing.T) {
 
 func TestIntegrationResetPreservesPermissions(t *testing.T) {
 	tc := newTestContext(t)
-	user := domain.User{Email: "reset-check@example.test", PasswordHash: "x"}
+	user := persistence.User{Email: "reset-check@example.test", PasswordHash: "x"}
 	if err := tc.DB.Create(&user).Error; err != nil {
 		t.Fatalf("create reset-check user: %v", err)
 	}
@@ -175,10 +176,10 @@ func TestIntegrationResetPreservesPermissions(t *testing.T) {
 	}
 
 	var userCount, permissionCount int64
-	if err := tc.DB.Model(&domain.User{}).Count(&userCount).Error; err != nil {
+	if err := tc.DB.Model(&persistence.User{}).Count(&userCount).Error; err != nil {
 		t.Fatalf("count users after reset: %v", err)
 	}
-	if err := tc.DB.Model(&domain.Permission{}).Count(&permissionCount).Error; err != nil {
+	if err := tc.DB.Model(&persistence.Permission{}).Count(&permissionCount).Error; err != nil {
 		t.Fatalf("count permissions after reset: %v", err)
 	}
 	if userCount != 0 {
@@ -197,58 +198,58 @@ func TestSoftDeletedUniqueRowsCanBeRecreated(t *testing.T) {
 	}
 	defer tx.Rollback()
 
-	user := domain.User{Email: "partial-index@example.test", PasswordHash: "x"}
+	user := persistence.User{Email: "partial-index@example.test", PasswordHash: "x"}
 	if err := tx.Create(&user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	workspace := domain.Workspace{Name: "Partial index", OwnerID: user.ID}
+	workspace := persistence.Workspace{Name: "Partial index", OwnerID: user.ID}
 	if err := tx.Create(&workspace).Error; err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
-	role := domain.Role{WorkspaceID: workspace.ID, Name: "Member"}
+	role := persistence.Role{WorkspaceID: workspace.ID, Name: "Member"}
 	if err := tx.Create(&role).Error; err != nil {
 		t.Fatalf("create role: %v", err)
 	}
 	if err := tx.Delete(&role).Error; err != nil {
 		t.Fatalf("soft-delete role: %v", err)
 	}
-	role = domain.Role{WorkspaceID: workspace.ID, Name: "Member"}
+	role = persistence.Role{WorkspaceID: workspace.ID, Name: "Member"}
 	if err := tx.Create(&role).Error; err != nil {
 		t.Fatalf("recreate soft-deleted role: %v", err)
 	}
 
-	member := domain.Member{WorkspaceID: workspace.ID, UserID: user.ID, RoleID: role.ID}
+	member := persistence.Member{WorkspaceID: workspace.ID, UserID: user.ID, RoleID: role.ID}
 	if err := tx.Create(&member).Error; err != nil {
 		t.Fatalf("create member: %v", err)
 	}
 	if err := tx.Delete(&member).Error; err != nil {
 		t.Fatalf("soft-delete member: %v", err)
 	}
-	member = domain.Member{WorkspaceID: workspace.ID, UserID: user.ID, RoleID: role.ID}
+	member = persistence.Member{WorkspaceID: workspace.ID, UserID: user.ID, RoleID: role.ID}
 	if err := tx.Create(&member).Error; err != nil {
 		t.Fatalf("recreate soft-deleted member: %v", err)
 	}
 
-	permission := domain.Permission{Code: "integration.partial-index"}
+	permission := persistence.Permission{Code: "integration.partial-index"}
 	if err := tx.Create(&permission).Error; err != nil {
 		t.Fatalf("create permission: %v", err)
 	}
 	if err := tx.Delete(&permission).Error; err != nil {
 		t.Fatalf("soft-delete permission: %v", err)
 	}
-	permission = domain.Permission{Code: "integration.partial-index"}
+	permission = persistence.Permission{Code: "integration.partial-index"}
 	if err := tx.Create(&permission).Error; err != nil {
 		t.Fatalf("recreate soft-deleted permission: %v", err)
 	}
 
-	grant := domain.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
+	grant := persistence.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
 	if err := tx.Create(&grant).Error; err != nil {
 		t.Fatalf("create role permission: %v", err)
 	}
 	if err := tx.Delete(&grant).Error; err != nil {
 		t.Fatalf("soft-delete role permission: %v", err)
 	}
-	grant = domain.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
+	grant = persistence.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
 	if err := tx.Create(&grant).Error; err != nil {
 		t.Fatalf("recreate soft-deleted role permission: %v", err)
 	}
@@ -282,19 +283,19 @@ func TestWorkspaceDeleteCascadesRolesAndMembers(t *testing.T) {
 
 func TestConcurrentStatusCreatesSerializePositions(t *testing.T) {
 	tc := newTestContext(t)
-	owner := domain.User{Email: "status-concurrency@example.test", PasswordHash: "x"}
+	owner := persistence.User{Email: "status-concurrency@example.test", PasswordHash: "x"}
 	if err := tc.DB.Create(&owner).Error; err != nil {
 		t.Fatalf("create owner: %v", err)
 	}
-	workspace := domain.Workspace{Name: "Status concurrency", OwnerID: owner.ID}
+	workspace := persistence.Workspace{Name: "Status concurrency", OwnerID: owner.ID}
 	if err := tc.DB.Create(&workspace).Error; err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
-	space := domain.Space{WorkspaceID: workspace.ID, OwnerID: owner.ID, Name: "Status concurrency"}
+	space := persistence.Space{WorkspaceID: workspace.ID, OwnerID: owner.ID, Name: "Status concurrency"}
 	if err := tc.DB.Create(&space).Error; err != nil {
 		t.Fatalf("create space: %v", err)
 	}
-	list := domain.List{SpaceID: space.ID, Name: "Status concurrency"}
+	list := persistence.List{SpaceID: space.ID, Name: "Status concurrency"}
 	if err := tc.DB.Create(&list).Error; err != nil {
 		t.Fatalf("create list: %v", err)
 	}
@@ -349,8 +350,8 @@ func TestStatusDeleteCompactsPositions(t *testing.T) {
 	if len(statuses) != 2 || statuses[0].Position != 1 || statuses[1].Position != 2 || statuses[1].ID != last.ID {
 		t.Fatalf("statuses after delete = %+v, want positions [1 2] ending with the last status", statuses)
 	}
-	if err := statusRepo.Delete(context.Background(), list.ID, middle.ID, nil); !errors.Is(err, gorm.ErrRecordNotFound) {
-		t.Fatalf("second delete error = %v, want record not found", err)
+	if err := statusRepo.Delete(context.Background(), list.ID, middle.ID, nil); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("second delete error = %v, want domain.ErrNotFound", err)
 	}
 }
 
@@ -461,7 +462,7 @@ func TestUpdatedAtTriggerHandlesDirectTaskUpdates(t *testing.T) {
 	tc := newTestContext(t)
 	_, _, list := createWorkspaceTaskGraph(t, tc.DB, "updated-at-trigger@example.test", "Updated at trigger")
 
-	var task domain.Task
+	var task persistence.Task
 	if err := tc.DB.Where("list_id = ?", list.ID).First(&task).Error; err != nil {
 		t.Fatalf("find task: %v", err)
 	}
@@ -484,23 +485,23 @@ func TestUpdatedAtTriggerHandlesDirectTaskUpdates(t *testing.T) {
 
 func TestPermissionsRollbackRefusesReferencedPermissions(t *testing.T) {
 	tc := newTestContext(t)
-	user := domain.User{Email: "permission-rollback@example.test", PasswordHash: "x"}
+	user := persistence.User{Email: "permission-rollback@example.test", PasswordHash: "x"}
 	if err := tc.DB.Create(&user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	workspace := domain.Workspace{Name: "Permission rollback", OwnerID: user.ID}
+	workspace := persistence.Workspace{Name: "Permission rollback", OwnerID: user.ID}
 	if err := tc.DB.Create(&workspace).Error; err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
-	role := domain.Role{WorkspaceID: workspace.ID, Name: "Member"}
+	role := persistence.Role{WorkspaceID: workspace.ID, Name: "Member"}
 	if err := tc.DB.Create(&role).Error; err != nil {
 		t.Fatalf("create role: %v", err)
 	}
-	var permission domain.Permission
+	var permission persistence.Permission
 	if err := tc.DB.Where("code = ?", "workspace.read").First(&permission).Error; err != nil {
 		t.Fatalf("find seeded permission: %v", err)
 	}
-	grant := domain.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
+	grant := persistence.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
 	if err := tc.DB.Create(&grant).Error; err != nil {
 		t.Fatalf("create permission reference: %v", err)
 	}
@@ -518,10 +519,10 @@ func TestPermissionsRollbackRefusesReferencedPermissions(t *testing.T) {
 	}
 
 	var permissionCount, grantCount int64
-	if err := tc.DB.Model(&domain.Permission{}).Where("id = ?", permission.ID).Count(&permissionCount).Error; err != nil {
+	if err := tc.DB.Model(&persistence.Permission{}).Where("id = ?", permission.ID).Count(&permissionCount).Error; err != nil {
 		t.Fatalf("check permission after rejected rollback: %v", err)
 	}
-	if err := tc.DB.Model(&domain.RolePermission{}).Where("id = ?", grant.ID).Count(&grantCount).Error; err != nil {
+	if err := tc.DB.Model(&persistence.RolePermission{}).Where("id = ?", grant.ID).Count(&grantCount).Error; err != nil {
 		t.Fatalf("check grant after rejected rollback: %v", err)
 	}
 	if permissionCount != 1 || grantCount != 1 {
@@ -531,23 +532,23 @@ func TestPermissionsRollbackRefusesReferencedPermissions(t *testing.T) {
 
 func TestDatabaseCheckConstraintsRejectInvalidValues(t *testing.T) {
 	tc := newTestContext(t)
-	owner := domain.User{Email: "check-constraints@example.test", PasswordHash: "x"}
+	owner := persistence.User{Email: "check-constraints@example.test", PasswordHash: "x"}
 	if err := tc.DB.Create(&owner).Error; err != nil {
 		t.Fatalf("create owner: %v", err)
 	}
-	workspace := domain.Workspace{Name: "Check constraints", OwnerID: owner.ID}
+	workspace := persistence.Workspace{Name: "Check constraints", OwnerID: owner.ID}
 	if err := tc.DB.Create(&workspace).Error; err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
-	space := domain.Space{WorkspaceID: workspace.ID, OwnerID: owner.ID, Name: "Checks"}
+	space := persistence.Space{WorkspaceID: workspace.ID, OwnerID: owner.ID, Name: "Checks"}
 	if err := tc.DB.Create(&space).Error; err != nil {
 		t.Fatalf("create space: %v", err)
 	}
-	list := domain.List{SpaceID: space.ID, Name: "Checks"}
+	list := persistence.List{SpaceID: space.ID, Name: "Checks"}
 	if err := tc.DB.Create(&list).Error; err != nil {
 		t.Fatalf("create list: %v", err)
 	}
-	status := domain.TaskStatus{SpaceID: space.ID, ListID: list.ID, Name: "Todo", Color: "#123456", Position: 1, Type: domain.StatusTodo}
+	status := persistence.TaskStatus{SpaceID: space.ID, ListID: list.ID, Name: "Todo", Color: "#123456", Position: 1, Type: persistence.StatusTodo}
 	if err := tc.DB.Create(&status).Error; err != nil {
 		t.Fatalf("create status: %v", err)
 	}
@@ -566,37 +567,37 @@ func TestDatabaseCheckConstraintsRejectInvalidValues(t *testing.T) {
 	}
 
 	assertRejected("status type", func(tx *gorm.DB) error {
-		return tx.Create(&domain.TaskStatus{SpaceID: space.ID, ListID: list.ID, Name: "Invalid type", Color: "#123456", Position: 2, Type: domain.StatusTypeUndefined}).Error
+		return tx.Create(&persistence.TaskStatus{SpaceID: space.ID, ListID: list.ID, Name: "Invalid type", Color: "#123456", Position: 2, Type: persistence.StatusTypeUndefined}).Error
 	})
 	assertRejected("status color", func(tx *gorm.DB) error {
-		return tx.Create(&domain.TaskStatus{SpaceID: space.ID, ListID: list.ID, Name: "Invalid color", Color: "#fff", Position: 2, Type: domain.StatusTodo}).Error
+		return tx.Create(&persistence.TaskStatus{SpaceID: space.ID, ListID: list.ID, Name: "Invalid color", Color: "#fff", Position: 2, Type: persistence.StatusTodo}).Error
 	})
 	assertRejected("tag color", func(tx *gorm.DB) error {
-		return tx.Create(&domain.Tag{SpaceID: space.ID, Name: "Invalid color", Color: "red"}).Error
+		return tx.Create(&persistence.Tag{SpaceID: space.ID, Name: "Invalid color", Color: "red"}).Error
 	})
 	assertRejected("priority range", func(tx *gorm.DB) error {
-		return tx.Create(&domain.Task{SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, UserID: owner.ID, Title: "Invalid priority", Priority: 6}).Error
+		return tx.Create(&persistence.Task{SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, UserID: owner.ID, Title: "Invalid priority", Priority: 6}).Error
 	})
 	assertRejected("negative estimate", func(tx *gorm.DB) error {
-		return tx.Create(&domain.Task{SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, UserID: owner.ID, Title: "Invalid estimate", TimeEstimate: -1}).Error
+		return tx.Create(&persistence.Task{SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, UserID: owner.ID, Title: "Invalid estimate", TimeEstimate: -1}).Error
 	})
 	assertRejected("negative time spent", func(tx *gorm.DB) error {
-		return tx.Create(&domain.Task{SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, UserID: owner.ID, Title: "Invalid time spent", TimeSpent: -1}).Error
+		return tx.Create(&persistence.Task{SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, UserID: owner.ID, Title: "Invalid time spent", TimeSpent: -1}).Error
 	})
 	assertRejected("date order", func(tx *gorm.DB) error {
 		startDate := time.Date(2026, time.January, 2, 0, 0, 0, 0, time.UTC)
 		dueDate := startDate.Add(-24 * time.Hour)
-		return tx.Create(&domain.Task{SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, UserID: owner.ID, Title: "Invalid dates", StartDate: &startDate, DueDate: &dueDate}).Error
+		return tx.Create(&persistence.Task{SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, UserID: owner.ID, Title: "Invalid dates", StartDate: &startDate, DueDate: &dueDate}).Error
 	})
 	assertRejected("self parent task", func(tx *gorm.DB) error {
 		const id uint = 900001
 		parentID := id
-		return tx.Create(&domain.Task{Model: domain.Model{ID: id}, SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, ParentID: &parentID, UserID: owner.ID, Title: "Self parent"}).Error
+		return tx.Create(&persistence.Task{Model: gorm.Model{ID: id}, SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, ParentID: &parentID, UserID: owner.ID, Title: "Self parent"}).Error
 	})
 	assertRejected("self parent folder", func(tx *gorm.DB) error {
 		const id uint = 900002
 		parentID := id
-		return tx.Create(&domain.Folder{Model: domain.Model{ID: id}, SpaceID: space.ID, Name: "Self parent", ParentID: &parentID}).Error
+		return tx.Create(&persistence.Folder{Model: gorm.Model{ID: id}, SpaceID: space.ID, Name: "Self parent", ParentID: &parentID}).Error
 	})
 	assertRejected("self contact", func(tx *gorm.DB) error {
 		return tx.Exec("INSERT INTO user_contacts (user_id, contact_id) VALUES (?, ?)", owner.ID, owner.ID).Error
@@ -606,64 +607,64 @@ func TestDatabaseCheckConstraintsRejectInvalidValues(t *testing.T) {
 func TestPermissionCheckerIgnoresSoftDeletedRows(t *testing.T) {
 	tc := newTestContext(t)
 	user, workspace, role, member, permission := createPermissionFixture(t, tc.DB)
-	grant := domain.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
+	grant := persistence.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
 	requireDBSuccess(t, tc.DB.Create(&grant).Error, "create initial grant")
-	checker := service.NewPermissionChecker(tc.DB)
+	checker := repository.NewPermissionChecker(tc.DB)
 	assertWorkspacePermission(t, checker, user.ID, workspace.ID, permission.Code, true)
 	requireDBSuccess(t, tc.DB.Delete(&member).Error, "soft-delete member")
 	assertWorkspacePermission(t, checker, user.ID, workspace.ID, permission.Code, false)
-	member = domain.Member{WorkspaceID: workspace.ID, UserID: user.ID, RoleID: role.ID}
+	member = persistence.Member{WorkspaceID: workspace.ID, UserID: user.ID, RoleID: role.ID}
 	requireDBSuccess(t, tc.DB.Create(&member).Error, "recreate member")
 	assertWorkspacePermission(t, checker, user.ID, workspace.ID, permission.Code, true)
 	requireDBSuccess(t, tc.DB.Delete(&grant).Error, "soft-delete grant")
 	assertWorkspacePermission(t, checker, user.ID, workspace.ID, permission.Code, false)
-	grant = domain.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
+	grant = persistence.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
 	requireDBSuccess(t, tc.DB.Create(&grant).Error, "recreate grant")
 	requireDBSuccess(t, tc.DB.Delete(&role).Error, "soft-delete role")
 	assertWorkspacePermission(t, checker, user.ID, workspace.ID, permission.Code, false)
-	role = domain.Role{WorkspaceID: workspace.ID, Name: "Member"}
+	role = persistence.Role{WorkspaceID: workspace.ID, Name: "Member"}
 	requireDBSuccess(t, tc.DB.Create(&role).Error, "recreate role")
 	member.RoleID = role.ID
 	requireDBSuccess(t, tc.DB.Save(&member).Error, "move member to recreated role")
-	grant = domain.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
+	grant = persistence.RolePermission{RoleID: role.ID, PermissionID: permission.ID}
 	requireDBSuccess(t, tc.DB.Create(&grant).Error, "grant permission to recreated role")
 	assertWorkspacePermission(t, checker, user.ID, workspace.ID, permission.Code, true)
 	requireDBSuccess(t, tc.DB.Delete(&permission).Error, "soft-delete permission")
 	assertWorkspacePermission(t, checker, user.ID, workspace.ID, permission.Code, false)
 }
 
-func createWorkspaceTaskGraph(t *testing.T, db *gorm.DB, email, name string) (domain.Workspace, domain.Space, domain.List) {
+func createWorkspaceTaskGraph(t *testing.T, db *gorm.DB, email, name string) (persistence.Workspace, persistence.Space, persistence.List) {
 	t.Helper()
-	owner := domain.User{Email: email, PasswordHash: "x"}
+	owner := persistence.User{Email: email, PasswordHash: "x"}
 	requireDBSuccess(t, db.Create(&owner).Error, "create owner")
-	workspace := domain.Workspace{Name: name, OwnerID: owner.ID}
+	workspace := persistence.Workspace{Name: name, OwnerID: owner.ID}
 	requireDBSuccess(t, db.Create(&workspace).Error, "create workspace")
-	role := domain.Role{WorkspaceID: workspace.ID, Name: "Owner"}
+	role := persistence.Role{WorkspaceID: workspace.ID, Name: "Owner"}
 	requireDBSuccess(t, db.Create(&role).Error, "create role")
-	member := domain.Member{WorkspaceID: workspace.ID, UserID: owner.ID, RoleID: role.ID}
+	member := persistence.Member{WorkspaceID: workspace.ID, UserID: owner.ID, RoleID: role.ID}
 	requireDBSuccess(t, db.Create(&member).Error, "create member")
-	space := domain.Space{WorkspaceID: workspace.ID, OwnerID: owner.ID, Name: name + " space"}
+	space := persistence.Space{WorkspaceID: workspace.ID, OwnerID: owner.ID, Name: name + " space"}
 	requireDBSuccess(t, db.Create(&space).Error, "create space")
-	list := domain.List{SpaceID: space.ID, Name: name + " list"}
+	list := persistence.List{SpaceID: space.ID, Name: name + " list"}
 	requireDBSuccess(t, db.Create(&list).Error, "create list")
-	status := domain.TaskStatus{SpaceID: space.ID, ListID: list.ID, Name: "Todo", Color: "#123456", Position: 1, Type: domain.StatusTodo}
+	status := persistence.TaskStatus{SpaceID: space.ID, ListID: list.ID, Name: "Todo", Color: "#123456", Position: 1, Type: persistence.StatusTodo}
 	requireDBSuccess(t, db.Create(&status).Error, "create status")
-	task := domain.Task{SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, UserID: owner.ID, Title: name + " task"}
+	task := persistence.Task{SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, UserID: owner.ID, Title: name + " task"}
 	requireDBSuccess(t, db.Create(&task).Error, "create task")
 	return workspace, space, list
 }
 
-func createPermissionFixture(t *testing.T, db *gorm.DB) (domain.User, domain.Workspace, domain.Role, domain.Member, domain.Permission) {
+func createPermissionFixture(t *testing.T, db *gorm.DB) (persistence.User, persistence.Workspace, persistence.Role, persistence.Member, persistence.Permission) {
 	t.Helper()
-	user := domain.User{Email: "permission-checker@example.test", PasswordHash: "x"}
+	user := persistence.User{Email: "permission-checker@example.test", PasswordHash: "x"}
 	requireDBSuccess(t, db.Create(&user).Error, "create user")
-	workspace := domain.Workspace{Name: "Permission checker", OwnerID: user.ID}
+	workspace := persistence.Workspace{Name: "Permission checker", OwnerID: user.ID}
 	requireDBSuccess(t, db.Create(&workspace).Error, "create workspace")
-	role := domain.Role{WorkspaceID: workspace.ID, Name: "Member"}
+	role := persistence.Role{WorkspaceID: workspace.ID, Name: "Member"}
 	requireDBSuccess(t, db.Create(&role).Error, "create role")
-	member := domain.Member{WorkspaceID: workspace.ID, UserID: user.ID, RoleID: role.ID}
+	member := persistence.Member{WorkspaceID: workspace.ID, UserID: user.ID, RoleID: role.ID}
 	requireDBSuccess(t, db.Create(&member).Error, "create member")
-	permission := domain.Permission{Code: "integration.permission.checker"}
+	permission := persistence.Permission{Code: "integration.permission.checker"}
 	requireDBSuccess(t, db.Create(&permission).Error, "create permission")
 	return user, workspace, role, member, permission
 }

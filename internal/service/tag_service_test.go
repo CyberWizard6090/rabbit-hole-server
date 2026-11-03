@@ -6,8 +6,6 @@ import (
 	"reflect"
 	"testing"
 
-	"gorm.io/gorm"
-
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -54,7 +52,7 @@ func TestTagServiceGetOrCreateByNameReturnsExisting(t *testing.T) {
 }
 
 func TestTagServiceGetOrCreateByNameCreatesWhenMissing(t *testing.T) {
-	repo := &tagRepositoryMock{byNameErr: gorm.ErrRecordNotFound}
+	repo := &tagRepositoryMock{byNameErr: domain.ErrNotFound}
 	svc := NewTagService(repo)
 
 	got, err := svc.GetOrCreateByName(context.Background(), 5, "Bug", "#fff")
@@ -75,7 +73,7 @@ func TestTagServiceGetOrCreateByNamePropagatesLookupAndCreateErrors(t *testing.T
 	}
 
 	createErr := errors.New("create failed")
-	repo = &tagRepositoryMock{byNameErr: gorm.ErrRecordNotFound, createErr: createErr}
+	repo = &tagRepositoryMock{byNameErr: domain.ErrNotFound, createErr: createErr}
 	svc = NewTagService(repo)
 	if _, err := svc.GetOrCreateByName(context.Background(), 1, "x", "#fff"); !errors.Is(err, createErr) {
 		t.Fatalf("create error=%v", err)
@@ -122,7 +120,7 @@ func TestTagServiceUpdateTagChecksSpaceAndChangesFields(t *testing.T) {
 }
 
 func TestTagServiceUpdateTagRejectsMissingAndWrongSpace(t *testing.T) {
-	svc := NewTagService(&tagRepositoryMock{byIDErr: gorm.ErrRecordNotFound})
+	svc := NewTagService(&tagRepositoryMock{byIDErr: domain.ErrNotFound})
 	if _, err := svc.UpdateTag(context.Background(), 5, 9, UpdateTagParams{}); !errors.Is(err, ErrTagNotFound) {
 		t.Fatalf("missing error=%v", err)
 	}
@@ -157,7 +155,7 @@ func TestTagServiceDeleteTagChecksSpaceAndDeletes(t *testing.T) {
 		t.Fatalf("mismatch error=%v", err)
 	}
 
-	svc = NewTagService(&tagRepositoryMock{byIDErr: gorm.ErrRecordNotFound})
+	svc = NewTagService(&tagRepositoryMock{byIDErr: domain.ErrNotFound})
 	if err := svc.DeleteTag(context.Background(), 5, 9); !errors.Is(err, ErrTagNotFound) {
 		t.Fatalf("not found error=%v", err)
 	}
@@ -169,7 +167,7 @@ func TestTagServiceMergeTagsValidatesInputs(t *testing.T) {
 		t.Fatalf("same error=%v", err)
 	}
 
-	svc = NewTagService(&tagRepositoryMock{byIDErr: gorm.ErrRecordNotFound})
+	svc = NewTagService(&tagRepositoryMock{byIDErr: domain.ErrNotFound})
 	if err := svc.MergeTags(context.Background(), 1, 7, 8); !errors.Is(err, ErrTagNotFound) {
 		t.Fatalf("missing source error=%v", err)
 	}
@@ -178,7 +176,7 @@ func TestTagServiceMergeTagsValidatesInputs(t *testing.T) {
 		byID: map[uint]*domain.Tag{
 			7: {ID: 7, SpaceID: 1},
 		},
-		byIDErr: gorm.ErrRecordNotFound,
+		byIDErr: domain.ErrNotFound,
 	}
 	svc = NewTagService(repo)
 	if err := svc.MergeTags(context.Background(), 1, 7, 8); !errors.Is(err, ErrTagNotFound) {
@@ -239,7 +237,7 @@ func TestGetOrCreateByNameRecoversFromConcurrentCreate(t *testing.T) {
 		createErr: domain.ErrTagNameTaken,
 		byNameFn: func(call int) (*domain.Tag, error) {
 			if call == 1 {
-				return nil, gorm.ErrRecordNotFound
+				return nil, domain.ErrNotFound
 			}
 			return winner, nil
 		},
@@ -256,7 +254,7 @@ func TestGetOrCreateByNameRecoversFromConcurrentCreate(t *testing.T) {
 
 func TestGetOrCreateByNameStillFailsOnOtherCreateErrors(t *testing.T) {
 	boom := errors.New("disk full")
-	repo := &tagRepositoryMock{createErr: boom, byNameErr: gorm.ErrRecordNotFound}
+	repo := &tagRepositoryMock{createErr: boom, byNameErr: domain.ErrNotFound}
 	if _, err := NewTagService(repo).GetOrCreateByName(context.Background(), 5, "x", "#112233"); !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want the create error to surface", err)
 	}

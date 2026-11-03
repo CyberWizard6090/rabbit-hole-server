@@ -8,10 +8,10 @@ import (
 var ErrTagNameTaken = errors.New("tag with this name already exists in this space")
 
 type Tag struct {
-	ID      uint   `gorm:"primaryKey" json:"id"`
-	SpaceID uint   `gorm:"index;not null;column:space_id" json:"-"`
-	Name    string `gorm:"not null" json:"name"`
-	Color   string `gorm:"size:7;not null" json:"color"`
+	ID      uint   `json:"id"`
+	SpaceID uint   `json:"-"`
+	Name    string `json:"name"`
+	Color   string `json:"color"`
 }
 
 type TagRepository interface {

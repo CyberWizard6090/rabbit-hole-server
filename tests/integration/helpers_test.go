@@ -19,7 +19,7 @@ import (
 	"rabbit-hole-server/internal/app"
 	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/database"
-	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 var (
@@ -257,7 +257,7 @@ func registerAndLogin(t *testing.T, tc *TestContext) {
 		t.Fatalf("login response does not contain access_token: %s", rec.Body.String())
 	}
 
-	var user domain.User
+	var user persistence.User
 	if err := tc.DB.Where("email = ?", email).First(&user).Error; err != nil {
 		t.Fatalf("find registered user: %v", err)
 	}

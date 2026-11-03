@@ -17,7 +17,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/argon2"
-	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/dto"
@@ -316,7 +315,7 @@ func (s *AuthService) Refresh(ctx context.Context, refreshTokenString string) (d
 		return dto.TokenPair{}, err
 	}
 	if err := s.repo.RotateSession(ctx, tokenHash, replacement); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, domain.ErrNotFound) {
 			s.handleUnknownRefreshSession(ctx, claims.UserID)
 			return dto.TokenPair{}, errors.New("session not found")
 		}

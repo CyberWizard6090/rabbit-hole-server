@@ -7,9 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"gorm.io/gorm"
-
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 	"rabbit-hole-server/internal/repository"
 )
 
@@ -52,7 +51,7 @@ func TestWorkspaceRepository_CreateSeedsRolesPermissionsAndOwner(t *testing.T) {
 		}
 	}
 
-	var member domain.Member
+	var member persistence.Member
 	if err := tc.DB.Preload("Role").Where("workspace_id = ? AND user_id = ?", ws.ID, owner).First(&member).Error; err != nil {
 		t.Fatalf("owner membership: %v", err)
 	}
@@ -77,7 +76,7 @@ func TestWorkspaceRepository_GetAllForUserOnlyReturnsMemberships(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0].Name != "Bob" {
 		t.Fatalf("bob workspaces = %+v err=%v", got, err)
 	}
-	if _, err := repo.GetByID(context.Background(), 999999); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := repo.GetByID(context.Background(), 999999); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("GetByID(missing) err = %v, want not found", err)
 	}
 }
@@ -152,7 +151,7 @@ func TestSpaceRepository_DashboardLoadsListsStatusesInOrder(t *testing.T) {
 	if fmt.Sprint(names) != "[first second third]" {
 		t.Fatalf("statuses = %v, want ordered by position", names)
 	}
-	if _, err := spaces.GetDashboard(context.Background(), 999999); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := spaces.GetDashboard(context.Background(), 999999); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("missing dashboard err = %v", err)
 	}
 }
@@ -200,10 +199,10 @@ func TestFolderRepository_CRUDAndScoping(t *testing.T) {
 	if err := folders.Delete(context.Background(), f.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if _, err := folders.GetByID(context.Background(), f.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := folders.GetByID(context.Background(), f.ID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("GetByID after delete err = %v", err)
 	}
-	if err := folders.Delete(context.Background(), f.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := folders.Delete(context.Background(), f.ID); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("second delete err = %v, want not found", err)
 	}
 }
@@ -277,7 +276,7 @@ func TestStatusRepository_PositionsStayContiguous(t *testing.T) {
 	if got := order(); got != "[c x a]" {
 		t.Fatalf("after delete b = %s", got)
 	}
-	if err := statuses.Delete(context.Background(), list.ID, b.ID, nil); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := statuses.Delete(context.Background(), list.ID, b.ID, nil); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("deleting twice err = %v, want not found", err)
 	}
 }

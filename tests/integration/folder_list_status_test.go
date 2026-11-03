@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 func createSpace(t *testing.T, tc *TestContext) uint {
@@ -81,7 +81,7 @@ func TestStatus_PositionShiftAndDelete(t *testing.T) {
 		t.Fatalf("create status: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var statuses []domain.TaskStatus
+	var statuses []persistence.TaskStatus
 	if err := tc.DB.Where("list_id = ?", listID).Order("position ASC").Find(&statuses).Error; err != nil {
 		t.Fatalf("query statuses: %v", err)
 	}

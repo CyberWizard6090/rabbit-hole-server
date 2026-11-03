@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 type ContactRepository struct {
@@ -24,7 +25,7 @@ func (r *ContactRepository) AddContact(ctx context.Context, userID, contactID ui
 	if err != nil && isContactDuplicate(err) {
 		return domain.ErrContactAlreadyAdded
 	}
-	return err
+	return mapErr(err)
 }
 
 func isContactDuplicate(err error) bool {
@@ -38,7 +39,7 @@ func (r *ContactRepository) GetContacts(ctx context.Context, userID uint) ([]dom
 }
 
 func (r *ContactRepository) GetContactsPage(ctx context.Context, userID uint, limit, offset int) ([]domain.User, int64, error) {
-	var contacts []domain.User
+	var rows []persistence.User
 	var total int64
 
 	baseQuery := r.db.WithContext(ctx).Table("users").
@@ -46,24 +47,27 @@ func (r *ContactRepository) GetContactsPage(ctx context.Context, userID uint, li
 		Where("user_contacts.user_id = ?", userID)
 
 	if err := baseQuery.Count(&total).Error; err != nil {
-		return nil, 0, err
+		return nil, 0, mapErr(err)
 	}
 
 	err := baseQuery.
 		Order("users.id ASC").
 		Limit(limit).
 		Offset(offset).
-		Find(&contacts).Error
-	return contacts, total, err
+		Find(&rows).Error
+	if err != nil {
+		return nil, 0, mapErr(err)
+	}
+	return mapSlice(rows, userToDomain), total, nil
 }
 
 func (r *ContactRepository) DeleteContact(ctx context.Context, userID, contactID uint) error {
 	res := r.db.WithContext(ctx).Exec("DELETE FROM user_contacts WHERE user_id = ? AND contact_id = ?", userID, contactID)
 	if res.Error != nil {
-		return res.Error
+		return mapErr(res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
+		return domain.ErrNotFound
 	}
 	return nil
 }
@@ -73,7 +77,7 @@ func escapeLike(s string) string {
 }
 
 func (r *ContactRepository) SearchUsers(ctx context.Context, query string, excludeID uint) ([]domain.User, error) {
-	var users []domain.User
+	var rows []persistence.User
 
 	query = strings.ToLower(strings.TrimSpace(query))
 	err := r.db.WithContext(ctx).
@@ -81,6 +85,9 @@ func (r *ContactRepository) SearchUsers(ctx context.Context, query string, exclu
 			escapeLike(query)+"%", query, excludeID).
 		Order("username ASC, id ASC").
 		Limit(20).
-		Find(&users).Error
-	return users, err
+		Find(&rows).Error
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return mapSlice(rows, userToDomain), nil
 }

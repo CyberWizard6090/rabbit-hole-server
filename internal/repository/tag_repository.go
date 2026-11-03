@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 type tagRepository struct {
@@ -30,7 +31,7 @@ func (r *tagRepository) CountUsageBySpace(ctx context.Context, spaceID uint) (ma
 		Group("task_tags.tag_id").
 		Scan(&rows).Error
 	if err != nil {
-		return nil, err
+		return nil, mapErr(err)
 	}
 
 	usage := make(map[uint]int64, len(rows))
@@ -41,51 +42,60 @@ func (r *tagRepository) CountUsageBySpace(ctx context.Context, spaceID uint) (ma
 }
 
 func (r *tagRepository) Create(ctx context.Context, tag *domain.Tag) error {
-	err := r.db.WithContext(ctx).Create(tag).Error
+	m := tagFromDomain(*tag)
+	err := r.db.WithContext(ctx).Create(&m).Error
 	if err != nil && isUniqueViolation(err) {
 		return domain.ErrTagNameTaken
 	}
-	return err
+	if err != nil {
+		return mapErr(err)
+	}
+	*tag = tagToDomain(m)
+	return nil
 }
 
 func (r *tagRepository) Delete(ctx context.Context, spaceID, tagID uint) error {
-	res := r.db.WithContext(ctx).Where("id = ? AND space_id = ?", tagID, spaceID).Delete(&domain.Tag{})
+	res := r.db.WithContext(ctx).Where("id = ? AND space_id = ?", tagID, spaceID).Delete(&persistence.Tag{})
 	if res.Error != nil {
-		return res.Error
+		return mapErr(res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
+		return domain.ErrNotFound
 	}
 	return nil
 }
 
 func (r *tagRepository) GetAllBySpace(ctx context.Context, spaceID uint) ([]domain.Tag, error) {
-	var tags []domain.Tag
-	err := r.db.WithContext(ctx).Where("space_id = ?", spaceID).Find(&tags).Error
-	return tags, err
+	var rows []persistence.Tag
+	if err := r.db.WithContext(ctx).Where("space_id = ?", spaceID).Find(&rows).Error; err != nil {
+		return nil, mapErr(err)
+	}
+	return mapSlice(rows, tagToDomain), nil
 }
 
 func (r *tagRepository) GetByID(ctx context.Context, tagID uint) (*domain.Tag, error) {
-	var tag domain.Tag
-	if err := r.db.WithContext(ctx).First(&tag, tagID).Error; err != nil {
-		return nil, err
+	var m persistence.Tag
+	if err := r.db.WithContext(ctx).First(&m, tagID).Error; err != nil {
+		return nil, mapErr(err)
 	}
+	tag := tagToDomain(m)
 	return &tag, nil
 }
 
 func (r *tagRepository) GetByName(ctx context.Context, spaceID uint, name string) (*domain.Tag, error) {
-	var tag domain.Tag
+	var m persistence.Tag
 	err := r.db.WithContext(ctx).
 		Where("space_id = ? AND LOWER(name) = LOWER(?)", spaceID, name).
-		First(&tag).Error
+		First(&m).Error
 	if err != nil {
-		return nil, err
+		return nil, mapErr(err)
 	}
+	tag := tagToDomain(m)
 	return &tag, nil
 }
 
 func (r *tagRepository) Merge(ctx context.Context, spaceID, sourceTagID, targetTagID uint) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`
 			INSERT INTO task_tags (task_id, tag_id)
 			SELECT task_id, ? FROM task_tags
@@ -99,12 +109,13 @@ func (r *tagRepository) Merge(ctx context.Context, spaceID, sourceTagID, targetT
 			return err
 		}
 
-		return tx.Where("space_id = ? AND id = ?", spaceID, sourceTagID).Delete(&domain.Tag{}).Error
-	})
+		return tx.Where("space_id = ? AND id = ?", spaceID, sourceTagID).Delete(&persistence.Tag{}).Error
+	}))
 }
 
 func (r *tagRepository) Update(ctx context.Context, tag *domain.Tag) error {
-	return r.db.WithContext(ctx).Save(tag).Error
+	m := tagFromDomain(*tag)
+	return mapErr(r.db.WithContext(ctx).Save(&m).Error)
 }
 
 func isUniqueViolation(err error) bool {

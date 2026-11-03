@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 func TestTag_DuplicateNameIsRejected(t *testing.T) {
@@ -85,7 +85,7 @@ func TestTag_MergeMovesTaskRelations(t *testing.T) {
 		t.Fatalf("merge tags: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var source domain.Tag
+	var source persistence.Tag
 	if err := tc.DB.First(&source, sourceID).Error; err == nil {
 		t.Fatalf("source tag still exists")
 	}

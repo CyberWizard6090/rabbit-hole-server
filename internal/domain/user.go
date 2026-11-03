@@ -13,28 +13,28 @@ var (
 )
 
 type User struct {
-	ID            uint          `gorm:"primaryKey" json:"id"`
-	Email         string        `gorm:"uniqueIndex;not null" json:"email" binding:"required,email"`
-	PasswordHash  string        `gorm:"not null" json:"-"`
-	Username      string        `gorm:"uniqueIndex" json:"username" binding:"omitempty,min=3,max=30"`
+	ID            uint          `json:"id"`
+	Email         string        `json:"email" binding:"required,email"`
+	PasswordHash  string        `json:"-"`
+	Username      string        `json:"username" binding:"omitempty,min=3,max=30"`
 	FirstName     string        `json:"first_name"`
 	LastName      string        `json:"last_name"`
 	AvatarURL     string        `json:"avatar_url"`
-	Bio           string        `gorm:"type:text" json:"bio"`
-	TimeZone      string        `gorm:"not null;default:'UTC'" json:"time_zone"`
-	TokenVersion  int           `gorm:"not null;default:0" json:"-"`
-	Contacts      []*User       `gorm:"many2many:user_contacts;foreignKey:ID;joinForeignKey:UserID;References:ID;joinReferences:ContactID" json:"contacts"`
-	CreatedAt     time.Time     `gorm:"not null" json:"created_at"`
-	UpdatedAt     time.Time     `gorm:"not null" json:"updated_at"`
-	RefreshTokens []UserSession `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE;" json:"-"`
+	Bio           string        `json:"bio"`
+	TimeZone      string        `json:"time_zone"`
+	TokenVersion  int           `json:"-"`
+	Contacts      []*User       `json:"contacts"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
+	RefreshTokens []UserSession `json:"-"`
 }
 
 type UserSession struct {
-	ID        uint      `gorm:"primaryKey" json:"-"`
-	UserID    uint      `gorm:"not null;index" json:"-"`
-	TokenHash string    `gorm:"unique;not null" json:"-"`
-	ExpiresAt time.Time `gorm:"not null" json:"-"`
-	CreatedAt time.Time `gorm:"not null" json:"-"`
+	ID        uint      `json:"-"`
+	UserID    uint      `json:"-"`
+	TokenHash string    `json:"-"`
+	ExpiresAt time.Time `json:"-"`
+	CreatedAt time.Time `json:"-"`
 }
 
 type UserRepository interface {

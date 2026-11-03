@@ -5,16 +5,14 @@ import (
 	"errors"
 	"fmt"
 
-	"gorm.io/gorm"
-
 	"rabbit-hole-server/internal/domain"
 )
 
 var (
-	// Not-found style errors wrap gorm.ErrRecordNotFound so the HTTP layer
+	// Not-found style errors wrap domain.ErrNotFound so the HTTP layer
 	// answers 404 and does not reveal whether the ID exists in another space.
-	ErrTagNotFound      = fmt.Errorf("tag not found: %w", gorm.ErrRecordNotFound)
-	ErrTagSpaceMismatch = fmt.Errorf("tag does not belong to this space: %w", gorm.ErrRecordNotFound)
+	ErrTagNotFound      = fmt.Errorf("tag not found: %w", domain.ErrNotFound)
+	ErrTagSpaceMismatch = fmt.Errorf("tag does not belong to this space: %w", domain.ErrNotFound)
 	ErrCannotMergeSame  = errors.New("cannot merge a tag with itself")
 )
 
@@ -69,7 +67,7 @@ func (s *tagService) GetOrCreateByName(ctx context.Context, spaceID uint, name s
 	if err == nil {
 		return existing, nil
 	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
+	if !errors.Is(err, domain.ErrNotFound) {
 		return nil, fmt.Errorf("lookup tag by name: %w", err)
 	}
 

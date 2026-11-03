@@ -65,7 +65,7 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 	folderService := service.NewFolderService(folderRepo)
 	workspaceService := service.NewWorkspaceService(workspaceRepo)
 
-	permissionChecker := service.NewPermissionChecker(db)
+	permissionChecker := repository.NewPermissionChecker(db)
 
 	sqlDB, err := db.DB()
 	if err != nil {

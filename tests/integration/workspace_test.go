@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 func TestWorkspace_CreateCreatesOwnerRolesAndMember(t *testing.T) {
@@ -21,7 +21,7 @@ func TestWorkspace_CreateCreatesOwnerRolesAndMember(t *testing.T) {
 
 	workspace := dataObject(t, rec)
 
-	var ws domain.Workspace
+	var ws persistence.Workspace
 	if err := tc.DB.First(&ws, uint(workspace["id"].(float64))).Error; err != nil {
 		t.Fatalf("find workspace: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestWorkspace_CreateCreatesOwnerRolesAndMember(t *testing.T) {
 		t.Fatalf("owner_id = %d, want %d", ws.OwnerID, tc.UserID)
 	}
 
-	var roles []domain.Role
+	var roles []persistence.Role
 	if err := tc.DB.Where("workspace_id = ?", ws.ID).Find(&roles).Error; err != nil {
 		t.Fatalf("find roles: %v", err)
 	}
@@ -38,12 +38,12 @@ func TestWorkspace_CreateCreatesOwnerRolesAndMember(t *testing.T) {
 		t.Fatalf("roles count = %d, want 4", len(roles))
 	}
 
-	var member domain.Member
+	var member persistence.Member
 	if err := tc.DB.Where("workspace_id = ? AND user_id = ?", ws.ID, tc.UserID).First(&member).Error; err != nil {
 		t.Fatalf("find owner member: %v", err)
 	}
 
-	var ownerRole domain.Role
+	var ownerRole persistence.Role
 	if err := tc.DB.First(&ownerRole, member.RoleID).Error; err != nil {
 		t.Fatalf("find owner role: %v", err)
 	}

@@ -6,16 +6,16 @@ import (
 	"testing"
 	"time"
 
-	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 func addMemberWithRole(t *testing.T, tc *TestContext, workspaceID, userID uint, roleName string) {
 	t.Helper()
-	var role domain.Role
+	var role persistence.Role
 	if err := tc.DB.Where("workspace_id = ? AND name = ?", workspaceID, roleName).First(&role).Error; err != nil {
 		t.Fatalf("find role %s: %v", roleName, err)
 	}
-	if err := tc.DB.Create(&domain.Member{WorkspaceID: workspaceID, UserID: userID, RoleID: role.ID}).Error; err != nil {
+	if err := tc.DB.Create(&persistence.Member{WorkspaceID: workspaceID, UserID: userID, RoleID: role.ID}).Error; err != nil {
 		t.Fatalf("add member: %v", err)
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"rabbit-hole-server/internal/repository"
-	"rabbit-hole-server/internal/service"
 )
 
 func TestContext_CancelledContextAbortsDatabaseCalls(t *testing.T) {
@@ -20,7 +19,7 @@ func TestContext_CancelledContextAbortsDatabaseCalls(t *testing.T) {
 		t.Fatalf("repository with canceled ctx: err = %v, want context.Canceled", err)
 	}
 
-	checker := service.NewPermissionChecker(tc.DB)
+	checker := repository.NewPermissionChecker(tc.DB)
 	if _, err := checker.HasWorkspacePermission(ctx, tc.UserID, 1, "space.read"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("permission checker with canceled ctx: err = %v, want context.Canceled", err)
 	}
