@@ -10,8 +10,10 @@ import (
 )
 
 var (
-	ErrTagNotFound      = errors.New("tag not found")
-	ErrTagSpaceMismatch = errors.New("tag does not belong to this space")
+	// Not-found style errors wrap gorm.ErrRecordNotFound so the HTTP layer
+	// answers 404 and does not reveal whether the ID exists in another space.
+	ErrTagNotFound      = fmt.Errorf("tag not found: %w", gorm.ErrRecordNotFound)
+	ErrTagSpaceMismatch = fmt.Errorf("tag does not belong to this space: %w", gorm.ErrRecordNotFound)
 	ErrCannotMergeSame  = errors.New("cannot merge a tag with itself")
 )
 
