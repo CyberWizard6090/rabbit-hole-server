@@ -1,0 +1,780 @@
+openapi: 3.0.3
+info:
+  title: Rabbit Hole API
+  version: 0.1.0
+  description: |
+    All responses use the envelope `{ "data": ..., "error": {code,message,fields}, "pagination": {...} }`.
+    Authenticated routes need `Authorization: Bearer <access_token>`. The refresh token lives in an
+    HttpOnly `refresh_token` cookie scoped to `/api/v1/auth`.
+    Resource routes additionally require a workspace permission (shown as `x-permission`); callers
+    without it, or who do not belong to the workspace, get 403/404.
+    Request bodies are capped at 1 MiB (413 `PAYLOAD_TOO_LARGE`).
+    Auth endpoints are rate limited per client IP (register 5/min, login 10/min, refresh 30/min,
+    logout 30/min) and answer 429 `RATE_LIMIT_EXCEEDED`.
+servers:
+  - url: http://127.0.0.1:8080/api/v1
+tags:
+  - name: auth
+  - name: profile
+  - name: contacts
+  - name: workspaces
+  - name: spaces
+  - name: tags
+  - name: folders
+  - name: lists
+  - name: statuses
+  - name: tasks
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Register a user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RegisterRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Log in; sets the refresh_token cookie
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LoginRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate the refresh cookie and issue a new access token
+      security: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '404': {$ref: '#/components/responses/Error'}
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke the refresh session (cookie auth, no access token needed)
+      security: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '404': {$ref: '#/components/responses/Error'}
+  /profile/:
+    get:
+      tags: [profile]
+      summary: Current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [profile]
+      summary: Update profile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateProfileRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /users/search:
+    get:
+      tags: [contacts]
+      summary: Search users by username/email (max 20)
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: q, in: query, required: false, schema: {type: string}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /contacts/:
+    get:
+      tags: [contacts]
+      summary: List contacts
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [contacts]
+      summary: Add a contact
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AddContactRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /contacts/{id}:
+    delete:
+      tags: [contacts]
+      summary: Remove a contact
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /workspaces/:
+    post:
+      tags: [workspaces]
+      summary: Create a workspace
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateWorkspaceRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    get:
+      tags: [workspaces]
+      summary: List workspaces
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/spaces:
+    post:
+      tags: [spaces]
+      summary: Create a space
+      x-permission: space.create
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateSpaceRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    get:
+      tags: [spaces]
+      summary: List spaces (paginated)
+      x-permission: space.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /spaces/{space_id}/dashboard:
+    get:
+      tags: [spaces]
+      summary: Space dashboard
+      x-permission: space.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /spaces/{space_id}/tags:
+    get:
+      tags: [tags]
+      summary: List tags with usage counts
+      x-permission: space.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [tags]
+      summary: Create a tag
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateTagRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /spaces/{space_id}/tags/{tag_id}:
+    put:
+      tags: [tags]
+      summary: Update a tag
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+        - {name: tag_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateTagRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [tags]
+      summary: Delete a tag
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+        - {name: tag_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /spaces/{space_id}/tags/merge:
+    post:
+      tags: [tags]
+      summary: Merge one tag into another
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MergeTagsRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /spaces/{space_id}/folders:
+    get:
+      tags: [folders]
+      summary: List folders
+      x-permission: space.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [folders]
+      summary: Create a folder
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateFolderRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /spaces/{space_id}/lists:
+    get:
+      tags: [lists]
+      summary: List lists in a space
+      x-permission: space.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [lists]
+      summary: Create a list in a space
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateListRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /folders/{folder_id}/lists:
+    get:
+      tags: [lists]
+      summary: List lists in a folder
+      x-permission: space.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: folder_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [lists]
+      summary: Create a list in a folder
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: folder_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateListRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /folders/{folder_id}/:
+    patch:
+      tags: [folders]
+      summary: Rename a folder
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: folder_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateFolderRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [folders]
+      summary: Delete a folder
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: folder_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /lists/{list_id}/:
+    patch:
+      tags: [lists]
+      summary: Update a list
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: list_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateFolderRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [lists]
+      summary: Delete a list
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: list_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /lists/{list_id}/statuses:
+    get:
+      tags: [statuses]
+      summary: List statuses
+      x-permission: space.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: list_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [statuses]
+      summary: Create a status
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: list_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateStatusRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /lists/{list_id}/statuses/{status_id}:
+    put:
+      tags: [statuses]
+      summary: Update a status
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: list_id, in: path, required: true, schema: {type: integer}}
+        - {name: status_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateStatusRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [statuses]
+      summary: Delete a status
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: list_id, in: path, required: true, schema: {type: integer}}
+        - {name: status_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /lists/{list_id}/tasks:
+    get:
+      tags: [tasks]
+      summary: List tasks (paginated)
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: list_id, in: path, required: true, schema: {type: integer}}
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [tasks]
+      summary: Create a task
+      x-permission: task.create
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: list_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateTaskRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /tasks/{id}/:
+    get:
+      tags: [tasks]
+      summary: Get a task
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [tasks]
+      summary: Update a task
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateTaskRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [tasks]
+      summary: Delete a task
+      x-permission: task.delete
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
+  parameters:
+    Page: {name: page, in: query, schema: {type: integer, minimum: 1, maximum: 1000000, default: 1}}
+    Limit: {name: limit, in: query, description: Values above 100 are clamped to 100; invalid values fall back to 10., schema: {type: integer, minimum: 1, maximum: 100, default: 10}}
+  responses:
+    Ok:
+      description: Success envelope
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Envelope'}
+    Error:
+      description: Error envelope
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Envelope'}
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        data: {}
+        error:
+          type: object
+          properties:
+            code: {type: string}
+            message: {type: string}
+            fields: {type: object, additionalProperties: {type: string}}
+        pagination:
+          type: object
+          properties:
+            total: {type: integer}
+            page: {type: integer}
+            limit: {type: integer}
+            pages: {type: integer}
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: {type: string, format: email}
+        password: {type: string, minLength: 6}
+        username: {type: string, minLength: 3}
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: {type: string, format: email}
+        password: {type: string}
+    UpdateProfileRequest:
+      type: object
+      properties:
+        username: {type: string, minLength: 1}
+        first_name: {type: string}
+        last_name: {type: string}
+        bio: {type: string}
+        time_zone: {type: string}
+    AddContactRequest:
+      type: object
+      required: [contact_id]
+      properties:
+        contact_id: {type: integer}
+    CreateWorkspaceRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 255}
+        description: {type: string}
+    CreateSpaceRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1}
+        currency: {type: string}
+    CreateTagRequest:
+      type: object
+      required: [name, color]
+      properties:
+        name: {type: string}
+        color: {type: string, example: '#123456', description: 7-char hex color}
+    UpdateTagRequest:
+      type: object
+      properties:
+        name: {type: string}
+        color: {type: string}
+    MergeTagsRequest:
+      type: object
+      required: [source_tag_id, target_tag_id]
+      properties:
+        source_tag_id: {type: integer}
+        target_tag_id: {type: integer}
+    CreateFolderRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1}
+    UpdateFolderRequest:
+      type: object
+      properties:
+        name: {type: string, minLength: 1}
+    CreateListRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1}
+        parent_status_id: {type: integer, nullable: true}
+    CreateStatusRequest:
+      type: object
+      required: [name, color, type, list_id]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 50}
+        color: {type: string, description: 7-char hex color}
+        position: {type: integer, minimum: 1}
+        type: {type: integer, minimum: 1, maximum: 3}
+        list_id: {type: integer, description: Must match the list in the path.}
+    UpdateStatusRequest:
+      type: object
+      properties:
+        name: {type: string, maxLength: 50}
+        color: {type: string}
+        position: {type: integer, minimum: 1}
+        type: {type: integer, minimum: 1, maximum: 3}
+    CreateTaskRequest:
+      type: object
+      required: [title, status_id]
+      properties:
+        title: {type: string, minLength: 1}
+        description: {type: string}
+        status_id: {type: integer, description: Must be a status of the list in the path.}
+        parent_id: {type: integer, nullable: true, description: Must be a task of the same list.}
+        priority: {type: integer, minimum: 0, maximum: 5}
+        assignee_ids: {type: array, items: {type: integer}, description: Must be workspace members.}
+        tag_ids: {type: array, items: {type: integer}, description: Must be tags of the same space.}
+        new_tag_names: {type: array, items: {type: string}}
+        time_estimate: {type: integer, minimum: 0}
+    UpdateTaskRequest:
+      type: object
+      properties:
+        title: {type: string, minLength: 1}
+        description: {type: string}
+        status_id: {type: integer}
+        priority: {type: integer, minimum: 1, maximum: 5}
+        time_estimate: {type: integer, minimum: 0}
+        add_tag_ids: {type: array, items: {type: integer}}
+        add_tag_names: {type: array, items: {type: string}}
