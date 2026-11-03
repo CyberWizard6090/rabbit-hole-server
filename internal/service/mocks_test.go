@@ -564,3 +564,7 @@ func (m *workspaceRepositoryMock) UpdateMemberRole(workspaceID, userID, roleID u
 }
 func (m *workspaceRepositoryMock) RemoveMember(workspaceID, userID uint) error  { return nil }
 func (m *workspaceRepositoryMock) IsContact(userID, otherID uint) (bool, error) { return false, nil }
+func (m *workspaceRepositoryMock) Update(workspace *domain.Workspace) error     { return nil }
+func (m *workspaceRepositoryMock) Delete(id uint) error                         { return nil }
+func (m *spaceRepositoryMock) Update(space *domain.Space) error                 { return nil }
+func (m *spaceRepositoryMock) Delete(id uint) error                             { return nil }
