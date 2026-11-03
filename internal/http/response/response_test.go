@@ -12,8 +12,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
-	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/domain"
 	httperrors "rabbit-hole-server/internal/http/errors"
 )
 
@@ -109,7 +109,7 @@ func TestHandleErrorClassifiesRecordNotFound(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
 
-	HandleError(context, httperrors.Internal("FETCH_FAILED", "fetch failed", gorm.ErrRecordNotFound))
+	HandleError(context, httperrors.Internal("FETCH_FAILED", "fetch failed", domain.ErrNotFound))
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
@@ -143,7 +143,7 @@ func TestHandleErrorLogsServerErrorsAtErrorAndClientErrorsAtDebug(t *testing.T) 
 		{"unknown error is a 500", errors.New("db exploded"), "ERROR"},
 		{"internal app error is a 500", httperrors.Internal("X", "x", errors.New("cause")), "ERROR"},
 		{"validation-style 400", httperrors.BadRequest("BAD", "bad", errors.New("cause")), "DEBUG"},
-		{"missing row is a 404", gorm.ErrRecordNotFound, "DEBUG"},
+		{"missing row is a 404", domain.ErrNotFound, "DEBUG"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 func newUser(t *testing.T, tc *TestContext, email string) (uint, string) {
@@ -33,7 +33,7 @@ func newUser(t *testing.T, tc *TestContext, email string) (uint, string) {
 	data := body["data"].(map[string]any)
 	token := data["access_token"].(string)
 
-	var user domain.User
+	var user persistence.User
 	if err := tc.DB.Where("email = ?", email).First(&user).Error; err != nil {
 		t.Fatalf("find user: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestPermissions_AdminCanCreateSpaceMemberCannot(t *testing.T) {
 	adminID, adminToken := newUser(t, tc, fmt.Sprintf("admin-%s-%d@example.test", t.Name(), uniqueSuffix))
 	memberID, memberToken := newUser(t, tc, fmt.Sprintf("member-%s-%d@example.test", t.Name(), uniqueSuffix))
 
-	var adminRole, memberRole domain.Role
+	var adminRole, memberRole persistence.Role
 	if err := tc.DB.Where("workspace_id = ? AND name = ?", workspaceID, "Admin").First(&adminRole).Error; err != nil {
 		t.Fatalf("admin role: %v", err)
 	}
@@ -57,10 +57,10 @@ func TestPermissions_AdminCanCreateSpaceMemberCannot(t *testing.T) {
 		t.Fatalf("member role: %v", err)
 	}
 
-	if err := tc.DB.Create(&domain.Member{WorkspaceID: workspaceID, UserID: adminID, RoleID: adminRole.ID}).Error; err != nil {
+	if err := tc.DB.Create(&persistence.Member{WorkspaceID: workspaceID, UserID: adminID, RoleID: adminRole.ID}).Error; err != nil {
 		t.Fatalf("add admin: %v", err)
 	}
-	if err := tc.DB.Create(&domain.Member{WorkspaceID: workspaceID, UserID: memberID, RoleID: memberRole.ID}).Error; err != nil {
+	if err := tc.DB.Create(&persistence.Member{WorkspaceID: workspaceID, UserID: memberID, RoleID: memberRole.ID}).Error; err != nil {
 		t.Fatalf("add member: %v", err)
 	}
 

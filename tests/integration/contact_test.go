@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 func TestContact_DuplicateAddIsRejected(t *testing.T) {
@@ -25,7 +25,7 @@ func TestContact_DuplicateAddIsRejected(t *testing.T) {
 		t.Fatalf("register second user: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var otherUser domain.User
+	var otherUser persistence.User
 	if err := tc.DB.Where("email = ?", secondEmail).First(&otherUser).Error; err != nil {
 		t.Fatalf("find second user: %v", err)
 	}

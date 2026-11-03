@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/http/pagination"
@@ -154,7 +153,7 @@ func TestTaskHandlerWorksWithoutAPublisher(t *testing.T) {
 
 func TestTaskHandlerStillDeletesWhenTheLookupFails(t *testing.T) {
 	pub := &recordingPublisher{}
-	svc := &eventsServiceStub{getErr: gorm.ErrRecordNotFound}
+	svc := &eventsServiceStub{getErr: domain.ErrNotFound}
 	r := eventsRouter(t, svc, pub)
 
 	if rec := do(r, http.MethodDelete, "/tasks/5", ``); rec.Code != http.StatusOK {

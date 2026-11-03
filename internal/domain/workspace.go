@@ -8,51 +8,47 @@ import (
 
 type Workspace struct {
 	Model
-	Name        string `gorm:"size:255;not null" json:"name"`
-	OwnerID     uint   `gorm:"not null" json:"owner_id"`
-	Description string `gorm:"type:text" json:"description"`
+	Name        string `json:"name"`
+	OwnerID     uint   `json:"owner_id"`
+	Description string `json:"description"`
 
-	Members []Member `gorm:"foreignKey:WorkspaceID;constraint:OnDelete:CASCADE;" json:"-"`
-	Spaces  []Space  `gorm:"foreignKey:WorkspaceID;constraint:OnDelete:CASCADE;" json:"-"`
-	Roles   []Role   `gorm:"foreignKey:WorkspaceID;constraint:OnDelete:CASCADE;" json:"-"`
+	Members []Member `json:"-"`
+	Spaces  []Space  `json:"-"`
+	Roles   []Role   `json:"-"`
 }
 
 type Member struct {
 	Model
 
-	WorkspaceID uint `gorm:"not null;index;uniqueIndex:idx_workspace_user,where:deleted_at IS NULL"`
-	UserID      uint `gorm:"not null;index;uniqueIndex:idx_workspace_user,where:deleted_at IS NULL"`
-	RoleID      uint `gorm:"not null;index"`
+	WorkspaceID uint
+	UserID      uint
+	RoleID      uint
 
-	Role Role `gorm:"foreignKey:RoleID;constraint:OnDelete:RESTRICT;"`
+	Role Role
 }
-
-func (Member) TableName() string { return "workspace_members" }
 
 type Role struct {
 	Model
 
-	WorkspaceID uint   `gorm:"not null;index;uniqueIndex:idx_roles_workspace_name,where:deleted_at IS NULL"`
-	Name        string `gorm:"size:100;not null;uniqueIndex:idx_roles_workspace_name,where:deleted_at IS NULL"`
+	WorkspaceID uint
+	Name        string
 
-	Permissions []RolePermission `gorm:"foreignKey:RoleID;constraint:OnDelete:CASCADE;"`
+	Permissions []RolePermission
 }
 type RolePermission struct {
 	Model
 
-	RoleID       uint `gorm:"not null;index;uniqueIndex:idx_role_permission,where:deleted_at IS NULL"`
-	PermissionID uint `gorm:"not null;index;uniqueIndex:idx_role_permission,where:deleted_at IS NULL"`
+	RoleID       uint
+	PermissionID uint
 
-	Permission Permission `gorm:"foreignKey:PermissionID;constraint:OnDelete:RESTRICT;"`
+	Permission Permission
 }
-
-func (RolePermission) TableName() string { return "role_permissions" }
 
 type Permission struct {
 	Model
 
-	Code        string `gorm:"size:100;not null;uniqueIndex:idx_permissions_code,where:deleted_at IS NULL"`
-	Description string `gorm:"size:255"`
+	Code        string
+	Description string
 }
 
 var (

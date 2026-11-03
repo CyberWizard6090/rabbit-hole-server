@@ -5,8 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"gorm.io/gorm"
-
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -94,7 +92,7 @@ func TestOwnerCannotBeReRoledOrRemoved(t *testing.T) {
 }
 
 func TestMissingMemberMapsToNotFound(t *testing.T) {
-	if !errors.Is(ErrMemberTargetNotFound, gorm.ErrRecordNotFound) {
-		t.Fatal("ErrMemberTargetNotFound must wrap gorm.ErrRecordNotFound so the API answers 404")
+	if !errors.Is(ErrMemberTargetNotFound, domain.ErrNotFound) {
+		t.Fatal("ErrMemberTargetNotFound must wrap domain.ErrNotFound so the API answers 404")
 	}
 }

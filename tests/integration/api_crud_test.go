@@ -10,7 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 func responseID(t *testing.T, rec *httptest.ResponseRecorder) uint {
@@ -41,7 +41,7 @@ func TestAPI_ProfileSearchAndContactsLifecycle(t *testing.T) {
 		t.Fatalf("register contact target: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var otherUser domain.User
+	var otherUser persistence.User
 	if err := tc.DB.Where("email = ?", otherEmail).First(&otherUser).Error; err != nil {
 		t.Fatalf("find contact target: %v", err)
 	}
@@ -257,11 +257,11 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 		t.Fatalf("delete folder list: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var folder domain.Folder
+	var folder persistence.Folder
 	if err := tc.DB.First(&folder, folderID).Error; !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("folder lookup after delete error = %v, want record not found", err)
 	}
-	var tag domain.Tag
+	var tag persistence.Tag
 	if err := tc.DB.First(&tag, tagID).Error; !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("tag lookup after delete error = %v, want record not found", err)
 	}
@@ -281,7 +281,7 @@ func TestAPI_TaskLifecycleAndDatabaseRelations(t *testing.T) {
 	}
 	statusID := uint(dataObject(t, rec)["id"].(float64))
 
-	var status domain.TaskStatus
+	var status persistence.TaskStatus
 	if err := tc.DB.First(&status, statusID).Error; err != nil {
 		t.Fatalf("find task status: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestAPI_TaskLifecycleAndDatabaseRelations(t *testing.T) {
 	}
 	taskID := responseID(t, rec)
 
-	var task domain.Task
+	var task persistence.Task
 	if err := tc.DB.Preload("Tags").First(&task, taskID).Error; err != nil {
 		t.Fatalf("find task: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestAPI_TaskCursorPagination(t *testing.T) {
 
 	createdAt := time.Now().UTC().Truncate(time.Microsecond)
 	for i := 0; i < 3; i++ {
-		task := domain.Task{
+		task := persistence.Task{
 			SpaceID:  spaceID,
 			ListID:   listID,
 			StatusID: statusID,
@@ -427,7 +427,7 @@ func TestAPI_TaskRejectsCrossSpaceTagsAndAssignees(t *testing.T) {
 	foreignTagID := responseID(t, rec)
 
 	_, outsiderToken := newUser(t, tc, fmt.Sprintf("foreign-assignee-%d@example.test", time.Now().UnixNano()))
-	var outsider domain.User
+	var outsider persistence.User
 	if err := tc.DB.Where("email LIKE ?", "foreign-assignee-%@example.test").Order("id DESC").First(&outsider).Error; err != nil {
 		t.Fatalf("find foreign assignee: %v", err)
 	}

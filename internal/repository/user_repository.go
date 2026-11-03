@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 type UserRepository struct {
@@ -21,14 +22,19 @@ func NewUserRepository(db *gorm.DB) *UserRepository {
 }
 
 func (r *UserRepository) CreateUser(ctx context.Context, user *domain.User) error {
-	err := r.db.WithContext(ctx).Create(user).Error
+	m := userFromDomain(*user)
+	err := r.db.WithContext(ctx).Create(&m).Error
 	if err != nil && isEmailUniqueViolation(err) {
 		return domain.ErrEmailTaken
 	}
 	if err != nil && isUsernameUniqueViolation(err) {
 		return domain.ErrUsernameTaken
 	}
-	return err
+	if err != nil {
+		return mapErr(err)
+	}
+	*user = userToDomain(m)
+	return nil
 }
 
 func isEmailUniqueViolation(err error) bool {
@@ -58,31 +64,98 @@ func isUniqueViolationForConstraints(err error, constraints ...string) bool {
 }
 
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	var user domain.User
-	err := r.db.WithContext(ctx).Where("lower(email) = lower(?)", email).First(&user).Error
-	return &user, err
+	var m persistence.User
+	if err := r.db.WithContext(ctx).Where("lower(email) = lower(?)", email).First(&m).Error; err != nil {
+		return nil, mapErr(err)
+	}
+	user := userToDomain(m)
+	return &user, nil
 }
 
 func (r *UserRepository) GetByID(ctx context.Context, id uint) (*domain.User, error) {
-	var user domain.User
-	if err := r.db.WithContext(ctx).First(&user, id).Error; err != nil {
-		return nil, err
+	var m persistence.User
+	if err := r.db.WithContext(ctx).First(&m, id).Error; err != nil {
+		return nil, mapErr(err)
 	}
+	user := userToDomain(m)
 	return &user, nil
 }
 
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
-	return r.db.WithContext(ctx).Omit("PasswordHash", "TokenVersion").Save(user).Error
+	m := userFromDomain(*user)
+	if err := r.db.WithContext(ctx).Omit("PasswordHash", "TokenVersion").Save(&m).Error; err != nil {
+		return mapErr(err)
+	}
+	user.UpdatedAt = m.UpdatedAt
+	return nil
+}
+
+func (r *UserRepository) CreateSession(ctx context.Context, session *domain.UserSession) error {
+	m := sessionFromDomain(*session)
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ? AND expires_at < NOW()", session.UserID).
+			Delete(&persistence.UserSession{}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&m).Error
+	})
+	if err != nil {
+		return mapErr(err)
+	}
+	*session = sessionToDomain(m)
+	return nil
+}
+
+func (r *UserRepository) FindSession(ctx context.Context, tokenHash string) (*domain.UserSession, error) {
+	var m persistence.UserSession
+	err := r.db.WithContext(ctx).Where("token_hash = ? AND expires_at > NOW()", tokenHash).First(&m).Error
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	session := sessionToDomain(m)
+	return &session, nil
+}
+
+func (r *UserRepository) DeleteSession(ctx context.Context, tokenHash string) error {
+	return mapErr(r.db.WithContext(ctx).Where("token_hash = ?", tokenHash).Delete(&persistence.UserSession{}).Error)
+}
+
+func (r *UserRepository) RotateSession(ctx context.Context, tokenHash string, replacement *domain.UserSession) error {
+	m := sessionFromDomain(*replacement)
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ? AND expires_at < NOW()", replacement.UserID).
+			Delete(&persistence.UserSession{}).Error; err != nil {
+			return err
+		}
+		result := tx.Where("token_hash = ? AND expires_at > NOW()", tokenHash).
+			Delete(&persistence.UserSession{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return domain.ErrNotFound
+		}
+		return tx.Create(&m).Error
+	})
+	if err != nil {
+		return mapErr(err)
+	}
+	*replacement = sessionToDomain(m)
+	return nil
+}
+
+func (r *UserRepository) DeleteAllUserSessions(ctx context.Context, userID uint) error {
+	return mapErr(r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&persistence.UserSession{}).Error)
 }
 
 func (r *UserRepository) GetTokenVersion(ctx context.Context, userID uint) (int, error) {
 	var version int
-	res := r.db.WithContext(ctx).Model(&domain.User{}).Select("token_version").Where("id = ?", userID).Limit(1).Scan(&version)
+	res := r.db.WithContext(ctx).Model(&persistence.User{}).Select("token_version").Where("id = ?", userID).Limit(1).Scan(&version)
 	if res.Error != nil {
-		return 0, res.Error
+		return 0, mapErr(res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return 0, gorm.ErrRecordNotFound
+		return 0, domain.ErrNotFound
 	}
 	return version, nil
 }
@@ -92,11 +165,11 @@ func (r *UserRepository) RevokeAll(ctx context.Context, userID uint) (int, error
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		return revokeAll(tx, userID, &version)
 	})
-	return version, err
+	return version, mapErr(err)
 }
 
 func revokeAll(tx *gorm.DB, userID uint, version *int) error {
-	res := tx.Model(&domain.User{}).Where("id = ?", userID).
+	res := tx.Model(&persistence.User{}).Where("id = ?", userID).
 		UpdateColumn("token_version", gorm.Expr("token_version + 1"))
 	if res.Error != nil {
 		return res.Error
@@ -104,32 +177,32 @@ func revokeAll(tx *gorm.DB, userID uint, version *int) error {
 	if res.RowsAffected == 0 {
 		return gorm.ErrRecordNotFound
 	}
-	if err := tx.Where("user_id = ?", userID).Delete(&domain.UserSession{}).Error; err != nil {
+	if err := tx.Where("user_id = ?", userID).Delete(&persistence.UserSession{}).Error; err != nil {
 		return err
 	}
-	return tx.Model(&domain.User{}).Select("token_version").Where("id = ?", userID).Scan(version).Error
+	return tx.Model(&persistence.User{}).Select("token_version").Where("id = ?", userID).Scan(version).Error
 }
 
 func (r *UserRepository) UpdatePasswordAndRevoke(ctx context.Context, userID uint, passwordHash string) (int, error) {
 	var version int
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&domain.User{}).Where("id = ?", userID).
+		if err := tx.Model(&persistence.User{}).Where("id = ?", userID).
 			UpdateColumn("password_hash", passwordHash).Error; err != nil {
 			return err
 		}
 		return revokeAll(tx, userID, &version)
 	})
-	return version, err
+	return version, mapErr(err)
 }
 
 func (r *UserRepository) CountOwnedWorkspaces(ctx context.Context, userID uint) (int64, error) {
 	var count int64
-	err := r.db.WithContext(ctx).Model(&domain.Workspace{}).Where("owner_id = ?", userID).Count(&count).Error
-	return count, err
+	err := r.db.WithContext(ctx).Model(&persistence.Workspace{}).Where("owner_id = ?", userID).Count(&count).Error
+	return count, mapErr(err)
 }
 
 func (r *UserRepository) Anonymize(ctx context.Context, userID uint) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var version int
 		if err := revokeAll(tx, userID, &version); err != nil {
 			return err
@@ -143,7 +216,7 @@ func (r *UserRepository) Anonymize(ctx context.Context, userID uint) error {
 			"avatar_url":    "",
 			"bio":           "",
 		}
-		if err := tx.Model(&domain.User{}).Where("id = ?", userID).UpdateColumns(tombstone).Error; err != nil {
+		if err := tx.Model(&persistence.User{}).Where("id = ?", userID).UpdateColumns(tombstone).Error; err != nil {
 			return err
 		}
 		if err := tx.Exec("DELETE FROM user_contacts WHERE user_id = ? OR contact_id = ?", userID, userID).Error; err != nil {
@@ -152,59 +225,14 @@ func (r *UserRepository) Anonymize(ctx context.Context, userID uint) error {
 		if err := tx.Exec("DELETE FROM task_assignees WHERE user_id = ?", userID).Error; err != nil {
 			return err
 		}
-		return tx.Where("user_id = ?", userID).Delete(&domain.Member{}).Error
-	})
-}
-
-func (r *UserRepository) CreateSession(ctx context.Context, session *domain.UserSession) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("user_id = ? AND expires_at < NOW()", session.UserID).
-			Delete(&domain.UserSession{}).Error; err != nil {
-			return err
-		}
-		return tx.Create(session).Error
-	})
-}
-
-func (r *UserRepository) FindSession(ctx context.Context, tokenHash string) (*domain.UserSession, error) {
-	var session domain.UserSession
-	err := r.db.WithContext(ctx).Where("token_hash = ? AND expires_at > NOW()", tokenHash).First(&session).Error
-	if err != nil {
-		return nil, err
-	}
-	return &session, nil
-}
-
-func (r *UserRepository) DeleteSession(ctx context.Context, tokenHash string) error {
-	return r.db.WithContext(ctx).Where("token_hash = ?", tokenHash).Delete(&domain.UserSession{}).Error
-}
-
-func (r *UserRepository) RotateSession(ctx context.Context, tokenHash string, replacement *domain.UserSession) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("user_id = ? AND expires_at < NOW()", replacement.UserID).
-			Delete(&domain.UserSession{}).Error; err != nil {
-			return err
-		}
-		result := tx.Where("token_hash = ? AND expires_at > NOW()", tokenHash).
-			Delete(&domain.UserSession{})
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected != 1 {
-			return gorm.ErrRecordNotFound
-		}
-		return tx.Create(replacement).Error
-	})
-}
-
-func (r *UserRepository) DeleteAllUserSessions(ctx context.Context, userID uint) error {
-	return r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&domain.UserSession{}).Error
+		return tx.Where("user_id = ?", userID).Delete(&persistence.Member{}).Error
+	}))
 }
 
 func (r *UserRepository) HasSessionCreatedSince(ctx context.Context, userID uint, since time.Time) (bool, error) {
 	var count int64
-	err := r.db.WithContext(ctx).Model(&domain.UserSession{}).
+	err := r.db.WithContext(ctx).Model(&persistence.UserSession{}).
 		Where("user_id = ? AND created_at >= ?", userID, since).
 		Count(&count).Error
-	return count > 0, err
+	return count > 0, mapErr(err)
 }

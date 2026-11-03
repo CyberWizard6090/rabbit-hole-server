@@ -6,8 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"gorm.io/gorm"
-
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -18,7 +16,7 @@ var (
 	ErrInvalidMemberRole    = errors.New("role cannot be assigned")
 	ErrMemberNotContact     = errors.New("user must be one of your contacts")
 	ErrOwnerImmutable       = errors.New("the workspace owner cannot be changed or removed")
-	ErrMemberTargetNotFound = errors.Join(domain.ErrMemberNotFound, gorm.ErrRecordNotFound)
+	ErrMemberTargetNotFound = errors.Join(domain.ErrMemberNotFound, domain.ErrNotFound)
 )
 
 type WorkspaceService interface {

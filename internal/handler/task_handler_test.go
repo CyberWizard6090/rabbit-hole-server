@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/http/pagination"
@@ -159,7 +158,7 @@ func getTaskStatus(t *testing.T, svc *taskHandlerServiceStub) (int, string) {
 }
 
 func TestTaskHandlerGetMapsMissingRowTo404(t *testing.T) {
-	code, body := getTaskStatus(t, &taskHandlerServiceStub{getErr: gorm.ErrRecordNotFound})
+	code, body := getTaskStatus(t, &taskHandlerServiceStub{getErr: domain.ErrNotFound})
 	if code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s, want 404", code, body)
 	}

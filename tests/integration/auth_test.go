@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 func TestAuth_RegisterLoginAndProfile(t *testing.T) {
@@ -123,11 +123,11 @@ func TestLoginCleansUpExpiredSessions(t *testing.T) {
 		t.Fatalf("register: expected 201, got %d: %s", registered.Code, registered.Body.String())
 	}
 
-	var user domain.User
+	var user persistence.User
 	if err := tc.DB.Where("email = ?", email).First(&user).Error; err != nil {
 		t.Fatalf("find registered user: %v", err)
 	}
-	expired := domain.UserSession{
+	expired := persistence.UserSession{
 		UserID: user.ID, TokenHash: "expired-session-check", ExpiresAt: time.Now().Add(-time.Hour),
 	}
 	if err := tc.DB.Create(&expired).Error; err != nil {
@@ -142,7 +142,7 @@ func TestLoginCleansUpExpiredSessions(t *testing.T) {
 	}
 
 	var remaining int64
-	if err := tc.DB.Model(&domain.UserSession{}).Where("id = ?", expired.ID).Count(&remaining).Error; err != nil {
+	if err := tc.DB.Model(&persistence.UserSession{}).Where("id = ?", expired.ID).Count(&remaining).Error; err != nil {
 		t.Fatalf("check expired session: %v", err)
 	}
 	if remaining != 0 {

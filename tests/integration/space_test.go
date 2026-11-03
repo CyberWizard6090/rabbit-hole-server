@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 func createWorkspace(t *testing.T, tc *TestContext) uint {
@@ -37,7 +37,7 @@ func TestSpace_CreateCreatesDefaultListAndStatuses(t *testing.T) {
 	space := dataObject(t, rec)
 	spaceID := uint(space["id"].(float64))
 
-	var lists []domain.List
+	var lists []persistence.List
 	if err := tc.DB.Where("space_id = ?", spaceID).Find(&lists).Error; err != nil {
 		t.Fatalf("find default lists: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestSpace_CreateCreatesDefaultListAndStatuses(t *testing.T) {
 		t.Fatalf("default lists count = %d, want 1", len(lists))
 	}
 
-	var statuses []domain.TaskStatus
+	var statuses []persistence.TaskStatus
 	if err := tc.DB.Where("space_id = ?", spaceID).Order("position ASC").Find(&statuses).Error; err != nil {
 		t.Fatalf("find default statuses: %v", err)
 	}
@@ -56,11 +56,11 @@ func TestSpace_CreateCreatesDefaultListAndStatuses(t *testing.T) {
 	want := []struct {
 		name string
 		pos  int
-		typ  domain.StatusType
+		typ  persistence.StatusType
 	}{
-		{"К выполнению", 1, domain.StatusTodo},
-		{"В работе", 2, domain.StatusInProgress},
-		{"Готово", 3, domain.StatusDone},
+		{"К выполнению", 1, persistence.StatusTodo},
+		{"В работе", 2, persistence.StatusInProgress},
+		{"Готово", 3, persistence.StatusDone},
 	}
 	for i, w := range want {
 		if statuses[i].Name != w.name || statuses[i].Position != w.pos || statuses[i].Type != w.typ {

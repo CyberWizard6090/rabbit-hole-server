@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 type statusRepository struct {
@@ -24,17 +25,18 @@ func NewStatusRepository(db *gorm.DB) domain.StatusRepository {
 }
 
 func (r *statusRepository) Create(ctx context.Context, status *domain.TaskStatus) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var list domain.List
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, status.ListID).Error; err != nil {
+	m := statusFromDomain(*status)
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var list persistence.List
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, m.ListID).Error; err != nil {
 			return err
 		}
 
 		var count int64
-		if err := tx.Model(&domain.TaskStatus{}).Where(statusListPredicate, status.ListID).Count(&count).Error; err != nil {
+		if err := tx.Model(&persistence.TaskStatus{}).Where(statusListPredicate, m.ListID).Count(&count).Error; err != nil {
 			return err
 		}
-		position := status.Position
+		position := m.Position
 		if position < 1 {
 			position = 1
 		}
@@ -42,66 +44,72 @@ func (r *statusRepository) Create(ctx context.Context, status *domain.TaskStatus
 			position = int(count) + 1
 		}
 		if position <= int(count) {
-			if err := tx.Model(&domain.TaskStatus{}).
-				Where(statusListPredicate+" AND position >= ?", status.ListID, position).
+			if err := tx.Model(&persistence.TaskStatus{}).
+				Where(statusListPredicate+" AND position >= ?", m.ListID, position).
 				Update("position", gorm.Expr(statusPositionIncrement)).Error; err != nil {
 				return err
 			}
 		}
-		status.Position = position
-		return tx.Create(status).Error
+		m.Position = position
+		return tx.Create(&m).Error
 	})
+	if err != nil {
+		return mapErr(err)
+	}
+	*status = statusToDomain(m)
+	return nil
 }
 
 func (r *statusRepository) GetAllByList(ctx context.Context, listID uint) ([]domain.TaskStatus, error) {
-
-	var statuses []domain.TaskStatus
+	var rows []persistence.TaskStatus
 
 	err := r.db.WithContext(ctx).
 		Where("list_id = ?", listID).
 		Order("position ASC").
-		Find(&statuses).
+		Find(&rows).
 		Error
+	if err != nil {
+		return nil, mapErr(err)
+	}
 
-	return statuses, err
+	return mapSlice(rows, statusToDomain), nil
 }
 
 func (r *statusRepository) GetByID(ctx context.Context, statusID uint) (*domain.TaskStatus, error) {
+	var m persistence.TaskStatus
 
-	var status domain.TaskStatus
-
-	err := r.db.WithContext(ctx).
-		First(&status, statusID).
-		Error
-
-	if err != nil {
-		return nil, err
+	if err := r.db.WithContext(ctx).First(&m, statusID).Error; err != nil {
+		return nil, mapErr(err)
 	}
 
+	status := statusToDomain(m)
 	return &status, nil
 }
 
 func (r *statusRepository) Update(ctx context.Context, status *domain.TaskStatus) error {
-
-	return r.db.WithContext(ctx).
-		Save(status).
-		Error
+	m := statusFromDomain(*status)
+	if err := r.db.WithContext(ctx).Save(&m).Error; err != nil {
+		return mapErr(err)
+	}
+	status.UpdatedAt = m.UpdatedAt
+	return nil
 }
 
 func (r *statusRepository) UpdatePosition(ctx context.Context, status *domain.TaskStatus, position int) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var list domain.List
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, status.ListID).Error; err != nil {
+	m := statusFromDomain(*status)
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var list persistence.List
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, m.ListID).Error; err != nil {
 			return err
 		}
-		var current domain.TaskStatus
-		if err := tx.Where(statusListPredicate, status.ListID).First(&current, status.ID).Error; err != nil {
+		var current persistence.TaskStatus
+		if err := tx.Where(statusListPredicate, m.ListID).First(&current, m.ID).Error; err != nil {
 			return err
 		}
-		status.Position = current.Position
+		m.Position = current.Position
 
 		var count int64
-		if err := tx.Model(&domain.TaskStatus{}).Where(statusListPredicate, status.ListID).Count(&count).Error; err != nil {
+		if err := tx.Model(&persistence.TaskStatus{}).Where(statusListPredicate, m.ListID).Count(&count).Error; err != nil {
 			return err
 		}
 		if position < 1 {
@@ -111,39 +119,46 @@ func (r *statusRepository) UpdatePosition(ctx context.Context, status *domain.Ta
 			position = int(count)
 		}
 
-		if position < status.Position {
-			if err := tx.Model(&domain.TaskStatus{}).
-				Where("list_id = ? AND position >= ? AND position < ?", status.ListID, position, status.Position).
+		if position < m.Position {
+			if err := tx.Model(&persistence.TaskStatus{}).
+				Where("list_id = ? AND position >= ? AND position < ?", m.ListID, position, m.Position).
 				Update("position", gorm.Expr(statusPositionIncrement)).Error; err != nil {
 				return err
 			}
-		} else if position > status.Position {
-			if err := tx.Model(&domain.TaskStatus{}).
-				Where("list_id = ? AND position > ? AND position <= ?", status.ListID, status.Position, position).
+		} else if position > m.Position {
+			if err := tx.Model(&persistence.TaskStatus{}).
+				Where("list_id = ? AND position > ? AND position <= ?", m.ListID, m.Position, position).
 				Update("position", gorm.Expr("position - 1")).Error; err != nil {
 				return err
 			}
 		}
 
-		status.Position = position
-		return tx.Save(status).Error
+		m.Position = position
+		return tx.Save(&m).Error
 	})
+	if err != nil {
+		status.Position = m.Position
+		return mapErr(err)
+	}
+	status.Position = m.Position
+	status.UpdatedAt = m.UpdatedAt
+	return nil
 }
 
 func (r *statusRepository) Delete(ctx context.Context, listID uint, statusID uint, replacementID *uint) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var list domain.List
+	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var list persistence.List
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, listID).Error; err != nil {
 			return err
 		}
 
-		var status domain.TaskStatus
+		var status persistence.TaskStatus
 		if err := tx.Where(statusListPredicate, listID).First(&status, statusID).Error; err != nil {
 			return err
 		}
 
 		var inUse int64
-		if err := tx.Model(&domain.Task{}).Where("status_id = ?", statusID).Count(&inUse).Error; err != nil {
+		if err := tx.Model(&persistence.Task{}).Where("status_id = ?", statusID).Count(&inUse).Error; err != nil {
 			return err
 		}
 		if inUse > 0 {
@@ -153,14 +168,14 @@ func (r *statusRepository) Delete(ctx context.Context, listID uint, statusID uin
 			if *replacementID == statusID {
 				return domain.ErrInvalidReplacementStatus
 			}
-			var replacement domain.TaskStatus
+			var replacement persistence.TaskStatus
 			if err := tx.Where(statusListPredicate, listID).First(&replacement, *replacementID).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return domain.ErrInvalidReplacementStatus
 				}
 				return err
 			}
-			if err := tx.Model(&domain.Task{}).Where("status_id = ?", statusID).
+			if err := tx.Model(&persistence.Task{}).Where("status_id = ?", statusID).
 				Update("status_id", replacement.ID).Error; err != nil {
 				return err
 			}
@@ -170,8 +185,8 @@ func (r *statusRepository) Delete(ctx context.Context, listID uint, statusID uin
 			return err
 		}
 
-		return tx.Model(&domain.TaskStatus{}).
+		return tx.Model(&persistence.TaskStatus{}).
 			Where(statusListPredicate+" AND position > ?", listID, status.Position).
 			Update("position", gorm.Expr("position - 1")).Error
-	})
+	}))
 }

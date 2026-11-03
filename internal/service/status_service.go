@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"gorm.io/gorm"
-
 	"rabbit-hole-server/internal/domain"
 )
 
 // ErrStatusListMismatch is returned when a status is addressed through a list
-// it does not belong to. It wraps gorm.ErrRecordNotFound so the API answers 404.
-var ErrStatusListMismatch = fmt.Errorf("status does not belong to this list: %w", gorm.ErrRecordNotFound)
+// it does not belong to. It wraps domain.ErrNotFound so the API answers 404.
+var ErrStatusListMismatch = fmt.Errorf("status does not belong to this list: %w", domain.ErrNotFound)
 
 type StatusService interface {
 	Create(ctx context.Context, params CreateStatusParams) (*domain.TaskStatus, error)

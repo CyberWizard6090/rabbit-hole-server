@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
-	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/domain"
 	contextutil "rabbit-hole-server/internal/http/context"
 	httperrors "rabbit-hole-server/internal/http/errors"
 )
@@ -59,7 +59,7 @@ func HandleError(c *gin.Context, err error) {
 }
 
 func classify(err error) (status int, code, message string, fields map[string]string) {
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if errors.Is(err, domain.ErrNotFound) {
 		return http.StatusNotFound, "NOT_FOUND", "resource not found", nil
 	}
 	var appErr *httperrors.AppError
