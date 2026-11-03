@@ -14,3 +14,12 @@ type TokenPair struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 }
+
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required,min=8,max=128"`
+}
+
+type DeleteAccountRequest struct {
+	Password string `json:"password" binding:"required"`
+}

@@ -14,7 +14,7 @@ func TestAuthServiceGenerateTokenPairCreatesMatchingSession(t *testing.T) {
 	svc := NewAuthService(nil, "12345678901234567890123456789012", time.Hour, 24*time.Hour)
 	before := time.Now().Add(-time.Second)
 
-	pair, session, err := svc.generateTokenPair(42)
+	pair, session, err := svc.generateTokenPair(42, 0)
 	if err != nil {
 		t.Fatalf("generateTokenPair error=%v", err)
 	}
@@ -40,7 +40,7 @@ func TestAuthServiceGenerateTokenPairCreatesMatchingSession(t *testing.T) {
 
 func TestAuthServiceParseTokenAcceptsAccessOnly(t *testing.T) {
 	svc := NewAuthService(nil, "12345678901234567890123456789012", time.Hour, time.Hour)
-	pair, _, err := svc.generateTokenPair(99)
+	pair, _, err := svc.generateTokenPair(99, 0)
 	if err != nil {
 		t.Fatalf("generateTokenPair error=%v", err)
 	}

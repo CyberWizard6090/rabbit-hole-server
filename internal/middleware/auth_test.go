@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,13 +13,21 @@ import (
 	"rabbit-hole-server/internal/service"
 )
 
+type versionStore struct {
+	service.AuthUserStore
+	version int
+	err     error
+}
+
+func (v versionStore) GetTokenVersion(uint) (int, error) { return v.version, v.err }
+
 const testJWTSecret = "12345678901234567890123456789012"
 
 func testRouterWithAuth(t *testing.T) (*gin.Engine, *int) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	auth := service.NewAuthService(nil, testJWTSecret, time.Hour, 24*time.Hour)
+	auth := service.NewAuthService(versionStore{}, testJWTSecret, time.Hour, 24*time.Hour)
 	router.Use(AuthMiddleware(auth))
 	calls := 0
 	router.GET("/protected", func(c *gin.Context) {
@@ -114,7 +123,7 @@ func TestAuthMiddlewareRejectsRefreshTokenAndBadSignature(t *testing.T) {
 func TestAuthMiddlewareRejectsExpiredToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	auth := service.NewAuthService(nil, testJWTSecret, time.Hour, time.Hour)
+	auth := service.NewAuthService(versionStore{}, testJWTSecret, time.Hour, time.Hour)
 	router.Use(AuthMiddleware(auth))
 	calls := 0
 	router.GET("/protected", func(c *gin.Context) { calls++; c.Status(http.StatusNoContent) })
@@ -133,5 +142,29 @@ func TestAuthMiddlewareRejectsExpiredToken(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized || calls != 0 {
 		t.Fatalf("status=%d calls=%d", rec.Code, calls)
+	}
+}
+
+func TestAuthMiddlewareRejectsRevokedTokenVersion(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cases := map[string]versionStore{
+		"password changed (version bumped)": {version: 3},
+		"account deleted (user not found)":  {err: errors.New("record not found")},
+	}
+	for name, store := range cases {
+		t.Run(name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(AuthMiddleware(service.NewAuthService(store, testJWTSecret, time.Hour, time.Hour)))
+			calls := 0
+			router.GET("/protected", func(c *gin.Context) { calls++; c.Status(http.StatusNoContent) })
+
+			req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+			req.Header.Set("Authorization", "Bearer "+signAccessTestToken(t, 42))
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized || calls != 0 {
+				t.Fatalf("status=%d calls=%d, want 401 and no downstream call", rec.Code, calls)
+			}
+		})
 	}
 }

@@ -18,6 +18,7 @@ CREATE TABLE users (
     avatar_url TEXT,
     bio TEXT,
     time_zone TEXT NOT NULL DEFAULT 'UTC',
+    token_version INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
