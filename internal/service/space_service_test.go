@@ -11,10 +11,17 @@ import (
 
 func TestSpaceServiceCreateSpaceBuildsDefaults(t *testing.T) {
 	repo := newMockSpaceRepository()
-	repo.createFn = func(s *domain.Space) error { s.ID = 100; return nil }
-	repo.createListFn = func(l *domain.List) error { l.ID = 200; return nil }
-	statuses := make([]domain.TaskStatus, 0, 3)
-	repo.createStatusFn = func(s *domain.TaskStatus) error { statuses = append(statuses, *s); return nil }
+	var gotList *domain.List
+	var statuses []domain.TaskStatus
+	repo.createWithDefaultsFn = func(space *domain.Space, list *domain.List, st []domain.TaskStatus) error {
+		space.ID, list.ID = 100, 200
+		gotList = list
+		for i := range st {
+			st[i].SpaceID, st[i].ListID = space.ID, list.ID
+		}
+		statuses = st
+		return nil
+	}
 
 	got, err := NewSpaceService(repo).CreateSpace(7, "Work", "USD", 9)
 	if err != nil {
@@ -22,6 +29,9 @@ func TestSpaceServiceCreateSpaceBuildsDefaults(t *testing.T) {
 	}
 	if got.ID != 100 || got.WorkspaceID != 7 || got.OwnerID != 9 || got.Name != "Work" || got.Currency != "USD" {
 		t.Fatalf("space=%+v", got)
+	}
+	if gotList == nil || gotList.Name == "" {
+		t.Fatalf("default list=%+v", gotList)
 	}
 	if len(statuses) != 3 {
 		t.Fatalf("statuses=%d", len(statuses))
@@ -35,19 +45,14 @@ func TestSpaceServiceCreateSpaceBuildsDefaults(t *testing.T) {
 	}
 }
 
-func TestSpaceServiceCreateSpaceStopsOnDependencyError(t *testing.T) {
-	want := errors.New("create list failed")
+func TestSpaceServiceCreateSpaceReturnsTransactionError(t *testing.T) {
+	want := errors.New("transaction failed")
 	repo := newMockSpaceRepository()
-	repo.createFn = func(s *domain.Space) error { s.ID = 1; return nil }
-	repo.createListFn = func(*domain.List) error { return want }
-	calls := 0
-	repo.createStatusFn = func(*domain.TaskStatus) error { calls++; return nil }
-	_, err := NewSpaceService(repo).CreateSpace(1, "x", "USD", 2)
-	if !errors.Is(err, want) {
-		t.Fatalf("err=%v", err)
-	}
-	if calls != 0 {
-		t.Fatalf("status creates=%d", calls)
+	repo.createWithDefaultsFn = func(*domain.Space, *domain.List, []domain.TaskStatus) error { return want }
+
+	got, err := NewSpaceService(repo).CreateSpace(1, "x", "USD", 2)
+	if !errors.Is(err, want) || got != nil {
+		t.Fatalf("got=%v err=%v, want nil space and the repository error", got, err)
 	}
 }
 
