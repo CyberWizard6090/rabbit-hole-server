@@ -444,16 +444,18 @@ func (m *taskRepositoryMock) List(_ uint, params pagination.Params) ([]domain.Ta
 	return m.tasks, m.hasNext, m.hasPrev, m.getErr
 }
 func (m *taskRepositoryMock) GetByID(id uint) (*domain.Task, error) { return m.task, m.getErr }
-func (m *taskRepositoryMock) Update(task *domain.Task) error {
+func (m *taskRepositoryMock) Update(task *domain.Task, addTagIDs []uint) error {
 	m.updatedTask = task
-	return m.updateErr
-}
-func (m *taskRepositoryMock) Delete(id uint) error { m.deletedID = id; return m.deleteErr }
-func (m *taskRepositoryMock) AddTags(taskID uint, tagIDs []uint) error {
-	m.addedTaskID = taskID
-	m.addedTagIDs = append([]uint(nil), tagIDs...)
+	m.addedTaskID = task.ID
+	if len(addTagIDs) > 0 {
+		m.addedTagIDs = append([]uint(nil), addTagIDs...)
+	}
+	if m.updateErr != nil {
+		return m.updateErr
+	}
 	return m.addTagsErr
 }
+func (m *taskRepositoryMock) Delete(id uint) error { m.deletedID = id; return m.deleteErr }
 
 type userRepositoryMock struct {
 	user      *domain.User

@@ -38,7 +38,6 @@ type TaskRepository interface {
 	Create(task *Task, assigneeIDs []uint, tagIDs []uint) error
 	List(listID uint, params pagination.Params) ([]Task, bool, bool, error)
 	GetByID(id uint) (*Task, error)
-	Update(task *Task) error
+	Update(task *Task, addTagIDs []uint) error
 	Delete(id uint) error
-	AddTags(taskID uint, tagIDs []uint) error
 }

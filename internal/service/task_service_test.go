@@ -193,7 +193,7 @@ func TestTaskServiceUpdateTaskChangesFieldsAndAddsTags(t *testing.T) {
 	}
 }
 
-func TestTaskServiceUpdateTaskWithoutTagsDoesNotCallAddTags(t *testing.T) {
+func TestTaskServiceUpdateTaskWithoutTagsAttachesNone(t *testing.T) {
 	task := &domain.Task{Model: gorm.Model{ID: 9}, SpaceID: 55, ListID: 7}
 	taskRepo := &taskRepositoryMock{task: task}
 	svc := newTestTaskService(taskRepo, &spaceRepositoryMock{}, &tagServiceMock{})
@@ -201,8 +201,8 @@ func TestTaskServiceUpdateTaskWithoutTagsDoesNotCallAddTags(t *testing.T) {
 	if _, err := svc.UpdateTask(9, UpdateTaskParams{}); err != nil {
 		t.Fatalf("UpdateTask error=%v", err)
 	}
-	if taskRepo.addedTaskID != 0 || taskRepo.addedTagIDs != nil {
-		t.Fatalf("AddTags was unexpectedly called: id=%d tags=%v", taskRepo.addedTaskID, taskRepo.addedTagIDs)
+	if taskRepo.addedTagIDs != nil {
+		t.Fatalf("unexpected tags attached: %v", taskRepo.addedTagIDs)
 	}
 }
 
@@ -226,8 +226,8 @@ func TestTaskServiceUpdateTaskPropagatesErrors(t *testing.T) {
 	if _, err := svc.UpdateTask(1, UpdateTaskParams{AddTagNames: []string{"Bug"}}); !errors.Is(err, tagErr) {
 		t.Fatalf("tag error=%v", err)
 	}
-	if updatedRepo.updatedTask == nil {
-		t.Fatal("task update was not attempted")
+	if updatedRepo.updatedTask != nil {
+		t.Fatal("task must not be saved when tag resolution fails")
 	}
 
 	addErr := errors.New("add tags failed")
