@@ -84,16 +84,62 @@ func (h *WorkspaceHandler) List(c *gin.Context) {
 	)
 }
 
+func workspaceIDParam(c *gin.Context) (uint, bool) {
+	id, err := strconv.ParseUint(c.Param("workspace_id"), 10, 64)
+	if err != nil || id == 0 {
+		response.HandleError(c, httperrors.BadRequest("INVALID_WORKSPACE_ID", "invalid workspace id", err))
+		return 0, false
+	}
+	return uint(id), true
+}
+
 func (h *WorkspaceHandler) Get(c *gin.Context) {
-	// TODO:  Добавить функцию получения рабочего пространства по ID
+	id, ok := workspaceIDParam(c)
+	if !ok {
+		return
+	}
+	workspace, err := h.service.GetWorkspaceByID(id)
+	if err != nil {
+		response.HandleError(c, httperrors.NotFound("WORKSPACE_NOT_FOUND", "workspace not found", err))
+		return
+	}
+	response.Success(c, http.StatusOK, workspace)
 }
 
 func (h *WorkspaceHandler) Update(c *gin.Context) {
+	id, ok := workspaceIDParam(c)
+	if !ok {
+		return
+	}
 
-	// TODO: Добавить функцию обновления рабочего пространства
+	var req dto.UpdateWorkspaceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c, err)
+		return
+	}
+
+	workspace, err := h.service.UpdateWorkspace(id, req.Name, req.Description)
+	if err != nil {
+		if errors.Is(err, service.ErrWorkspaceNameRequired) {
+			response.HandleError(c, httperrors.BadRequest("WORKSPACE_NAME_REQUIRED", err.Error(), err))
+			return
+		}
+		response.HandleError(c, httperrors.Internal("WORKSPACE_UPDATE_FAILED", "internal server error", err))
+		return
+	}
+	response.Success(c, http.StatusOK, workspace)
 }
+
 func (h *WorkspaceHandler) Delete(c *gin.Context) {
-	// TODO:  Добавить функцию удаления рабочего пространства
+	id, ok := workspaceIDParam(c)
+	if !ok {
+		return
+	}
+	if err := h.service.DeleteWorkspace(id); err != nil {
+		response.HandleError(c, httperrors.Internal("WORKSPACE_DELETE_FAILED", "internal server error", err))
+		return
+	}
+	response.Success(c, http.StatusOK, gin.H{"message": "workspace deleted"})
 }
 
 func parseUintParam(c *gin.Context, name string) (uint, bool) {

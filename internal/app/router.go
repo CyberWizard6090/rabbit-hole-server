@@ -127,6 +127,15 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					workspaces.DELETE("/:workspace_id/members/:user_id",
 						inWorkspace(domain.PermMemberManage),
 						deps.WorkspaceHandler.RemoveMember)
+					workspaces.GET("/:workspace_id",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.WorkspaceHandler.Get)
+					workspaces.PATCH("/:workspace_id",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.WorkspaceHandler.Update)
+					workspaces.DELETE("/:workspace_id",
+						inWorkspace(domain.PermWorkspaceDelete),
+						deps.WorkspaceHandler.Delete)
 
 					workspaces.POST("/:workspace_id/spaces",
 						inWorkspace(domain.PermSpaceCreate),
@@ -138,6 +147,16 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 
 				spaces := protected.Group("/spaces/:space_id")
 				{
+					spaces.GET("",
+						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.read"),
+						deps.SpaceHandler.Get)
+					spaces.PATCH("",
+						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.update"),
+						deps.SpaceHandler.Update)
+					spaces.DELETE("",
+						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.delete"),
+						deps.SpaceHandler.Delete)
+
 					spaces.GET("/dashboard",
 						inSpace(domain.PermSpaceRead),
 						deps.SpaceHandler.GetDashboard)

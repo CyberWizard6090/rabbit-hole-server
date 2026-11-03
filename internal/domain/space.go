@@ -112,6 +112,8 @@ type SpaceRepository interface {
 	GetByID(id uint) (*Space, error)
 	Create(space *Space) error
 	CreateWithDefaults(space *Space, list *List, statuses []TaskStatus) error
+	Update(space *Space) error
+	Delete(id uint) error
 	GetAll(workspaceID uint, limit, offset int) ([]Space, int64, error)
 	GetDashboard(spaceID uint) (*Space, error)
 	CreateStatus(status *TaskStatus) error

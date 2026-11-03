@@ -1,12 +1,21 @@
 package service
 
-import "rabbit-hole-server/internal/domain"
+import (
+	"errors"
+	"strings"
+
+	"rabbit-hole-server/internal/domain"
+)
+
+var ErrSpaceNameRequired = errors.New("space name is required")
 
 type SpaceService interface {
 	CreateSpace(workspaceID uint, name string, currency string, userID uint) (*domain.Space, error)
 	GetSpaceByID(id uint) (*domain.Space, error)
 	GetAllSpaces(workspaceID uint, limit, offset int) ([]domain.Space, int64, error)
 	GetDashboard(spaceID uint) (*domain.Space, error)
+	UpdateSpace(id uint, name, currency *string) (*domain.Space, error)
+	DeleteSpace(id uint) error
 	CreateList(spaceID uint, name string, parentStatusID *uint) (*domain.List, error)
 
 	CreateListInFolder(spaceID, folderID uint, name string) (*domain.List, error)
@@ -93,4 +102,31 @@ func (s *spaceService) UpdateList(listID uint, name *string) (*domain.List, erro
 
 func (s *spaceService) DeleteList(listID uint) error {
 	return s.repo.DeleteList(listID)
+}
+
+func (s *spaceService) UpdateSpace(id uint, name, currency *string) (*domain.Space, error) {
+	space, err := s.repo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if name != nil {
+		trimmed := strings.TrimSpace(*name)
+		if trimmed == "" {
+			return nil, ErrSpaceNameRequired
+		}
+		space.Name = trimmed
+	}
+	if currency != nil {
+		space.Currency = strings.ToUpper(strings.TrimSpace(*currency))
+	}
+
+	if err := s.repo.Update(space); err != nil {
+		return nil, err
+	}
+	return space, nil
+}
+
+func (s *spaceService) DeleteSpace(id uint) error {
+	return s.repo.Delete(id)
 }

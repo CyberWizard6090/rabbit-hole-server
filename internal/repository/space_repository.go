@@ -155,3 +155,18 @@ func (r *spaceRepository) DeleteList(id uint) error {
 	}
 	return nil
 }
+
+func (r *spaceRepository) Update(space *domain.Space) error {
+	return r.db.Model(space).Select("Name", "Currency").Updates(space).Error
+}
+
+func (r *spaceRepository) Delete(id uint) error {
+	res := r.db.Delete(&domain.Space{}, id)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}

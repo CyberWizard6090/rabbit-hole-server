@@ -138,3 +138,23 @@ func (r *workspaceRepository) IsContact(userID, otherID uint) (bool, error) {
 		Count(&count).Error
 	return count > 0, err
 }
+
+func (r *workspaceRepository) Update(workspace *domain.Workspace) error {
+	return r.db.Model(workspace).Select("Name", "Description").Updates(workspace).Error
+}
+
+func (r *workspaceRepository) Delete(id uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Delete(&domain.Workspace{}, id)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		if err := tx.Where("workspace_id = ?", id).Delete(&domain.Member{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("workspace_id = ?", id).Delete(&domain.Space{}).Error
+	})
+}

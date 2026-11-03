@@ -82,4 +82,6 @@ type WorkspaceRepository interface {
 	UpdateMemberRole(workspaceID, userID, roleID uint) error
 	RemoveMember(workspaceID, userID uint) error
 	IsContact(userID, otherID uint) (bool, error)
+	Update(workspace *Workspace) error
+	Delete(id uint) error
 }

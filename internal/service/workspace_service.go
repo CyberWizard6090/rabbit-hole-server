@@ -35,6 +35,8 @@ type WorkspaceService interface {
 	AddMember(workspaceID, actorID, targetID uint, roleName string) error
 	ChangeMemberRole(workspaceID, targetID uint, roleName string) error
 	RemoveMember(workspaceID, targetID uint) error
+	UpdateWorkspace(id uint, name, description *string) (*domain.Workspace, error)
+	DeleteWorkspace(id uint) error
 }
 
 type workspaceService struct {
@@ -168,4 +170,31 @@ func (s *workspaceService) RemoveMember(workspaceID, targetID uint) error {
 		return err
 	}
 	return nil
+}
+
+func (s *workspaceService) UpdateWorkspace(id uint, name, description *string) (*domain.Workspace, error) {
+	workspace, err := s.repo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	if name != nil {
+		trimmed := strings.TrimSpace(*name)
+		if trimmed == "" {
+			return nil, ErrWorkspaceNameRequired
+		}
+		workspace.Name = trimmed
+	}
+	if description != nil {
+		workspace.Description = strings.TrimSpace(*description)
+	}
+
+	if err := s.repo.Update(workspace); err != nil {
+		return nil, err
+	}
+	return workspace, nil
+}
+
+func (s *workspaceService) DeleteWorkspace(id uint) error {
+	return s.repo.Delete(id)
 }
