@@ -23,6 +23,7 @@ func NewPermissionChecker(db *gorm.DB) PermissionChecker {
 
 func (p *permissionChecker) baseQuery(userID uint, code string) *gorm.DB {
 	return p.db.Table("workspace_members").
+		Joins("JOIN workspaces ON workspaces.id = workspace_members.workspace_id AND workspaces.deleted_at IS NULL").
 		Joins("JOIN roles ON roles.id = workspace_members.role_id AND roles.deleted_at IS NULL").
 		Joins("JOIN role_permissions ON role_permissions.role_id = roles.id AND role_permissions.deleted_at IS NULL").
 		Joins("JOIN permissions ON permissions.id = role_permissions.permission_id AND permissions.deleted_at IS NULL").
