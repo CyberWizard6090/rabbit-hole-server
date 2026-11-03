@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
@@ -115,4 +116,12 @@ func (r *UserRepository) RotateSession(tokenHash string, replacement *domain.Use
 
 func (r *UserRepository) DeleteAllUserSessions(userID uint) error {
 	return r.db.Where("user_id = ?", userID).Delete(&domain.UserSession{}).Error
+}
+
+func (r *UserRepository) HasSessionCreatedSince(userID uint, since time.Time) (bool, error) {
+	var count int64
+	err := r.db.Model(&domain.UserSession{}).
+		Where("user_id = ? AND created_at >= ?", userID, since).
+		Count(&count).Error
+	return count > 0, err
 }

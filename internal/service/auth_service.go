@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -269,11 +270,26 @@ func (s *AuthService) Refresh(refreshTokenString string) (dto.TokenPair, error) 
 	}
 	if err := s.repo.RotateSession(tokenHash, replacement); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			s.handleUnknownRefreshSession(claims.UserID)
 			return dto.TokenPair{}, errors.New("session not found")
 		}
 		return dto.TokenPair{}, fmt.Errorf("rotate refresh session: %w", err)
 	}
 	return pair, nil
+}
+
+const refreshReuseGrace = 10 * time.Second
+
+func (s *AuthService) handleUnknownRefreshSession(userID uint) {
+	recent, err := s.repo.HasSessionCreatedSince(userID, time.Now().Add(-refreshReuseGrace))
+	if err != nil || recent {
+		return
+	}
+	if err := s.repo.DeleteAllUserSessions(userID); err != nil {
+		log.Printf("revoke sessions after refresh token reuse (user %d): %v", userID, err)
+		return
+	}
+	log.Printf("refresh token reuse detected: revoked all sessions of user %d", userID)
 }
 
 func (s *AuthService) Logout(refreshTokenString string) error {
