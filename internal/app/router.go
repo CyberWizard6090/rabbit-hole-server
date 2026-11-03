@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"rabbit-hole-server/internal/config"
+	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/middleware"
 )
 
@@ -66,6 +67,19 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 
 	r.Use(middleware.BodyLimit(middleware.DefaultMaxBodyBytes))
 
+	require := func(resource middleware.Resource) func(code string) gin.HandlerFunc {
+		return func(code string) gin.HandlerFunc {
+			return middleware.RequirePermission(deps.PermissionChecker, resource, code)
+		}
+	}
+	var (
+		inWorkspace = require(middleware.ResourceWorkspace)
+		inSpace     = require(middleware.ResourceSpace)
+		inFolder    = require(middleware.ResourceFolder)
+		inList      = require(middleware.ResourceList)
+		inTask      = require(middleware.ResourceTask)
+	)
+
 	api := r.Group("/api")
 	{
 		v1 := api.Group("/v1")
@@ -105,105 +119,105 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					workspaces.GET("", deps.WorkspaceHandler.List)
 
 					workspaces.POST("/:workspace_id/spaces",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceWorkspace, "space.create"),
+						inWorkspace(domain.PermSpaceCreate),
 						deps.SpaceHandler.Create)
 					workspaces.GET("/:workspace_id/spaces",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceWorkspace, "space.read"),
+						inWorkspace(domain.PermSpaceRead),
 						deps.SpaceHandler.List)
 				}
 
 				spaces := protected.Group("/spaces/:space_id")
 				{
 					spaces.GET("/dashboard",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.read"),
+						inSpace(domain.PermSpaceRead),
 						deps.SpaceHandler.GetDashboard)
 
 					spaces.POST("/tags",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.update"),
+						inSpace(domain.PermSpaceUpdate),
 						deps.TagHandler.Create)
 					spaces.GET("/tags",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.read"),
+						inSpace(domain.PermSpaceRead),
 						deps.TagHandler.List)
 					spaces.PUT("/tags/:tag_id",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.update"),
+						inSpace(domain.PermSpaceUpdate),
 						deps.TagHandler.Update)
 					spaces.DELETE("/tags/:tag_id",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.update"),
+						inSpace(domain.PermSpaceUpdate),
 						deps.TagHandler.Delete)
 					spaces.POST("/tags/merge",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.update"),
+						inSpace(domain.PermSpaceUpdate),
 						deps.TagHandler.Merge)
 
 					spaces.POST("/folders",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.update"),
+						inSpace(domain.PermSpaceUpdate),
 						deps.FolderHandler.Create)
 					spaces.GET("/folders",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.read"),
+						inSpace(domain.PermSpaceRead),
 						deps.FolderHandler.List)
 
 					spaces.POST(routeLists,
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.update"),
+						inSpace(domain.PermSpaceUpdate),
 						deps.ListHandler.CreateInSpace)
 					spaces.GET(routeLists,
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.read"),
+						inSpace(domain.PermSpaceRead),
 						deps.ListHandler.ListInSpace)
 				}
 
 				folders := protected.Group("/folders/:folder_id")
 				{
 					folders.POST(routeLists,
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceFolder, "space.update"),
+						inFolder(domain.PermSpaceUpdate),
 						deps.ListHandler.CreateInFolder)
 					folders.GET(routeLists,
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceFolder, "space.read"),
+						inFolder(domain.PermSpaceRead),
 						deps.ListHandler.ListInFolder)
 					folders.PATCH("",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceFolder, "space.update"),
+						inFolder(domain.PermSpaceUpdate),
 						deps.FolderHandler.Update)
 					folders.DELETE("",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceFolder, "space.update"),
+						inFolder(domain.PermSpaceUpdate),
 						deps.FolderHandler.Delete)
 				}
 
 				lists := protected.Group("/lists/:list_id")
 				{
 					lists.POST("/statuses",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.update"),
+						inList(domain.PermSpaceUpdate),
 						deps.StatusHandler.Create)
 					lists.GET("/statuses",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.read"),
+						inList(domain.PermSpaceRead),
 						deps.StatusHandler.List)
 					lists.PUT("/statuses/:status_id",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.update"),
+						inList(domain.PermSpaceUpdate),
 						deps.StatusHandler.Update)
 					lists.DELETE("/statuses/:status_id",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.update"),
+						inList(domain.PermSpaceUpdate),
 						deps.StatusHandler.Delete)
 
 					lists.POST("/tasks",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "task.create"),
+						inList(domain.PermTaskCreate),
 						deps.TaskHandler.Create)
 					lists.GET("/tasks",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "task.read"),
+						inList(domain.PermTaskRead),
 						deps.TaskHandler.List)
 					lists.PATCH("",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.update"),
+						inList(domain.PermSpaceUpdate),
 						deps.ListHandler.Update)
 					lists.DELETE("",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceList, "space.update"),
+						inList(domain.PermSpaceUpdate),
 						deps.ListHandler.Delete)
 				}
 
 				tasks := protected.Group("/tasks/:task_id")
 				{
 					tasks.GET("",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceTask, "task.read"),
+						inTask(domain.PermTaskRead),
 						deps.TaskHandler.Get)
 					tasks.PATCH("",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceTask, "task.update"),
+						inTask(domain.PermTaskUpdate),
 						deps.TaskHandler.Update)
 					tasks.DELETE("",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceTask, "task.delete"),
+						inTask(domain.PermTaskDelete),
 						deps.TaskHandler.Delete)
 				}
 			}
