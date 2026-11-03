@@ -35,7 +35,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-w -s" -o /app/migrate
 # ==========================================
 # 4. Среда Production
 # ==========================================
-FROM alpine:3.22 AS prod
+FROM alpine:3.24 AS prod
 
 RUN apk --no-cache add ca-certificates tzdata \
     && addgroup -S app && adduser -S -G app app
