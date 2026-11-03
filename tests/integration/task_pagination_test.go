@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gorm.io/gorm"
-
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/repository"
@@ -140,7 +138,7 @@ func setupTaskPaginationFixture(t *testing.T, count int) (*TestContext, uint, []
 
 	for i := 1; i < count; i++ {
 		task := domain.Task{
-			Model:    gorm.Model{CreatedAt: createdAt, UpdatedAt: createdAt},
+			Model:    domain.Model{CreatedAt: createdAt, UpdatedAt: createdAt},
 			SpaceID:  space.ID,
 			ListID:   list.ID,
 			StatusID: first.StatusID,

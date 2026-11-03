@@ -590,12 +590,12 @@ func TestDatabaseCheckConstraintsRejectInvalidValues(t *testing.T) {
 	assertRejected("self parent task", func(tx *gorm.DB) error {
 		const id uint = 900001
 		parentID := id
-		return tx.Create(&domain.Task{Model: gorm.Model{ID: id}, SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, ParentID: &parentID, UserID: owner.ID, Title: "Self parent"}).Error
+		return tx.Create(&domain.Task{Model: domain.Model{ID: id}, SpaceID: space.ID, ListID: list.ID, StatusID: status.ID, ParentID: &parentID, UserID: owner.ID, Title: "Self parent"}).Error
 	})
 	assertRejected("self parent folder", func(tx *gorm.DB) error {
 		const id uint = 900002
 		parentID := id
-		return tx.Create(&domain.Folder{Model: gorm.Model{ID: id}, SpaceID: space.ID, Name: "Self parent", ParentID: &parentID}).Error
+		return tx.Create(&domain.Folder{Model: domain.Model{ID: id}, SpaceID: space.ID, Name: "Self parent", ParentID: &parentID}).Error
 	})
 	assertRejected("self contact", func(tx *gorm.DB) error {
 		return tx.Exec("INSERT INTO user_contacts (user_id, contact_id) VALUES (?, ?)", owner.ID, owner.ID).Error

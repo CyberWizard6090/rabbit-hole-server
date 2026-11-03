@@ -22,7 +22,7 @@ func TestWorkspace_CreateCreatesOwnerRolesAndMember(t *testing.T) {
 	workspace := dataObject(t, rec)
 
 	var ws domain.Workspace
-	if err := tc.DB.First(&ws, uint(workspace["ID"].(float64))).Error; err != nil {
+	if err := tc.DB.First(&ws, uint(workspace["id"].(float64))).Error; err != nil {
 		t.Fatalf("find workspace: %v", err)
 	}
 

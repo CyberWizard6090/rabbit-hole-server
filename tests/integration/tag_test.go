@@ -60,7 +60,7 @@ func TestTag_MergeMovesTaskRelations(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create task status: %d: %s", rec.Code, rec.Body.String())
 	}
-	statusID := uint(dataObject(t, rec)["ID"].(float64))
+	statusID := uint(dataObject(t, rec)["id"].(float64))
 
 	rec = request(t, tc.Router, http.MethodPost,
 		"/api/v1/lists/"+itoa(listID)+"/tasks",
@@ -74,7 +74,7 @@ func TestTag_MergeMovesTaskRelations(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create task: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
-	taskID := uint(dataObject(t, rec)["ID"].(float64))
+	taskID := uint(dataObject(t, rec)["id"].(float64))
 
 	rec = request(t, tc.Router, http.MethodPost,
 		"/api/v1/spaces/"+itoa(spaceID)+"/tags/merge",
