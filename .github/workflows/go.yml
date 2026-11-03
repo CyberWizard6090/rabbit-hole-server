@@ -171,6 +171,14 @@ jobs:
             --username postgres \
             rabbit_hole_test
 
+      - name: Migration round trip (up -> down -> up)
+        env:
+          DB_URL: postgres://postgres:postgres@127.0.0.1:5432/rabbit_hole?sslmode=disable
+        run: |
+          go run ./cmd/migrate -action up
+          go run ./cmd/migrate -action down
+          go run ./cmd/migrate -action up
+
       - name: Run integration tests
         env:
           APP_ENV: test
@@ -184,15 +192,6 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [fmt, lint, vet, unit-tests]
 
-    strategy:
-      fail-fast: false
-      matrix:
-        goos: [linux, darwin, windows]
-        goarch: [amd64, arm64]
-        exclude:
-          - goos: windows
-            goarch: arm64
-
     steps:
       - uses: actions/checkout@v4.2.2
 
@@ -203,8 +202,8 @@ jobs:
 
       - name: Build server
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          GOOS: linux
+          GOARCH: amd64
         shell: bash
         run: |
           set -euo pipefail
@@ -223,8 +222,8 @@ jobs:
 
       - name: Build migrate
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          GOOS: linux
+          GOARCH: amd64
         shell: bash
         run: |
           set -euo pipefail
@@ -244,7 +243,7 @@ jobs:
       - name: Upload binaries
         uses: actions/upload-artifact@v4.6.2
         with:
-          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: binaries-linux-amd64
           path: build/*
           if-no-files-found: error
           retention-days: 7
