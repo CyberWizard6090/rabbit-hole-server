@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -16,8 +17,8 @@ func NewWorkspaceRepository(db *gorm.DB) domain.WorkspaceRepository {
 	return &workspaceRepository{db: db}
 }
 
-func (r *workspaceRepository) Create(workspace *domain.Workspace, ownerID uint) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *workspaceRepository) Create(ctx context.Context, workspace *domain.Workspace, ownerID uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(workspace).Error; err != nil {
 			return err
 		}
@@ -50,26 +51,26 @@ func (r *workspaceRepository) Create(workspace *domain.Workspace, ownerID uint) 
 	})
 }
 
-func (r *workspaceRepository) GetByID(id uint) (*domain.Workspace, error) {
+func (r *workspaceRepository) GetByID(ctx context.Context, id uint) (*domain.Workspace, error) {
 	var workspace domain.Workspace
-	if err := r.db.First(&workspace, id).Error; err != nil {
+	if err := r.db.WithContext(ctx).First(&workspace, id).Error; err != nil {
 		return nil, err
 	}
 	return &workspace, nil
 }
 
-func (r *workspaceRepository) GetAllForUser(userID uint) ([]domain.Workspace, error) {
+func (r *workspaceRepository) GetAllForUser(ctx context.Context, userID uint) ([]domain.Workspace, error) {
 	var workspaces []domain.Workspace
-	err := r.db.
+	err := r.db.WithContext(ctx).
 		Joins("JOIN workspace_members ON workspace_members.workspace_id = workspaces.id").
 		Where("workspace_members.user_id = ?", userID).
 		Find(&workspaces).Error
 	return workspaces, err
 }
 
-func (r *workspaceRepository) ListMembers(workspaceID uint) ([]domain.MemberDetail, error) {
+func (r *workspaceRepository) ListMembers(ctx context.Context, workspaceID uint) ([]domain.MemberDetail, error) {
 	var members []domain.MemberDetail
-	err := r.db.Table("workspace_members").
+	err := r.db.WithContext(ctx).Table("workspace_members").
 		Select(`workspace_members.user_id AS user_id, users.username, users.first_name, users.last_name,
 			users.avatar_url, workspace_members.role_id, roles.name AS role, workspace_members.created_at AS joined_at`).
 		Joins("JOIN users ON users.id = workspace_members.user_id").
@@ -80,9 +81,9 @@ func (r *workspaceRepository) ListMembers(workspaceID uint) ([]domain.MemberDeta
 	return members, err
 }
 
-func (r *workspaceRepository) GetMember(workspaceID, userID uint) (*domain.Member, error) {
+func (r *workspaceRepository) GetMember(ctx context.Context, workspaceID, userID uint) (*domain.Member, error) {
 	var member domain.Member
-	err := r.db.Preload("Role").
+	err := r.db.WithContext(ctx).Preload("Role").
 		Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
 		First(&member).Error
 	if err != nil {
@@ -91,24 +92,24 @@ func (r *workspaceRepository) GetMember(workspaceID, userID uint) (*domain.Membe
 	return &member, nil
 }
 
-func (r *workspaceRepository) GetRoleByName(workspaceID uint, name string) (*domain.Role, error) {
+func (r *workspaceRepository) GetRoleByName(ctx context.Context, workspaceID uint, name string) (*domain.Role, error) {
 	var role domain.Role
-	if err := r.db.Where("workspace_id = ? AND name = ?", workspaceID, name).First(&role).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("workspace_id = ? AND name = ?", workspaceID, name).First(&role).Error; err != nil {
 		return nil, err
 	}
 	return &role, nil
 }
 
-func (r *workspaceRepository) AddMember(member *domain.Member) error {
-	err := r.db.Create(member).Error
+func (r *workspaceRepository) AddMember(ctx context.Context, member *domain.Member) error {
+	err := r.db.WithContext(ctx).Create(member).Error
 	if err != nil && isUniqueViolation(err) {
 		return domain.ErrAlreadyMember
 	}
 	return err
 }
 
-func (r *workspaceRepository) UpdateMemberRole(workspaceID, userID, roleID uint) error {
-	res := r.db.Model(&domain.Member{}).
+func (r *workspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID, userID, roleID uint) error {
+	res := r.db.WithContext(ctx).Model(&domain.Member{}).
 		Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
 		Update("role_id", roleID)
 	if res.Error != nil {
@@ -120,8 +121,8 @@ func (r *workspaceRepository) UpdateMemberRole(workspaceID, userID, roleID uint)
 	return nil
 }
 
-func (r *workspaceRepository) RemoveMember(workspaceID, userID uint) error {
-	res := r.db.Where("workspace_id = ? AND user_id = ?", workspaceID, userID).Delete(&domain.Member{})
+func (r *workspaceRepository) RemoveMember(ctx context.Context, workspaceID, userID uint) error {
+	res := r.db.WithContext(ctx).Where("workspace_id = ? AND user_id = ?", workspaceID, userID).Delete(&domain.Member{})
 	if res.Error != nil {
 		return res.Error
 	}
@@ -131,20 +132,20 @@ func (r *workspaceRepository) RemoveMember(workspaceID, userID uint) error {
 	return nil
 }
 
-func (r *workspaceRepository) IsContact(userID, otherID uint) (bool, error) {
+func (r *workspaceRepository) IsContact(ctx context.Context, userID, otherID uint) (bool, error) {
 	var count int64
-	err := r.db.Table("user_contacts").
+	err := r.db.WithContext(ctx).Table("user_contacts").
 		Where("user_id = ? AND contact_id = ?", userID, otherID).
 		Count(&count).Error
 	return count > 0, err
 }
 
-func (r *workspaceRepository) Update(workspace *domain.Workspace) error {
-	return r.db.Model(workspace).Select("Name", "Description").Updates(workspace).Error
+func (r *workspaceRepository) Update(ctx context.Context, workspace *domain.Workspace) error {
+	return r.db.WithContext(ctx).Model(workspace).Select("Name", "Description").Updates(workspace).Error
 }
 
-func (r *workspaceRepository) Delete(id uint) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *workspaceRepository) Delete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		res := tx.Delete(&domain.Workspace{}, id)
 		if res.Error != nil {
 			return res.Error

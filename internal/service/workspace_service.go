@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -22,21 +23,22 @@ var (
 
 type WorkspaceService interface {
 	CreateWorkspace(
+		ctx context.Context,
 		userID uint,
 		name string,
 		description string,
 	) (*domain.Workspace, error)
 
-	GetWorkspaceByID(id uint) (*domain.Workspace, error)
+	GetWorkspaceByID(ctx context.Context, id uint) (*domain.Workspace, error)
 
-	GetAllForUser(userID uint) ([]domain.Workspace, error)
+	GetAllForUser(ctx context.Context, userID uint) ([]domain.Workspace, error)
 
-	ListMembers(workspaceID uint) ([]domain.MemberDetail, error)
-	AddMember(workspaceID, actorID, targetID uint, roleName string) error
-	ChangeMemberRole(workspaceID, targetID uint, roleName string) error
-	RemoveMember(workspaceID, targetID uint) error
-	UpdateWorkspace(id uint, name, description *string) (*domain.Workspace, error)
-	DeleteWorkspace(id uint) error
+	ListMembers(ctx context.Context, workspaceID uint) ([]domain.MemberDetail, error)
+	AddMember(ctx context.Context, workspaceID, actorID, targetID uint, roleName string) error
+	ChangeMemberRole(ctx context.Context, workspaceID, targetID uint, roleName string) error
+	RemoveMember(ctx context.Context, workspaceID, targetID uint) error
+	UpdateWorkspace(ctx context.Context, id uint, name, description *string) (*domain.Workspace, error)
+	DeleteWorkspace(ctx context.Context, id uint) error
 }
 
 type workspaceService struct {
@@ -52,6 +54,7 @@ func NewWorkspaceService(
 }
 
 func (s *workspaceService) CreateWorkspace(
+	ctx context.Context,
 	userID uint,
 	name string,
 	description string,
@@ -74,7 +77,7 @@ func (s *workspaceService) CreateWorkspace(
 		OwnerID:     userID,
 	}
 
-	if err := s.repo.Create(workspace, userID); err != nil {
+	if err := s.repo.Create(ctx, workspace, userID); err != nil {
 		return nil, err
 	}
 
@@ -82,10 +85,11 @@ func (s *workspaceService) CreateWorkspace(
 }
 
 func (s *workspaceService) GetWorkspaceByID(
+	ctx context.Context,
 	id uint,
 ) (*domain.Workspace, error) {
 
-	workspace, err := s.repo.GetByID(id)
+	workspace, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -98,29 +102,30 @@ func (s *workspaceService) GetWorkspaceByID(
 }
 
 func (s *workspaceService) GetAllForUser(
+	ctx context.Context,
 	userID uint,
 ) ([]domain.Workspace, error) {
-	return s.repo.GetAllForUser(userID)
+	return s.repo.GetAllForUser(ctx, userID)
 }
 
-func (s *workspaceService) ListMembers(workspaceID uint) ([]domain.MemberDetail, error) {
-	return s.repo.ListMembers(workspaceID)
+func (s *workspaceService) ListMembers(ctx context.Context, workspaceID uint) ([]domain.MemberDetail, error) {
+	return s.repo.ListMembers(ctx, workspaceID)
 }
 
-func (s *workspaceService) assignableRole(workspaceID uint, roleName string) (*domain.Role, error) {
+func (s *workspaceService) assignableRole(ctx context.Context, workspaceID uint, roleName string) (*domain.Role, error) {
 	if !slices.Contains(domain.AssignableRoles(), roleName) {
 		return nil, ErrInvalidMemberRole
 	}
-	return s.repo.GetRoleByName(workspaceID, roleName)
+	return s.repo.GetRoleByName(ctx, workspaceID, roleName)
 }
 
-func (s *workspaceService) AddMember(workspaceID, actorID, targetID uint, roleName string) error {
-	role, err := s.assignableRole(workspaceID, roleName)
+func (s *workspaceService) AddMember(ctx context.Context, workspaceID, actorID, targetID uint, roleName string) error {
+	role, err := s.assignableRole(ctx, workspaceID, roleName)
 	if err != nil {
 		return err
 	}
 
-	isContact, err := s.repo.IsContact(actorID, targetID)
+	isContact, err := s.repo.IsContact(ctx, actorID, targetID)
 	if err != nil {
 		return err
 	}
@@ -128,11 +133,11 @@ func (s *workspaceService) AddMember(workspaceID, actorID, targetID uint, roleNa
 		return ErrMemberNotContact
 	}
 
-	return s.repo.AddMember(&domain.Member{WorkspaceID: workspaceID, UserID: targetID, RoleID: role.ID})
+	return s.repo.AddMember(ctx, &domain.Member{WorkspaceID: workspaceID, UserID: targetID, RoleID: role.ID})
 }
 
-func (s *workspaceService) ensureNotOwner(workspaceID, targetID uint) error {
-	workspace, err := s.repo.GetByID(workspaceID)
+func (s *workspaceService) ensureNotOwner(ctx context.Context, workspaceID, targetID uint) error {
+	workspace, err := s.repo.GetByID(ctx, workspaceID)
 	if err != nil {
 		return err
 	}
@@ -142,15 +147,15 @@ func (s *workspaceService) ensureNotOwner(workspaceID, targetID uint) error {
 	return nil
 }
 
-func (s *workspaceService) ChangeMemberRole(workspaceID, targetID uint, roleName string) error {
-	role, err := s.assignableRole(workspaceID, roleName)
+func (s *workspaceService) ChangeMemberRole(ctx context.Context, workspaceID, targetID uint, roleName string) error {
+	role, err := s.assignableRole(ctx, workspaceID, roleName)
 	if err != nil {
 		return err
 	}
-	if err := s.ensureNotOwner(workspaceID, targetID); err != nil {
+	if err := s.ensureNotOwner(ctx, workspaceID, targetID); err != nil {
 		return err
 	}
-	if err := s.repo.UpdateMemberRole(workspaceID, targetID, role.ID); err != nil {
+	if err := s.repo.UpdateMemberRole(ctx, workspaceID, targetID, role.ID); err != nil {
 		if errors.Is(err, domain.ErrMemberNotFound) {
 			return ErrMemberTargetNotFound
 		}
@@ -159,11 +164,11 @@ func (s *workspaceService) ChangeMemberRole(workspaceID, targetID uint, roleName
 	return nil
 }
 
-func (s *workspaceService) RemoveMember(workspaceID, targetID uint) error {
-	if err := s.ensureNotOwner(workspaceID, targetID); err != nil {
+func (s *workspaceService) RemoveMember(ctx context.Context, workspaceID, targetID uint) error {
+	if err := s.ensureNotOwner(ctx, workspaceID, targetID); err != nil {
 		return err
 	}
-	if err := s.repo.RemoveMember(workspaceID, targetID); err != nil {
+	if err := s.repo.RemoveMember(ctx, workspaceID, targetID); err != nil {
 		if errors.Is(err, domain.ErrMemberNotFound) {
 			return ErrMemberTargetNotFound
 		}
@@ -172,8 +177,8 @@ func (s *workspaceService) RemoveMember(workspaceID, targetID uint) error {
 	return nil
 }
 
-func (s *workspaceService) UpdateWorkspace(id uint, name, description *string) (*domain.Workspace, error) {
-	workspace, err := s.repo.GetByID(id)
+func (s *workspaceService) UpdateWorkspace(ctx context.Context, id uint, name, description *string) (*domain.Workspace, error) {
+	workspace, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -189,12 +194,12 @@ func (s *workspaceService) UpdateWorkspace(id uint, name, description *string) (
 		workspace.Description = strings.TrimSpace(*description)
 	}
 
-	if err := s.repo.Update(workspace); err != nil {
+	if err := s.repo.Update(ctx, workspace); err != nil {
 		return nil, err
 	}
 	return workspace, nil
 }
 
-func (s *workspaceService) DeleteWorkspace(id uint) error {
-	return s.repo.Delete(id)
+func (s *workspaceService) DeleteWorkspace(ctx context.Context, id uint) error {
+	return s.repo.Delete(ctx, id)
 }

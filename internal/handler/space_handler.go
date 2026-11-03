@@ -48,7 +48,7 @@ func (h *SpaceHandler) Create(c *gin.Context) {
 		req.Currency = "USD"
 	}
 
-	space, err := h.service.CreateSpace(
+	space, err := h.service.CreateSpace(c.Request.Context(),
 		uint(workspaceID),
 		req.Name,
 		req.Currency,
@@ -77,7 +77,7 @@ func (h *SpaceHandler) Get(c *gin.Context) {
 	if !ok {
 		return
 	}
-	space, err := h.service.GetSpaceByID(id)
+	space, err := h.service.GetSpaceByID(c.Request.Context(), id)
 	if err != nil {
 		response.HandleError(c, httperrors.NotFound("SPACE_NOT_FOUND", "space not found", err))
 		return
@@ -98,7 +98,7 @@ func (h *SpaceHandler) List(c *gin.Context) {
 		return
 	}
 
-	spaces, total, err := h.service.GetAllSpaces(uint(workspaceID), p.Limit, p.Offset)
+	spaces, total, err := h.service.GetAllSpaces(c.Request.Context(), uint(workspaceID), p.Limit, p.Offset)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("SPACES_FETCH_FAILED", "internal server error", err))
 		return
@@ -123,7 +123,7 @@ func (h *SpaceHandler) Update(c *gin.Context) {
 		return
 	}
 
-	space, err := h.service.UpdateSpace(id, req.Name, req.Currency)
+	space, err := h.service.UpdateSpace(c.Request.Context(), id, req.Name, req.Currency)
 	if err != nil {
 		if errors.Is(err, service.ErrSpaceNameRequired) {
 			response.HandleError(c, httperrors.BadRequest("SPACE_NAME_REQUIRED", err.Error(), err))
@@ -140,7 +140,7 @@ func (h *SpaceHandler) Delete(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.service.DeleteSpace(id); err != nil {
+	if err := h.service.DeleteSpace(c.Request.Context(), id); err != nil {
 		response.HandleError(c, httperrors.Internal("SPACE_DELETE_FAILED", "internal server error", err))
 		return
 	}
@@ -154,7 +154,7 @@ func (h *SpaceHandler) GetDashboard(c *gin.Context) {
 		return
 	}
 
-	dashboard, err := h.service.GetDashboard(uint(spaceID))
+	dashboard, err := h.service.GetDashboard(c.Request.Context(), uint(spaceID))
 	if err != nil {
 		response.HandleError(c, httperrors.NotFound("SPACE_NOT_FOUND", "space not found", err))
 		return

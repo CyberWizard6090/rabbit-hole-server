@@ -39,7 +39,7 @@ func (h *FolderHandler) Create(c *gin.Context) {
 		return
 	}
 
-	folder, err := h.service.CreateFolder(uint(spaceID), req.Name)
+	folder, err := h.service.CreateFolder(c.Request.Context(), uint(spaceID), req.Name)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("FOLDER_CREATE_FAILED", "internal server error", err))
 		return
@@ -60,7 +60,7 @@ func (h *FolderHandler) List(c *gin.Context) {
 		return
 	}
 
-	folders, err := h.service.GetAllFolders(uint(spaceID))
+	folders, err := h.service.GetAllFolders(c.Request.Context(), uint(spaceID))
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("FOLDERS_FETCH_FAILED", "internal server error", err))
 		return
@@ -82,7 +82,7 @@ func (h *FolderHandler) Update(c *gin.Context) {
 		return
 	}
 
-	folder, err := h.service.UpdateFolder(uint(folderID), req.Name)
+	folder, err := h.service.UpdateFolder(c.Request.Context(), uint(folderID), req.Name)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("FOLDER_UPDATE_FAILED", "internal server error", err))
 		return
@@ -98,7 +98,7 @@ func (h *FolderHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteFolder(uint(folderID)); err != nil {
+	if err := h.service.DeleteFolder(c.Request.Context(), uint(folderID)); err != nil {
 		response.HandleError(c, httperrors.Internal("FOLDER_DELETE_FAILED", "internal server error", err))
 		return
 	}

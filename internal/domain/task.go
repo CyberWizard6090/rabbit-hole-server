@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -33,9 +34,9 @@ type Task struct {
 }
 
 type TaskRepository interface {
-	Create(task *Task, assigneeIDs []uint, tagIDs []uint) error
-	List(listID uint, params pagination.Params) ([]Task, bool, bool, error)
-	GetByID(id uint) (*Task, error)
-	Update(task *Task, addTagIDs []uint) error
-	Delete(id uint) error
+	Create(ctx context.Context, task *Task, assigneeIDs []uint, tagIDs []uint) error
+	List(ctx context.Context, listID uint, params pagination.Params) ([]Task, bool, bool, error)
+	GetByID(ctx context.Context, id uint) (*Task, error)
+	Update(ctx context.Context, task *Task, addTagIDs []uint) error
+	Delete(ctx context.Context, id uint) error
 }

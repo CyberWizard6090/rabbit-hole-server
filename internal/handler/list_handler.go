@@ -40,7 +40,7 @@ func (h *ListHandler) CreateInSpace(c *gin.Context) {
 		return
 	}
 
-	list, err := h.service.CreateList(uint(spaceID), req.Name, req.ParentStatusID)
+	list, err := h.service.CreateList(c.Request.Context(), uint(spaceID), req.Name, req.ParentStatusID)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("LIST_CREATE_FAILED", "internal server error", err))
 		return
@@ -56,7 +56,7 @@ func (h *ListHandler) ListInSpace(c *gin.Context) {
 		return
 	}
 
-	space, err := h.service.GetSpaceByID(uint(spaceID))
+	space, err := h.service.GetSpaceByID(c.Request.Context(), uint(spaceID))
 	if err != nil {
 		response.HandleError(c, httperrors.NotFound("SPACE_NOT_FOUND", "space not found", err))
 		return
@@ -77,7 +77,7 @@ func (h *ListHandler) CreateInFolder(c *gin.Context) {
 		return
 	}
 
-	folder, err := h.folderService.GetFolderByID(uint(folderID))
+	folder, err := h.folderService.GetFolderByID(c.Request.Context(), uint(folderID))
 	if err != nil {
 		response.HandleError(c, httperrors.NotFound("FOLDER_NOT_FOUND", "folder not found", err))
 		return
@@ -89,7 +89,7 @@ func (h *ListHandler) CreateInFolder(c *gin.Context) {
 		return
 	}
 
-	list, err := h.service.CreateListInFolder(folder.SpaceID, uint(folderID), req.Name)
+	list, err := h.service.CreateListInFolder(c.Request.Context(), folder.SpaceID, uint(folderID), req.Name)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("LIST_CREATE_FAILED", "internal server error", err))
 		return
@@ -105,7 +105,7 @@ func (h *ListHandler) ListInFolder(c *gin.Context) {
 		return
 	}
 
-	lists, err := h.service.GetListsByFolder(uint(folderID))
+	lists, err := h.service.GetListsByFolder(c.Request.Context(), uint(folderID))
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("LISTS_FETCH_FAILED", "internal server error", err))
 		return
@@ -127,7 +127,7 @@ func (h *ListHandler) Update(c *gin.Context) {
 		return
 	}
 
-	list, err := h.service.UpdateList(uint(listID), req.Name)
+	list, err := h.service.UpdateList(c.Request.Context(), uint(listID), req.Name)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("LIST_UPDATE_FAILED", "internal server error", err))
 		return
@@ -143,7 +143,7 @@ func (h *ListHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteList(uint(listID)); err != nil {
+	if err := h.service.DeleteList(c.Request.Context(), uint(listID)); err != nil {
 		response.HandleError(c, httperrors.Internal("LIST_DELETE_FAILED", "internal server error", err))
 		return
 	}

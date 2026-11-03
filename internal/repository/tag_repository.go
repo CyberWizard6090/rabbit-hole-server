@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -17,12 +18,12 @@ func NewTagRepository(db *gorm.DB) domain.TagRepository {
 	return &tagRepository{db: db}
 }
 
-func (r *tagRepository) CountUsageBySpace(spaceID uint) (map[uint]int64, error) {
+func (r *tagRepository) CountUsageBySpace(ctx context.Context, spaceID uint) (map[uint]int64, error) {
 	var rows []struct {
 		TagID uint
 		Count int64
 	}
-	err := r.db.Table("task_tags").
+	err := r.db.WithContext(ctx).Table("task_tags").
 		Select("task_tags.tag_id AS tag_id, COUNT(*) AS count").
 		Joins("JOIN tags ON tags.id = task_tags.tag_id").
 		Where("tags.space_id = ?", spaceID).
@@ -39,16 +40,16 @@ func (r *tagRepository) CountUsageBySpace(spaceID uint) (map[uint]int64, error) 
 	return usage, nil
 }
 
-func (r *tagRepository) Create(tag *domain.Tag) error {
-	err := r.db.Create(tag).Error
+func (r *tagRepository) Create(ctx context.Context, tag *domain.Tag) error {
+	err := r.db.WithContext(ctx).Create(tag).Error
 	if err != nil && isUniqueViolation(err) {
 		return domain.ErrTagNameTaken
 	}
 	return err
 }
 
-func (r *tagRepository) Delete(spaceID, tagID uint) error {
-	res := r.db.Where("id = ? AND space_id = ?", tagID, spaceID).Delete(&domain.Tag{})
+func (r *tagRepository) Delete(ctx context.Context, spaceID, tagID uint) error {
+	res := r.db.WithContext(ctx).Where("id = ? AND space_id = ?", tagID, spaceID).Delete(&domain.Tag{})
 	if res.Error != nil {
 		return res.Error
 	}
@@ -58,23 +59,23 @@ func (r *tagRepository) Delete(spaceID, tagID uint) error {
 	return nil
 }
 
-func (r *tagRepository) GetAllBySpace(spaceID uint) ([]domain.Tag, error) {
+func (r *tagRepository) GetAllBySpace(ctx context.Context, spaceID uint) ([]domain.Tag, error) {
 	var tags []domain.Tag
-	err := r.db.Where("space_id = ?", spaceID).Find(&tags).Error
+	err := r.db.WithContext(ctx).Where("space_id = ?", spaceID).Find(&tags).Error
 	return tags, err
 }
 
-func (r *tagRepository) GetByID(tagID uint) (*domain.Tag, error) {
+func (r *tagRepository) GetByID(ctx context.Context, tagID uint) (*domain.Tag, error) {
 	var tag domain.Tag
-	if err := r.db.First(&tag, tagID).Error; err != nil {
+	if err := r.db.WithContext(ctx).First(&tag, tagID).Error; err != nil {
 		return nil, err
 	}
 	return &tag, nil
 }
 
-func (r *tagRepository) GetByName(spaceID uint, name string) (*domain.Tag, error) {
+func (r *tagRepository) GetByName(ctx context.Context, spaceID uint, name string) (*domain.Tag, error) {
 	var tag domain.Tag
-	err := r.db.
+	err := r.db.WithContext(ctx).
 		Where("space_id = ? AND LOWER(name) = LOWER(?)", spaceID, name).
 		First(&tag).Error
 	if err != nil {
@@ -83,8 +84,8 @@ func (r *tagRepository) GetByName(spaceID uint, name string) (*domain.Tag, error
 	return &tag, nil
 }
 
-func (r *tagRepository) Merge(spaceID, sourceTagID, targetTagID uint) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *tagRepository) Merge(ctx context.Context, spaceID, sourceTagID, targetTagID uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`
 			INSERT INTO task_tags (task_id, tag_id)
 			SELECT task_id, ? FROM task_tags
@@ -102,8 +103,8 @@ func (r *tagRepository) Merge(spaceID, sourceTagID, targetTagID uint) error {
 	})
 }
 
-func (r *tagRepository) Update(tag *domain.Tag) error {
-	return r.db.Save(tag).Error
+func (r *tagRepository) Update(ctx context.Context, tag *domain.Tag) error {
+	return r.db.WithContext(ctx).Save(tag).Error
 }
 
 func isUniqueViolation(err error) bool {

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +20,7 @@ type versionStore struct {
 	err     error
 }
 
-func (v versionStore) GetTokenVersion(uint) (int, error) { return v.version, v.err }
+func (v versionStore) GetTokenVersion(context.Context, uint) (int, error) { return v.version, v.err }
 
 const testJWTSecret = "12345678901234567890123456789012"
 

@@ -110,7 +110,7 @@ func (h *RealtimeHandler) ConnectList(c *gin.Context) {
 		return
 	}
 	h.connect(c, realtime.ListTopic(listID), func(userID uint) (bool, error) {
-		return h.checker.HasListPermission(userID, listID, permissionTaskRead)
+		return h.checker.HasListPermission(c.Request.Context(), userID, listID, permissionTaskRead)
 	})
 }
 
@@ -120,7 +120,7 @@ func (h *RealtimeHandler) ConnectSpace(c *gin.Context) {
 		return
 	}
 	h.connect(c, realtime.SpaceTopic(spaceID), func(userID uint) (bool, error) {
-		return h.checker.HasSpacePermission(userID, spaceID, permissionTaskRead)
+		return h.checker.HasSpacePermission(c.Request.Context(), userID, spaceID, permissionTaskRead)
 	})
 }
 

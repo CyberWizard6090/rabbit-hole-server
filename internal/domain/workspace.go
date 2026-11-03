@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -71,17 +72,17 @@ type MemberDetail struct {
 }
 
 type WorkspaceRepository interface {
-	Create(workspace *Workspace, ownerID uint) error
-	GetByID(id uint) (*Workspace, error)
-	GetAllForUser(userID uint) ([]Workspace, error)
+	Create(ctx context.Context, workspace *Workspace, ownerID uint) error
+	GetByID(ctx context.Context, id uint) (*Workspace, error)
+	GetAllForUser(ctx context.Context, userID uint) ([]Workspace, error)
 
-	ListMembers(workspaceID uint) ([]MemberDetail, error)
-	GetMember(workspaceID, userID uint) (*Member, error)
-	GetRoleByName(workspaceID uint, name string) (*Role, error)
-	AddMember(member *Member) error
-	UpdateMemberRole(workspaceID, userID, roleID uint) error
-	RemoveMember(workspaceID, userID uint) error
-	IsContact(userID, otherID uint) (bool, error)
-	Update(workspace *Workspace) error
-	Delete(id uint) error
+	ListMembers(ctx context.Context, workspaceID uint) ([]MemberDetail, error)
+	GetMember(ctx context.Context, workspaceID, userID uint) (*Member, error)
+	GetRoleByName(ctx context.Context, workspaceID uint, name string) (*Role, error)
+	AddMember(ctx context.Context, member *Member) error
+	UpdateMemberRole(ctx context.Context, workspaceID, userID, roleID uint) error
+	RemoveMember(ctx context.Context, workspaceID, userID uint) error
+	IsContact(ctx context.Context, userID, otherID uint) (bool, error)
+	Update(ctx context.Context, workspace *Workspace) error
+	Delete(ctx context.Context, id uint) error
 }

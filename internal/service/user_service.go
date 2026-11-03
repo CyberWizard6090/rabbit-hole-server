@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -18,8 +19,8 @@ type UpdateProfileParams struct {
 }
 
 type UserService interface {
-	GetUserByID(uid uint) (*domain.User, error)
-	UpdateProfile(uid uint, params UpdateProfileParams) (*domain.User, error)
+	GetUserByID(ctx context.Context, uid uint) (*domain.User, error)
+	UpdateProfile(ctx context.Context, uid uint, params UpdateProfileParams) (*domain.User, error)
 }
 
 type userService struct {
@@ -30,16 +31,16 @@ func NewUserService(repo domain.UserRepository) UserService {
 	return &userService{repo: repo}
 }
 
-func (s *userService) GetUserByID(uid uint) (*domain.User, error) {
-	user, err := s.repo.GetByID(uid)
+func (s *userService) GetUserByID(ctx context.Context, uid uint) (*domain.User, error) {
+	user, err := s.repo.GetByID(ctx, uid)
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
 	return user, nil
 }
 
-func (s *userService) UpdateProfile(uid uint, params UpdateProfileParams) (*domain.User, error) {
-	user, err := s.repo.GetByID(uid)
+func (s *userService) UpdateProfile(ctx context.Context, uid uint, params UpdateProfileParams) (*domain.User, error) {
+	user, err := s.repo.GetByID(ctx, uid)
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
@@ -60,7 +61,7 @@ func (s *userService) UpdateProfile(uid uint, params UpdateProfileParams) (*doma
 		user.TimeZone = *params.TimeZone
 	}
 
-	if err := s.repo.Update(user); err != nil {
+	if err := s.repo.Update(ctx, user); err != nil {
 		return nil, fmt.Errorf("update user in repo: %w", err)
 	}
 

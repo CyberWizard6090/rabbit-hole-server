@@ -42,7 +42,7 @@ func (h *StatusHandler) Create(c *gin.Context) {
 		return
 	}
 
-	status, err := h.service.Create(service.CreateStatusParams{
+	status, err := h.service.Create(c.Request.Context(), service.CreateStatusParams{
 		ListID:   uint(listID),
 		Name:     req.Name,
 		Color:    req.Color,
@@ -64,7 +64,7 @@ func (h *StatusHandler) List(c *gin.Context) {
 		return
 	}
 
-	statuses, err := h.service.GetAllByList(uint(listID))
+	statuses, err := h.service.GetAllByList(c.Request.Context(), uint(listID))
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("STATUSES_FETCH_FAILED", "internal server error", err))
 		return
@@ -91,7 +91,7 @@ func (h *StatusHandler) Update(c *gin.Context) {
 		return
 	}
 
-	status, err := h.service.Update(uint(listID), uint(statusID), service.UpdateStatusParams{
+	status, err := h.service.Update(c.Request.Context(), uint(listID), uint(statusID), service.UpdateStatusParams{
 		Name:     req.Name,
 		Color:    req.Color,
 		Position: req.Position,
@@ -128,7 +128,7 @@ func (h *StatusHandler) Delete(c *gin.Context) {
 		replacementID = &id
 	}
 
-	if err := h.service.Delete(uint(listID), uint(statusID), replacementID); err != nil {
+	if err := h.service.Delete(c.Request.Context(), uint(listID), uint(statusID), replacementID); err != nil {
 		switch {
 		case errors.Is(err, domain.ErrStatusInUse):
 			response.HandleError(c, httperrors.Conflict("STATUS_IN_USE", err.Error(), err))

@@ -38,7 +38,7 @@ func (h *ContactHandler) List(c *gin.Context) {
 		return
 	}
 
-	contacts, total, err := h.service.GetContactsPage(uid, params.Limit, params.Offset)
+	contacts, total, err := h.service.GetContactsPage(c.Request.Context(), uid, params.Limit, params.Offset)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("CONTACTS_FETCH_FAILED", "internal server error", err))
 		return
@@ -63,7 +63,7 @@ func (h *ContactHandler) Add(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.AddContact(uid, req.ContactID); err != nil {
+	if err := h.service.AddContact(c.Request.Context(), uid, req.ContactID); err != nil {
 		if errors.Is(err, domain.ErrContactAlreadyAdded) {
 			response.HandleError(c, httperrors.Conflict("CONTACT_ALREADY_ADDED", "contact already added", err))
 			return
@@ -90,7 +90,7 @@ func (h *ContactHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteContact(uid, uint(contactID)); err != nil {
+	if err := h.service.DeleteContact(c.Request.Context(), uid, uint(contactID)); err != nil {
 		response.HandleError(c, httperrors.Internal("CONTACT_DELETE_FAILED", "internal server error", err))
 		return
 	}
@@ -115,7 +115,7 @@ func (h *ContactHandler) Search(c *gin.Context) {
 		return
 	}
 
-	users, err := h.service.SearchUsers(uid, query)
+	users, err := h.service.SearchUsers(c.Request.Context(), uid, query)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("USER_SEARCH_FAILED", "internal server error", err))
 		return

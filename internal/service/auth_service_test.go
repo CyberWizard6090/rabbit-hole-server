@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -73,7 +74,7 @@ func TestTokenTypesAreSeparated(t *testing.T) {
 	if _, err := service.ParseToken(refreshToken); err == nil {
 		t.Fatal("expected refresh token to be rejected as access token")
 	}
-	if _, err := service.Refresh(accessToken); err == nil {
+	if _, err := service.Refresh(context.Background(), accessToken); err == nil {
 		t.Fatal("expected access token to be rejected as refresh token")
 	}
 }

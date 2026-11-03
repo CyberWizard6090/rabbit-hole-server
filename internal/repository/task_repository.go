@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -19,8 +20,8 @@ func NewTaskRepository(db *gorm.DB) domain.TaskRepository {
 	return &taskRepository{db: db}
 }
 
-func (r *taskRepository) Create(task *domain.Task, assigneeIDs []uint, tagIDs []uint) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *taskRepository) Create(ctx context.Context, task *domain.Task, assigneeIDs []uint, tagIDs []uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := validateTaskReferences(tx, task, assigneeIDs, tagIDs); err != nil {
 			return err
 		}
@@ -45,6 +46,7 @@ func (r *taskRepository) Create(task *domain.Task, assigneeIDs []uint, tagIDs []
 }
 
 func (r *taskRepository) List(
+	ctx context.Context,
 	listID uint,
 	params pagination.Params,
 ) ([]domain.Task, bool, bool, error) {
@@ -55,7 +57,7 @@ func (r *taskRepository) List(
 
 	var tasks []domain.Task
 
-	query := r.db.
+	query := r.db.WithContext(ctx).
 		Where("list_id = ?", listID).
 		Preload("Assignees").
 		Preload("Tags")
@@ -151,9 +153,9 @@ func hasPreviousPage(cursor *pagination.Cursor, hasMore bool) bool {
 	}
 }
 
-func (r *taskRepository) GetByID(id uint) (*domain.Task, error) {
+func (r *taskRepository) GetByID(ctx context.Context, id uint) (*domain.Task, error) {
 	var task domain.Task
-	err := r.db.Where("id = ?", id).
+	err := r.db.WithContext(ctx).Where("id = ?", id).
 		Preload("Assignees").
 		Preload("Tags").
 		First(&task).Error
@@ -163,8 +165,8 @@ func (r *taskRepository) GetByID(id uint) (*domain.Task, error) {
 	return &task, nil
 }
 
-func (r *taskRepository) Update(task *domain.Task, addTagIDs []uint) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *taskRepository) Update(ctx context.Context, task *domain.Task, addTagIDs []uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		addTagIDs = uniqueIDs(addTagIDs)
 		if err := validateTaskReferences(tx, task, nil, addTagIDs); err != nil {
 			return err
@@ -184,8 +186,8 @@ func (r *taskRepository) Update(task *domain.Task, addTagIDs []uint) error {
 	})
 }
 
-func (r *taskRepository) Delete(id uint) error {
-	res := r.db.Where("id = ?", id).Delete(&domain.Task{})
+func (r *taskRepository) Delete(ctx context.Context, id uint) error {
+	res := r.db.WithContext(ctx).Where("id = ?", id).Delete(&domain.Task{})
 	if res.Error != nil {
 		return res.Error
 	}

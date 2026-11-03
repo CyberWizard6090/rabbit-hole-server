@@ -37,7 +37,7 @@ func (h *TagHandler) Create(c *gin.Context) {
 		return
 	}
 
-	tag, err := h.service.CreateTag(uint(spaceID), service.CreateTagParams{Name: req.Name, Color: req.Color})
+	tag, err := h.service.CreateTag(c.Request.Context(), uint(spaceID), service.CreateTagParams{Name: req.Name, Color: req.Color})
 	if err != nil {
 		if errors.Is(err, domain.ErrTagNameTaken) {
 			response.HandleError(c, httperrors.Conflict("TAG_NAME_TAKEN", "tag with this name already exists", err))
@@ -62,7 +62,7 @@ func (h *TagHandler) Get(c *gin.Context) {
 		return
 	}
 
-	tag, err := h.service.GetTag(uint(spaceID), uint(tagID))
+	tag, err := h.service.GetTag(c.Request.Context(), uint(spaceID), uint(tagID))
 	if err != nil {
 		if errors.Is(err, service.ErrTagNotFound) || errors.Is(err, service.ErrTagSpaceMismatch) {
 			response.HandleError(c, httperrors.NotFound("TAG_NOT_FOUND", "tag not found", err))
@@ -82,7 +82,7 @@ func (h *TagHandler) List(c *gin.Context) {
 		return
 	}
 
-	tags, err := h.service.GetAllBySpace(uint(spaceID))
+	tags, err := h.service.GetAllBySpace(c.Request.Context(), uint(spaceID))
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("TAGS_FETCH_FAILED", "internal server error", err))
 		return
@@ -109,7 +109,7 @@ func (h *TagHandler) Update(c *gin.Context) {
 		return
 	}
 
-	tag, err := h.service.UpdateTag(uint(spaceID), uint(tagID), service.UpdateTagParams{Name: req.Name, Color: req.Color})
+	tag, err := h.service.UpdateTag(c.Request.Context(), uint(spaceID), uint(tagID), service.UpdateTagParams{Name: req.Name, Color: req.Color})
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("TAG_UPDATE_FAILED", "internal server error", err))
 		return
@@ -130,7 +130,7 @@ func (h *TagHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteTag(uint(spaceID), uint(tagID)); err != nil {
+	if err := h.service.DeleteTag(c.Request.Context(), uint(spaceID), uint(tagID)); err != nil {
 		response.HandleError(c, httperrors.Internal("TAG_DELETE_FAILED", "internal server error", err))
 		return
 	}
@@ -151,7 +151,7 @@ func (h *TagHandler) Merge(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.MergeTags(uint(spaceID), req.SourceTagID, req.TargetTagID); err != nil {
+	if err := h.service.MergeTags(c.Request.Context(), uint(spaceID), req.SourceTagID, req.TargetTagID); err != nil {
 		if errors.Is(err, service.ErrCannotMergeSame) {
 			response.HandleError(c, httperrors.BadRequest("TAG_MERGE_SELF", err.Error(), err))
 			return

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -32,7 +33,7 @@ func TestTaskServiceCreateTaskUsesDefaultsAndResolvesNewTags(t *testing.T) {
 	spaceRepo := &spaceRepositoryMock{list: &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55}}
 	svc := newTestTaskService(taskRepo, spaceRepo, tagMock)
 
-	task, err := svc.CreateTask(42, CreateTaskParams{
+	task, err := svc.CreateTask(context.Background(), 42, CreateTaskParams{
 		Title:       "Build feature",
 		Description: "desc",
 		ListID:      7,
@@ -66,7 +67,7 @@ func TestTaskServiceCreateTaskPreservesExplicitPriority(t *testing.T) {
 	spaceRepo := &spaceRepositoryMock{list: &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55}}
 	svc := newTestTaskService(taskRepo, spaceRepo, &tagServiceMock{})
 
-	task, err := svc.CreateTask(42, CreateTaskParams{Title: "Task", ListID: 7, StatusID: 3, Priority: 5})
+	task, err := svc.CreateTask(context.Background(), 42, CreateTaskParams{Title: "Task", ListID: 7, StatusID: 3, Priority: 5})
 	if err != nil {
 		t.Fatalf("CreateTask error=%v", err)
 	}
@@ -80,7 +81,7 @@ func TestTaskServiceCreateTaskStopsWhenListLookupFails(t *testing.T) {
 	repo := &taskRepositoryMock{}
 	svc := newTestTaskService(repo, &spaceRepositoryMock{getListErr: wantErr}, &tagServiceMock{})
 
-	if _, err := svc.CreateTask(42, CreateTaskParams{ListID: 7}); !errors.Is(err, wantErr) {
+	if _, err := svc.CreateTask(context.Background(), 42, CreateTaskParams{ListID: 7}); !errors.Is(err, wantErr) {
 		t.Fatalf("error=%v", err)
 	}
 	if repo.createdTask != nil {
@@ -94,7 +95,7 @@ func TestTaskServiceCreateTaskStopsWhenNewTagResolutionFails(t *testing.T) {
 	spaceRepo := &spaceRepositoryMock{list: &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55}}
 	svc := newTestTaskService(repo, spaceRepo, &tagServiceMock{err: wantErr})
 
-	if _, err := svc.CreateTask(42, CreateTaskParams{ListID: 7, NewTagNames: []string{"Bug"}}); !errors.Is(err, wantErr) {
+	if _, err := svc.CreateTask(context.Background(), 42, CreateTaskParams{ListID: 7, NewTagNames: []string{"Bug"}}); !errors.Is(err, wantErr) {
 		t.Fatalf("error=%v", err)
 	}
 	if repo.createdTask != nil {
@@ -108,7 +109,7 @@ func TestTaskServiceCreateTaskPropagatesRepositoryCreateError(t *testing.T) {
 	spaceRepo := &spaceRepositoryMock{list: &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55}}
 	svc := newTestTaskService(taskRepo, spaceRepo, &tagServiceMock{})
 
-	if _, err := svc.CreateTask(42, CreateTaskParams{ListID: 7, StatusID: 3, Title: "Task"}); !errors.Is(err, wantErr) {
+	if _, err := svc.CreateTask(context.Background(), 42, CreateTaskParams{ListID: 7, StatusID: 3, Title: "Task"}); !errors.Is(err, wantErr) {
 		t.Fatalf("error=%v", err)
 	}
 }
@@ -121,7 +122,7 @@ func TestTaskServiceListTasksEncodesCursors(t *testing.T) {
 	taskRepo := &taskRepositoryMock{task: &tasks[0], tasks: tasks, hasNext: true, hasPrev: true}
 	svc := newTestTaskService(taskRepo, &spaceRepositoryMock{}, &tagServiceMock{})
 
-	got, err := svc.ListTasks(7, pagination.Params{Limit: 2})
+	got, err := svc.ListTasks(context.Background(), 7, pagination.Params{Limit: 2})
 	if err != nil || !reflect.DeepEqual(got.Items, tasks) || !got.HasNext || !got.HasPrev {
 		t.Fatalf("ListTasks=%#v err=%v", got, err)
 	}
@@ -133,31 +134,31 @@ func TestTaskServiceListTasksEncodesCursors(t *testing.T) {
 		t.Fatal(err)
 	}
 	next, err := codec.Decode(*got.NextCursor)
-	context := pagination.TaskCursorContext(7)
-	if err != nil || next.Direction != pagination.DirectionNext || next.Resource != context.Resource || next.Scope != context.Scope || next.Sort != context.Sort {
+	cursorCtx := pagination.TaskCursorContext(7)
+	if err != nil || next.Direction != pagination.DirectionNext || next.Resource != cursorCtx.Resource || next.Scope != cursorCtx.Scope || next.Sort != cursorCtx.Sort {
 		t.Fatalf("next cursor=(%+v, %v)", next, err)
 	}
-	nextPosition, err := pagination.DecodePosition[pagination.TaskCursorPosition](next, context)
+	nextPosition, err := pagination.DecodePosition[pagination.TaskCursorPosition](next, cursorCtx)
 	if err != nil || nextPosition.ID != 8 {
 		t.Fatalf("next position=(%+v, %v)", nextPosition, err)
 	}
 	prev, err := codec.Decode(*got.PrevCursor)
-	if err != nil || prev.Direction != pagination.DirectionPrev || prev.Resource != context.Resource || prev.Scope != context.Scope || prev.Sort != context.Sort {
+	if err != nil || prev.Direction != pagination.DirectionPrev || prev.Resource != cursorCtx.Resource || prev.Scope != cursorCtx.Scope || prev.Sort != cursorCtx.Sort {
 		t.Fatalf("previous cursor=(%+v, %v)", prev, err)
 	}
-	prevPosition, err := pagination.DecodePosition[pagination.TaskCursorPosition](prev, context)
+	prevPosition, err := pagination.DecodePosition[pagination.TaskCursorPosition](prev, cursorCtx)
 	if err != nil || prevPosition.ID != 9 {
 		t.Fatalf("previous position=(%+v, %v)", prevPosition, err)
 	}
 
 	firstPageRepo := &taskRepositoryMock{tasks: tasks, hasNext: true}
 	firstPageService := newTestTaskService(firstPageRepo, &spaceRepositoryMock{}, &tagServiceMock{})
-	firstPage, err := firstPageService.ListTasks(7, pagination.Params{Limit: 2})
+	firstPage, err := firstPageService.ListTasks(context.Background(), 7, pagination.Params{Limit: 2})
 	if err != nil || firstPage.HasPrev || firstPage.PrevCursor != nil {
 		t.Fatalf("first page should have no previous cursor: response=%#v err=%v", firstPage, err)
 	}
 
-	gotTask, err := svc.GetTaskByID(1)
+	gotTask, err := svc.GetTaskByID(context.Background(), 1)
 	if err != nil || gotTask != &tasks[0] {
 		t.Fatalf("GetTaskByID=%+v err=%v", gotTask, err)
 	}
@@ -173,7 +174,7 @@ func TestTaskServiceUpdateTaskChangesFieldsAndAddsTags(t *testing.T) {
 	_ = returned
 	svc := newTestTaskService(taskRepo, &spaceRepositoryMock{}, tagMock)
 
-	got, err := svc.UpdateTask(9, UpdateTaskParams{
+	got, err := svc.UpdateTask(context.Background(), 9, UpdateTaskParams{
 		Title: &title, Description: &description, StatusID: &statusID,
 		Priority: &priority, TimeEstimate: &estimate, AddTagIDs: []uint{12}, AddTagNames: []string{"Bug"},
 	})
@@ -196,7 +197,7 @@ func TestTaskServiceUpdateTaskWithoutTagsAttachesNone(t *testing.T) {
 	taskRepo := &taskRepositoryMock{task: task}
 	svc := newTestTaskService(taskRepo, &spaceRepositoryMock{}, &tagServiceMock{})
 
-	if _, err := svc.UpdateTask(9, UpdateTaskParams{}); err != nil {
+	if _, err := svc.UpdateTask(context.Background(), 9, UpdateTaskParams{}); err != nil {
 		t.Fatalf("UpdateTask error=%v", err)
 	}
 	if taskRepo.addedTagIDs != nil {
@@ -207,21 +208,21 @@ func TestTaskServiceUpdateTaskWithoutTagsAttachesNone(t *testing.T) {
 func TestTaskServiceUpdateTaskPropagatesErrors(t *testing.T) {
 	getErr := errors.New("get failed")
 	svc := newTestTaskService(&taskRepositoryMock{getErr: getErr}, &spaceRepositoryMock{}, &tagServiceMock{})
-	if _, err := svc.UpdateTask(1, UpdateTaskParams{}); !errors.Is(err, getErr) {
+	if _, err := svc.UpdateTask(context.Background(), 1, UpdateTaskParams{}); !errors.Is(err, getErr) {
 		t.Fatalf("get error=%v", err)
 	}
 
 	updateErr := errors.New("update failed")
 	task := &domain.Task{Model: domain.Model{ID: 1}, SpaceID: 5}
 	svc = newTestTaskService(&taskRepositoryMock{task: task, updateErr: updateErr}, &spaceRepositoryMock{}, &tagServiceMock{})
-	if _, err := svc.UpdateTask(1, UpdateTaskParams{}); !errors.Is(err, updateErr) {
+	if _, err := svc.UpdateTask(context.Background(), 1, UpdateTaskParams{}); !errors.Is(err, updateErr) {
 		t.Fatalf("update error=%v", err)
 	}
 
 	tagErr := errors.New("tag failed")
 	updatedRepo := &taskRepositoryMock{task: &domain.Task{Model: domain.Model{ID: 1}, SpaceID: 5}}
 	svc = newTestTaskService(updatedRepo, &spaceRepositoryMock{}, &tagServiceMock{err: tagErr})
-	if _, err := svc.UpdateTask(1, UpdateTaskParams{AddTagNames: []string{"Bug"}}); !errors.Is(err, tagErr) {
+	if _, err := svc.UpdateTask(context.Background(), 1, UpdateTaskParams{AddTagNames: []string{"Bug"}}); !errors.Is(err, tagErr) {
 		t.Fatalf("tag error=%v", err)
 	}
 	if updatedRepo.updatedTask != nil {
@@ -231,7 +232,7 @@ func TestTaskServiceUpdateTaskPropagatesErrors(t *testing.T) {
 	addErr := errors.New("add tags failed")
 	updatedRepo = &taskRepositoryMock{task: &domain.Task{Model: domain.Model{ID: 1}, SpaceID: 5}, addTagsErr: addErr}
 	svc = newTestTaskService(updatedRepo, &spaceRepositoryMock{}, &tagServiceMock{})
-	if _, err := svc.UpdateTask(1, UpdateTaskParams{AddTagIDs: []uint{3}}); !errors.Is(err, addErr) {
+	if _, err := svc.UpdateTask(context.Background(), 1, UpdateTaskParams{AddTagIDs: []uint{3}}); !errors.Is(err, addErr) {
 		t.Fatalf("add tags error=%v", err)
 	}
 }
@@ -240,7 +241,7 @@ func TestTaskServiceDeleteTask(t *testing.T) {
 	wantErr := errors.New("delete failed")
 	repo := &taskRepositoryMock{deleteErr: wantErr}
 	svc := newTestTaskService(repo, &spaceRepositoryMock{}, &tagServiceMock{})
-	if err := svc.DeleteTask(77); !errors.Is(err, wantErr) {
+	if err := svc.DeleteTask(context.Background(), 77); !errors.Is(err, wantErr) {
 		t.Fatalf("DeleteTask error=%v", err)
 	}
 	if repo.deletedID != 77 {
@@ -264,7 +265,7 @@ func TestTaskServiceResolveNewTagsTrimsAndSkipsBlankNames(t *testing.T) {
 	mock := &tagServiceMock{}
 	svc := newTestTaskService(&taskRepositoryMock{}, &spaceRepositoryMock{}, mock)
 
-	ids, err := svc.(*taskService).resolveNewTags(55, []string{"  Bug ", " ", "Idea"})
+	ids, err := svc.(*taskService).resolveNewTags(context.Background(), 55, []string{"  Bug ", " ", "Idea"})
 	if err != nil {
 		t.Fatalf("resolveNewTags error=%v", err)
 	}
@@ -281,7 +282,7 @@ func TestTaskServiceResolveNewTagsWrapsErrorWithName(t *testing.T) {
 	mock := &tagServiceMock{err: wantErr}
 	svc := newTestTaskService(&taskRepositoryMock{}, &spaceRepositoryMock{}, mock).(*taskService)
 
-	_, err := svc.resolveNewTags(55, []string{" Bug "})
+	_, err := svc.resolveNewTags(context.Background(), 55, []string{" Bug "})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("error=%v", err)
 	}

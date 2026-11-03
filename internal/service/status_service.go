@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -13,10 +14,10 @@ import (
 var ErrStatusListMismatch = fmt.Errorf("status does not belong to this list: %w", gorm.ErrRecordNotFound)
 
 type StatusService interface {
-	Create(params CreateStatusParams) (*domain.TaskStatus, error)
-	GetAllByList(listID uint) ([]domain.TaskStatus, error)
-	Update(listID uint, statusID uint, params UpdateStatusParams) (*domain.TaskStatus, error)
-	Delete(listID uint, statusID uint, replacementID *uint) error
+	Create(ctx context.Context, params CreateStatusParams) (*domain.TaskStatus, error)
+	GetAllByList(ctx context.Context, listID uint) ([]domain.TaskStatus, error)
+	Update(ctx context.Context, listID uint, statusID uint, params UpdateStatusParams) (*domain.TaskStatus, error)
+	Delete(ctx context.Context, listID uint, statusID uint, replacementID *uint) error
 }
 
 type CreateStatusParams struct {
@@ -44,13 +45,13 @@ func NewStatusService(repo domain.StatusRepository, spaceRepo domain.SpaceReposi
 	return &statusService{repo: repo, spaceRepo: spaceRepo}
 }
 
-func (s *statusService) Create(params CreateStatusParams) (*domain.TaskStatus, error) {
-	list, err := s.spaceRepo.GetListByID(params.ListID)
+func (s *statusService) Create(ctx context.Context, params CreateStatusParams) (*domain.TaskStatus, error) {
+	list, err := s.spaceRepo.GetListByID(ctx, params.ListID)
 	if err != nil {
 		return nil, fmt.Errorf("get list by id: %w", err)
 	}
 
-	existingStatuses, err := s.repo.GetAllByList(params.ListID)
+	existingStatuses, err := s.repo.GetAllByList(ctx, params.ListID)
 	if err != nil {
 		return nil, err
 	}
@@ -75,22 +76,22 @@ func (s *statusService) Create(params CreateStatusParams) (*domain.TaskStatus, e
 		Type:     domain.StatusType(params.Type),
 	}
 
-	if err := s.repo.Create(status); err != nil {
+	if err := s.repo.Create(ctx, status); err != nil {
 		return nil, err
 	}
 	return status, nil
 }
 
-func (s *statusService) GetAllByList(listID uint) ([]domain.TaskStatus, error) {
-	_, err := s.spaceRepo.GetListByID(listID)
+func (s *statusService) GetAllByList(ctx context.Context, listID uint) ([]domain.TaskStatus, error) {
+	_, err := s.spaceRepo.GetListByID(ctx, listID)
 	if err != nil {
 		return nil, fmt.Errorf("get list by id: %w", err)
 	}
-	return s.repo.GetAllByList(listID)
+	return s.repo.GetAllByList(ctx, listID)
 }
 
-func (s *statusService) Update(listID uint, statusID uint, params UpdateStatusParams) (*domain.TaskStatus, error) {
-	status, err := s.repo.GetByID(statusID)
+func (s *statusService) Update(ctx context.Context, listID uint, statusID uint, params UpdateStatusParams) (*domain.TaskStatus, error) {
+	status, err := s.repo.GetByID(ctx, statusID)
 	if err != nil {
 		return nil, err
 	}
@@ -108,20 +109,20 @@ func (s *statusService) Update(listID uint, statusID uint, params UpdateStatusPa
 		status.Type = domain.StatusType(*params.Type)
 	}
 	if params.Position != nil {
-		if err := s.repo.UpdatePosition(status, *params.Position); err != nil {
+		if err := s.repo.UpdatePosition(ctx, status, *params.Position); err != nil {
 			return nil, err
 		}
 		return status, nil
 	}
 
-	if err := s.repo.Update(status); err != nil {
+	if err := s.repo.Update(ctx, status); err != nil {
 		return nil, err
 	}
 	return status, nil
 }
 
-func (s *statusService) Delete(listID uint, statusID uint, replacementID *uint) error {
-	status, err := s.repo.GetByID(statusID)
+func (s *statusService) Delete(ctx context.Context, listID uint, statusID uint, replacementID *uint) error {
+	status, err := s.repo.GetByID(ctx, statusID)
 	if err != nil {
 		return err
 	}
@@ -129,5 +130,5 @@ func (s *statusService) Delete(listID uint, statusID uint, replacementID *uint) 
 		return ErrStatusListMismatch
 	}
 
-	return s.repo.Delete(listID, statusID, replacementID)
+	return s.repo.Delete(ctx, listID, statusID, replacementID)
 }

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -21,17 +22,17 @@ func TestWorkspaceServiceCreateTrimsAndValidates(t *testing.T) {
 	}
 	svc := NewWorkspaceService(repo)
 
-	got, err := svc.CreateWorkspace(4, "  My work  ", "  description  ")
+	got, err := svc.CreateWorkspace(context.Background(), 4, "  My work  ", "  description  ")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Name != "My work" || got.Description != "description" || got.OwnerID != 4 || got.ID != 10 {
 		t.Fatalf("workspace=%+v", got)
 	}
-	if _, err := svc.CreateWorkspace(4, "   ", "x"); !errors.Is(err, ErrWorkspaceNameRequired) {
+	if _, err := svc.CreateWorkspace(context.Background(), 4, "   ", "x"); !errors.Is(err, ErrWorkspaceNameRequired) {
 		t.Fatalf("err=%v", err)
 	}
-	if _, err := svc.CreateWorkspace(0, "x", "y"); err == nil {
+	if _, err := svc.CreateWorkspace(context.Background(), 0, "x", "y"); err == nil {
 		t.Fatal("expected user id error")
 	}
 }
@@ -43,11 +44,11 @@ func TestWorkspaceServiceGetAndList(t *testing.T) {
 		getAllForUserFn: func(id uint) ([]domain.Workspace, error) { return []domain.Workspace{{OwnerID: id}}, nil },
 	}
 	svc := NewWorkspaceService(repo)
-	got, err := svc.GetWorkspaceByID(1)
+	got, err := svc.GetWorkspaceByID(context.Background(), 1)
 	if err != nil || got.Name != "W" {
 		t.Fatalf("got=%+v err=%v", got, err)
 	}
-	list, err := svc.GetAllForUser(2)
+	list, err := svc.GetAllForUser(context.Background(), 2)
 	if err != nil || len(list) != 1 || list[0].OwnerID != 2 {
 		t.Fatalf("list=%+v err=%v", list, err)
 	}
@@ -61,13 +62,13 @@ func TestWorkspaceServiceMapsNilWorkspaceAndPropagatesErrors(t *testing.T) {
 		getAllForUserFn: func(uint) ([]domain.Workspace, error) { return nil, want },
 	}
 	svc := NewWorkspaceService(repo)
-	if _, err := svc.GetWorkspaceByID(1); !errors.Is(err, ErrWorkspaceNotFound) {
+	if _, err := svc.GetWorkspaceByID(context.Background(), 1); !errors.Is(err, ErrWorkspaceNotFound) {
 		t.Fatalf("err=%v", err)
 	}
-	if _, err := svc.GetAllForUser(1); !errors.Is(err, want) {
+	if _, err := svc.GetAllForUser(context.Background(), 1); !errors.Is(err, want) {
 		t.Fatalf("err=%v", err)
 	}
-	if _, err := svc.CreateWorkspace(1, "x", ""); !errors.Is(err, want) {
+	if _, err := svc.CreateWorkspace(context.Background(), 1, "x", ""); !errors.Is(err, want) {
 		t.Fatalf("err=%v", err)
 	}
 }

@@ -28,7 +28,7 @@ func (h *UserHandler) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
-	user, err := h.service.GetUserByID(uid)
+	user, err := h.service.GetUserByID(c.Request.Context(), uid)
 	if err != nil {
 		if errors.Is(err, service.ErrUserNotFound) {
 			response.HandleError(c, httperrors.NotFound("USER_NOT_FOUND", "user not found", err))
@@ -54,7 +54,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	user, err := h.service.UpdateProfile(uid, service.UpdateProfileParams{
+	user, err := h.service.UpdateProfile(c.Request.Context(), uid, service.UpdateProfileParams{
 		Username:  req.Username,
 		FirstName: req.FirstName,
 		LastName:  req.LastName,

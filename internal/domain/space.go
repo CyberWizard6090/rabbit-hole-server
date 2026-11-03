@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"database/sql/driver"
 	"errors"
 	"fmt"
@@ -101,40 +102,40 @@ var (
 )
 
 type FolderRepository interface {
-	Create(folder *Folder) error
-	GetByID(id uint) (*Folder, error)
-	GetAllBySpace(spaceID uint) ([]Folder, error)
-	Update(folder *Folder) error
-	Delete(id uint) error
+	Create(ctx context.Context, folder *Folder) error
+	GetByID(ctx context.Context, id uint) (*Folder, error)
+	GetAllBySpace(ctx context.Context, spaceID uint) ([]Folder, error)
+	Update(ctx context.Context, folder *Folder) error
+	Delete(ctx context.Context, id uint) error
 }
 
 type SpaceRepository interface {
-	GetByID(id uint) (*Space, error)
-	Create(space *Space) error
-	CreateWithDefaults(space *Space, list *List, statuses []TaskStatus) error
-	Update(space *Space) error
-	Delete(id uint) error
-	GetAll(workspaceID uint, limit, offset int) ([]Space, int64, error)
-	GetDashboard(spaceID uint) (*Space, error)
-	CreateStatus(status *TaskStatus) error
-	CreateTag(tag *Tag) error
+	GetByID(ctx context.Context, id uint) (*Space, error)
+	Create(ctx context.Context, space *Space) error
+	CreateWithDefaults(ctx context.Context, space *Space, list *List, statuses []TaskStatus) error
+	Update(ctx context.Context, space *Space) error
+	Delete(ctx context.Context, id uint) error
+	GetAll(ctx context.Context, workspaceID uint, limit, offset int) ([]Space, int64, error)
+	GetDashboard(ctx context.Context, spaceID uint) (*Space, error)
+	CreateStatus(ctx context.Context, status *TaskStatus) error
+	CreateTag(ctx context.Context, tag *Tag) error
 
-	CreateList(list *List) error
-	GetListByID(id uint) (*List, error)
-	GetListsBySpace(spaceID uint) ([]List, error)
-	GetStatusByID(id uint) (*TaskStatus, error)
-	UpdateStatus(status *TaskStatus) error
+	CreateList(ctx context.Context, list *List) error
+	GetListByID(ctx context.Context, id uint) (*List, error)
+	GetListsBySpace(ctx context.Context, spaceID uint) ([]List, error)
+	GetStatusByID(ctx context.Context, id uint) (*TaskStatus, error)
+	UpdateStatus(ctx context.Context, status *TaskStatus) error
 
-	GetListsByFolder(folderID uint) ([]List, error)
-	UpdateList(list *List) error
-	DeleteList(id uint) error
+	GetListsByFolder(ctx context.Context, folderID uint) ([]List, error)
+	UpdateList(ctx context.Context, list *List) error
+	DeleteList(ctx context.Context, id uint) error
 }
 
 type StatusRepository interface {
-	Create(status *TaskStatus) error
-	GetAllByList(listID uint) ([]TaskStatus, error)
-	GetByID(statusID uint) (*TaskStatus, error)
-	Update(status *TaskStatus) error
-	UpdatePosition(status *TaskStatus, position int) error
-	Delete(listID uint, statusID uint, replacementID *uint) error
+	Create(ctx context.Context, status *TaskStatus) error
+	GetAllByList(ctx context.Context, listID uint) ([]TaskStatus, error)
+	GetByID(ctx context.Context, statusID uint) (*TaskStatus, error)
+	Update(ctx context.Context, status *TaskStatus) error
+	UpdatePosition(ctx context.Context, status *TaskStatus, position int) error
+	Delete(ctx context.Context, listID uint, statusID uint, replacementID *uint) error
 }

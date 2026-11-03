@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -305,7 +306,7 @@ func TestConcurrentStatusCreatesSerializePositions(t *testing.T) {
 		workers.Add(1)
 		go func(index int) {
 			defer workers.Done()
-			errCh <- statusRepo.Create(&domain.TaskStatus{
+			errCh <- statusRepo.Create(context.Background(), &domain.TaskStatus{
 				SpaceID:  space.ID,
 				ListID:   list.ID,
 				Name:     fmt.Sprintf("Status %d", index),
@@ -323,7 +324,7 @@ func TestConcurrentStatusCreatesSerializePositions(t *testing.T) {
 		}
 	}
 
-	statuses, err := statusRepo.GetAllByList(list.ID)
+	statuses, err := statusRepo.GetAllByList(context.Background(), list.ID)
 	if err != nil {
 		t.Fatalf("read statuses: %v", err)
 	}
@@ -339,16 +340,16 @@ func TestStatusDeleteCompactsPositions(t *testing.T) {
 	statusRepo := repository.NewStatusRepository(tc.DB)
 	middle := domain.TaskStatus{SpaceID: space.ID, ListID: list.ID, Name: "Doing", Color: "#123456", Position: 2, Type: domain.StatusTodo}
 	last := domain.TaskStatus{SpaceID: space.ID, ListID: list.ID, Name: "Done", Color: "#123456", Position: 3, Type: domain.StatusTodo}
-	requireDBSuccess(t, statusRepo.Create(&middle), "create middle status")
-	requireDBSuccess(t, statusRepo.Create(&last), "create last status")
-	requireDBSuccess(t, statusRepo.Delete(list.ID, middle.ID, nil), "delete middle status")
+	requireDBSuccess(t, statusRepo.Create(context.Background(), &middle), "create middle status")
+	requireDBSuccess(t, statusRepo.Create(context.Background(), &last), "create last status")
+	requireDBSuccess(t, statusRepo.Delete(context.Background(), list.ID, middle.ID, nil), "delete middle status")
 
-	statuses, err := statusRepo.GetAllByList(list.ID)
+	statuses, err := statusRepo.GetAllByList(context.Background(), list.ID)
 	requireDBSuccess(t, err, "read statuses")
 	if len(statuses) != 2 || statuses[0].Position != 1 || statuses[1].Position != 2 || statuses[1].ID != last.ID {
 		t.Fatalf("statuses after delete = %+v, want positions [1 2] ending with the last status", statuses)
 	}
-	if err := statusRepo.Delete(list.ID, middle.ID, nil); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := statusRepo.Delete(context.Background(), list.ID, middle.ID, nil); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("second delete error = %v, want record not found", err)
 	}
 }
@@ -669,7 +670,7 @@ func createPermissionFixture(t *testing.T, db *gorm.DB) (domain.User, domain.Wor
 
 func assertWorkspacePermission(t *testing.T, checker service.PermissionChecker, userID, workspaceID uint, code string, want bool) {
 	t.Helper()
-	got, err := checker.HasWorkspacePermission(userID, workspaceID, code)
+	got, err := checker.HasWorkspacePermission(context.Background(), userID, workspaceID, code)
 	requireDBSuccess(t, err, "check workspace permission")
 	if got != want {
 		t.Fatalf("permission result = %t, want %t", got, want)

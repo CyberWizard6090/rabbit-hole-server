@@ -42,7 +42,7 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		return
 	}
 
-	workspace, err := h.service.CreateWorkspace(
+	workspace, err := h.service.CreateWorkspace(c.Request.Context(),
 		userID,
 		req.Name,
 		req.Description,
@@ -71,7 +71,7 @@ func (h *WorkspaceHandler) List(c *gin.Context) {
 		return
 	}
 
-	workspaces, err := h.service.GetAllForUser(userID)
+	workspaces, err := h.service.GetAllForUser(c.Request.Context(), userID)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("WORKSPACES_FETCH_FAILED", "internal server error", err))
 		return
@@ -98,7 +98,7 @@ func (h *WorkspaceHandler) Get(c *gin.Context) {
 	if !ok {
 		return
 	}
-	workspace, err := h.service.GetWorkspaceByID(id)
+	workspace, err := h.service.GetWorkspaceByID(c.Request.Context(), id)
 	if err != nil {
 		response.HandleError(c, httperrors.NotFound("WORKSPACE_NOT_FOUND", "workspace not found", err))
 		return
@@ -118,7 +118,7 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 		return
 	}
 
-	workspace, err := h.service.UpdateWorkspace(id, req.Name, req.Description)
+	workspace, err := h.service.UpdateWorkspace(c.Request.Context(), id, req.Name, req.Description)
 	if err != nil {
 		if errors.Is(err, service.ErrWorkspaceNameRequired) {
 			response.HandleError(c, httperrors.BadRequest("WORKSPACE_NAME_REQUIRED", err.Error(), err))
@@ -135,7 +135,7 @@ func (h *WorkspaceHandler) Delete(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.service.DeleteWorkspace(id); err != nil {
+	if err := h.service.DeleteWorkspace(c.Request.Context(), id); err != nil {
 		response.HandleError(c, httperrors.Internal("WORKSPACE_DELETE_FAILED", "internal server error", err))
 		return
 	}
@@ -172,7 +172,7 @@ func (h *WorkspaceHandler) ListMembers(c *gin.Context) {
 		return
 	}
 
-	members, err := h.service.ListMembers(workspaceID)
+	members, err := h.service.ListMembers(c.Request.Context(), workspaceID)
 	if err != nil {
 		memberError(c, "MEMBERS_FETCH_FAILED", err)
 		return
@@ -205,7 +205,7 @@ func (h *WorkspaceHandler) AddMember(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.AddMember(workspaceID, actorID, req.UserID, req.Role); err != nil {
+	if err := h.service.AddMember(c.Request.Context(), workspaceID, actorID, req.UserID, req.Role); err != nil {
 		memberError(c, "MEMBER_ADD_FAILED", err)
 		return
 	}
@@ -228,7 +228,7 @@ func (h *WorkspaceHandler) UpdateMemberRole(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.ChangeMemberRole(workspaceID, targetID, req.Role); err != nil {
+	if err := h.service.ChangeMemberRole(c.Request.Context(), workspaceID, targetID, req.Role); err != nil {
 		memberError(c, "MEMBER_UPDATE_FAILED", err)
 		return
 	}
@@ -245,7 +245,7 @@ func (h *WorkspaceHandler) RemoveMember(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.RemoveMember(workspaceID, targetID); err != nil {
+	if err := h.service.RemoveMember(c.Request.Context(), workspaceID, targetID); err != nil {
 		memberError(c, "MEMBER_REMOVE_FAILED", err)
 		return
 	}
@@ -263,7 +263,7 @@ func (h *WorkspaceHandler) Leave(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.RemoveMember(workspaceID, userID); err != nil {
+	if err := h.service.RemoveMember(c.Request.Context(), workspaceID, userID); err != nil {
 		memberError(c, "MEMBER_LEAVE_FAILED", err)
 		return
 	}

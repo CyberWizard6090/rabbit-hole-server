@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestStatusServiceCreateClampsPositionAndShifts(t *testing.T) {
 
 	svc := NewStatusService(repo, spaceRepo)
 	position := 2
-	got, err := svc.Create(CreateStatusParams{ListID: 7, Name: "Doing", Color: "#fff000", Position: &position, Type: int(domain.StatusInProgress)})
+	got, err := svc.Create(context.Background(), CreateStatusParams{ListID: 7, Name: "Doing", Color: "#fff000", Position: &position, Type: int(domain.StatusInProgress)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +45,7 @@ func TestStatusServiceCreateWithoutPositionAppends(t *testing.T) {
 	repo.createFn = func(s *domain.TaskStatus) error { *created = *s; return nil }
 	spaceRepo := newMockSpaceRepository()
 	spaceRepo.getListByIDFn = func(uint) (*domain.List, error) { return &domain.List{SpaceID: 5}, nil }
-	got, err := NewStatusService(repo, spaceRepo).Create(CreateStatusParams{ListID: 2, Name: "Done", Color: "#00ff00"})
+	got, err := NewStatusService(repo, spaceRepo).Create(context.Background(), CreateStatusParams{ListID: 2, Name: "Done", Color: "#00ff00"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestStatusServiceGetAllByListChecksList(t *testing.T) {
 	}
 	spaceRepo := newMockSpaceRepository()
 	spaceRepo.getListByIDFn = func(id uint) (*domain.List, error) { return &domain.List{SpaceID: 1}, nil }
-	got, err := NewStatusService(repo, spaceRepo).GetAllByList(8)
+	got, err := NewStatusService(repo, spaceRepo).GetAllByList(context.Background(), 8)
 	if err != nil || len(got) != 1 || got[0].ListID != 8 {
 		t.Fatalf("got=%v err=%v", got, err)
 	}
@@ -85,7 +86,7 @@ func TestStatusServiceUpdateChecksListAndSupportsPosition(t *testing.T) {
 	}
 	name := "New"
 	position := 3
-	got, err := NewStatusService(repo, newMockSpaceRepository()).Update(5, 9, UpdateStatusParams{Name: &name, Position: &position})
+	got, err := NewStatusService(repo, newMockSpaceRepository()).Update(context.Background(), 5, 9, UpdateStatusParams{Name: &name, Position: &position})
 	if err != nil || !called || got.Position != 3 || got.Name != "New" {
 		t.Fatalf("got=%+v err=%v called=%v", got, err, called)
 	}
@@ -94,7 +95,7 @@ func TestStatusServiceUpdateChecksListAndSupportsPosition(t *testing.T) {
 func TestStatusServiceUpdateRejectsForeignList(t *testing.T) {
 	repo := newMockStatusRepository()
 	repo.getByIDFn = func(uint) (*domain.TaskStatus, error) { return &domain.TaskStatus{ListID: 2}, nil }
-	if _, err := NewStatusService(repo, newMockSpaceRepository()).Update(1, 9, UpdateStatusParams{}); err == nil {
+	if _, err := NewStatusService(repo, newMockSpaceRepository()).Update(context.Background(), 1, 9, UpdateStatusParams{}); err == nil {
 		t.Fatal("expected foreign-list error")
 	}
 }
@@ -110,7 +111,7 @@ func TestStatusServiceDeleteChecksList(t *testing.T) {
 		}
 		return nil
 	}
-	if err := NewStatusService(repo, newMockSpaceRepository()).Delete(7, 9, nil); err != nil {
+	if err := NewStatusService(repo, newMockSpaceRepository()).Delete(context.Background(), 7, 9, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !deleted {
@@ -122,12 +123,12 @@ func TestStatusServicePropagatesErrors(t *testing.T) {
 	want := errors.New("failure")
 	repo := newMockStatusRepository()
 	repo.getByIDFn = func(uint) (*domain.TaskStatus, error) { return nil, want }
-	if _, err := NewStatusService(repo, newMockSpaceRepository()).Update(1, 2, UpdateStatusParams{}); !errors.Is(err, want) {
+	if _, err := NewStatusService(repo, newMockSpaceRepository()).Update(context.Background(), 1, 2, UpdateStatusParams{}); !errors.Is(err, want) {
 		t.Fatal(err)
 	}
 	spaceRepo := newMockSpaceRepository()
 	spaceRepo.getListByIDFn = func(uint) (*domain.List, error) { return nil, want }
-	if _, err := NewStatusService(repo, spaceRepo).Create(CreateStatusParams{ListID: 1}); !errors.Is(err, want) {
+	if _, err := NewStatusService(repo, spaceRepo).Create(context.Background(), CreateStatusParams{ListID: 1}); !errors.Is(err, want) {
 		t.Fatal(err)
 	}
 }
