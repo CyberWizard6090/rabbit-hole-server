@@ -170,11 +170,6 @@ func integrationTaskCursor(t *testing.T, listID uint, task domain.Task, directio
 	return integrationRawTaskCursor(t, listID, task.CreatedAt, uint64(task.ID), direction)
 }
 
-func integrationFixtureCursor(t *testing.T, listID uint, task persistence.Task, direction pagination.Direction) *pagination.Cursor {
-	t.Helper()
-	return integrationRawTaskCursor(t, listID, task.CreatedAt, uint64(task.ID), direction)
-}
-
 func integrationRawTaskCursor(t *testing.T, listID uint, createdAt time.Time, id uint64, direction pagination.Direction) *pagination.Cursor {
 	t.Helper()
 	position := pagination.TaskCursorPosition{CreatedAt: createdAt, ID: id}
