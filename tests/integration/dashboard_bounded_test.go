@@ -2,9 +2,10 @@ package integration
 
 import (
 	"fmt"
-	"gorm.io/gorm"
 	"net/http"
 	"testing"
+
+	"gorm.io/gorm"
 )
 
 func TestDashboard_TasksPerListAreBoundedAndCounted(t *testing.T) {
