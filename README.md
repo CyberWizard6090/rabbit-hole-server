@@ -37,12 +37,21 @@ relies on:
 - **Auth**: `POST /auth/login` returns `access_token` and sets an HttpOnly `refresh_token` cookie
   (path `/api/v1/auth`). Call `/auth/refresh` (cookie, `credentials: 'include'`) to rotate.
   `/auth/logout` needs only the cookie, so it works after the access token expired.
-- **Pagination**: task lists use keyset pagination (`cursor`, `limit`; the response is
+- **Revocation**: access tokens embed the user's token version. Changing the password
+  (`POST /profile/password`), `POST /auth/logout-all` and `DELETE /profile` invalidate every token
+  issued before, so the frontend must treat a 401 as "sign in again".
+- **Members**: workspace members are managed under `/workspaces/:id/members`; only contacts can be
+  added, and the owner cannot be re-roled, removed or leave.
+- **Pagination**: task lists use keyset pagination (`cursor`, `limit`; response is
   `{items, next_cursor, prev_cursor, has_next, has_prev}`); contact and space lists use `page`
   (1-10000) and `limit` (1-100, default 10). Out-of-range values are rejected with 400
   `INVALID_PAGINATION`.
 - **Limits**: request body max 1 MiB (413). Auth rate limits per IP: register 5/min, login 10/min,
   refresh 30/min, logout 30/min (429).
+- **Real-time**: task changes can be followed over WebSocket. Request a single-use ticket
+  (`POST /lists/:id/events/ticket` or `POST /spaces/:id/events/ticket`) and connect with it; see
+  [`docs/realtime.md`](docs/realtime.md).
+- **Health**: `GET /healthz` is liveness, `GET /readyz` also pings the database.
 - **Authorization**: resource routes check workspace-scoped permissions. IDs that belong to another
   workspace answer 403/404 and never leak data.
 
@@ -78,5 +87,4 @@ The production-only work is intentionally deferred; check it off before releasin
 
 ## Known follow-ups
 
-- Request `context.Context` is not yet propagated from handlers to repositories (no request-scoped
-  cancellation or timeouts on DB calls).
+- Tag, folder and status lists are intentionally unpaginated (bounded per space; used by pickers).
