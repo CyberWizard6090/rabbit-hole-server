@@ -10,6 +10,7 @@ const (
 	DefaultPage  = 1
 	DefaultLimit = 10
 	MaxLimit     = 100
+	MaxPage      = 1_000_000
 )
 
 type Params struct {
@@ -26,8 +27,14 @@ func Parse(c *gin.Context) Params {
 	}
 
 	limit, err := strconv.Atoi(c.DefaultQuery("limit", "10"))
-	if err != nil || limit < 1 || limit > MaxLimit {
+	switch {
+	case err != nil || limit < 1:
 		limit = DefaultLimit
+	case limit > MaxLimit:
+		limit = MaxLimit
+	}
+	if page > MaxPage {
+		page = MaxPage
 	}
 
 	offset := (page - 1) * limit
@@ -37,4 +44,11 @@ func Parse(c *gin.Context) Params {
 		Limit:  limit,
 		Offset: offset,
 	}
+}
+
+func Pages(total int64, limit int) int {
+	if limit < 1 || total < 1 {
+		return 0
+	}
+	return int((total + int64(limit) - 1) / int64(limit))
 }

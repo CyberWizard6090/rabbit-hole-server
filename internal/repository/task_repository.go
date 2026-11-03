@@ -43,14 +43,16 @@ func (r *taskRepository) GetAll(listID uint, limit, offset int) ([]domain.Task, 
 	var tasks []domain.Task
 	var total int64
 
-	r.db.Model(&domain.Task{}).Where("list_id = ?", listID).Count(&total)
+	if err := r.db.Model(&domain.Task{}).Where("list_id = ?", listID).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
 
 	err := r.db.Where("list_id = ?", listID).
 		Preload("Assignees").
 		Preload("Tags").
 		Limit(limit).
 		Offset(offset).
-		Order("created_at DESC").
+		Order("created_at DESC, id DESC").
 		Find(&tasks).Error
 
 	return tasks, total, err
