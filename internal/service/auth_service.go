@@ -8,8 +8,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -36,11 +38,14 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-type RefreshClaims struct {
-	UserID    uint      `json:"user_id"`
-	TokenType TokenType `json:"token_type"`
-	jwt.RegisteredClaims
-}
+type RefreshClaims = Claims
+
+var tokenParser = jwt.NewParser(
+	jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+	jwt.WithExpirationRequired(),
+)
+
+func (s *AuthService) keyFunc(*jwt.Token) (interface{}, error) { return s.jwtSecret, nil }
 
 type AuthService struct {
 	repo       *repository.UserRepository
@@ -156,10 +161,23 @@ func (s *AuthService) Register(email, password, username string) error {
 	return s.repo.CreateUser(user)
 }
 
+var (
+	dummyHashOnce sync.Once
+	dummyHash     string
+)
+
+func burnPasswordHash(password string) {
+	dummyHashOnce.Do(func() {
+		dummyHash, _ = hashPassword("timing-equalizer-not-a-real-password")
+	})
+	_ = verifyPassword(password, dummyHash)
+}
+
 func (s *AuthService) Login(email, password string) (dto.TokenPair, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	user, err := s.repo.GetByEmail(email)
 	if err != nil {
+		burnPasswordHash(password)
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
 
@@ -230,12 +248,7 @@ func (s *AuthService) generateTokenPair(userID uint) (dto.TokenPair, *domain.Use
 }
 
 func (s *AuthService) Refresh(refreshTokenString string) (dto.TokenPair, error) {
-	token, err := jwt.ParseWithClaims(refreshTokenString, &RefreshClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return s.jwtSecret, nil
-	})
+	token, err := tokenParser.ParseWithClaims(refreshTokenString, &RefreshClaims{}, s.keyFunc)
 	if err != nil || !token.Valid {
 		return dto.TokenPair{}, errors.New("invalid or expired refresh token")
 	}
@@ -255,11 +268,26 @@ func (s *AuthService) Refresh(refreshTokenString string) (dto.TokenPair, error) 
 	}
 	if err := s.repo.RotateSession(tokenHash, replacement); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			s.handleUnknownRefreshSession(claims.UserID)
 			return dto.TokenPair{}, errors.New("session not found")
 		}
 		return dto.TokenPair{}, fmt.Errorf("rotate refresh session: %w", err)
 	}
 	return pair, nil
+}
+
+const refreshReuseGrace = 10 * time.Second
+
+func (s *AuthService) handleUnknownRefreshSession(userID uint) {
+	recent, err := s.repo.HasSessionCreatedSince(userID, time.Now().Add(-refreshReuseGrace))
+	if err != nil || recent {
+		return
+	}
+	if err := s.repo.DeleteAllUserSessions(userID); err != nil {
+		log.Printf("revoke sessions after refresh token reuse (user %d): %v", userID, err)
+		return
+	}
+	log.Printf("refresh token reuse detected: revoked all sessions of user %d", userID)
 }
 
 func (s *AuthService) Logout(refreshTokenString string) error {
@@ -268,12 +296,7 @@ func (s *AuthService) Logout(refreshTokenString string) error {
 }
 
 func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return s.jwtSecret, nil
-	})
+	token, err := tokenParser.ParseWithClaims(tokenString, &Claims{}, s.keyFunc)
 	if err != nil {
 		return nil, err
 	}
