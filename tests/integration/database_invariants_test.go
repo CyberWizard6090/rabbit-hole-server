@@ -41,7 +41,7 @@ func TestQueryIndexesAndTrigramExtensionExist(t *testing.T) {
 		WHERE schemaname = current_schema()
 		  AND indexname IN (
 			'idx_task_statuses_list_position',
-			'idx_tasks_list_created_at',
+			'idx_tasks_list_keyset',
 			'idx_user_sessions_user_id',
 			'uq_user_sessions_token_hash',
 			'uq_users_email',

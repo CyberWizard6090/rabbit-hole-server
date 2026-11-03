@@ -14,7 +14,7 @@ import (
 
 func main() {
 	action := flag.String("action", "up", "migration action: up, down, version, or force")
-	steps := flag.Int("steps", 0, "number of migrations for down; zero means the latest migration")
+	steps := flag.Int("steps", 0, "number of migrations to roll back for down; zero rolls back all of them")
 	version := flag.Int("version", 0, "version used by force")
 	flag.Parse()
 
