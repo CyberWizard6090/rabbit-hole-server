@@ -148,13 +148,13 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				spaces := protected.Group("/spaces/:space_id")
 				{
 					spaces.GET("",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.read"),
+						inSpace(domain.PermSpaceRead),
 						deps.SpaceHandler.Get)
 					spaces.PATCH("",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.update"),
+						inSpace(domain.PermSpaceUpdate),
 						deps.SpaceHandler.Update)
 					spaces.DELETE("",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.delete"),
+						inSpace(domain.PermSpaceDelete),
 						deps.SpaceHandler.Delete)
 
 					spaces.GET("/dashboard",
@@ -168,7 +168,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						inSpace(domain.PermSpaceRead),
 						deps.TagHandler.List)
 					spaces.GET("/tags/:tag_id",
-						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.read"),
+						inSpace(domain.PermSpaceRead),
 						deps.TagHandler.Get)
 					spaces.PUT("/tags/:tag_id",
 						inSpace(domain.PermSpaceUpdate),

@@ -40,7 +40,7 @@ func TestWorkspace_GetUpdateDeleteLifecycle(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update: %d: %s", rec.Code, rec.Body.String())
 	}
-	if got := dataObject(t, rec)["Name"]; got != "Renamed" {
+	if got := dataObject(t, rec)["name"]; got != "Renamed" {
 		t.Fatalf("name = %v, want trimmed %q", got, "Renamed")
 	}
 
@@ -99,7 +99,7 @@ func TestWorkspace_OnlyPermittedRolesCanUpdateOrDelete(t *testing.T) {
 	var count int64
 	tc.DB.Table("workspaces").Where("id = ? AND name <> 'pwned' AND deleted_at IS NULL", workspaceID).Count(&count)
 	if count != 1 {
-		t.Fatalf("workspace was modified or deleted by an unauthorised role")
+		t.Fatalf("workspace was modified or deleted by an unauthorized role")
 	}
 }
 
