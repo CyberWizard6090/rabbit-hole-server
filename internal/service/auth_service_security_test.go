@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -36,5 +37,13 @@ func TestAuthServiceParseTokenRejectsWrongTokenType(t *testing.T) {
 	}
 	if _, err := svc.ParseToken(value); err == nil {
 		t.Fatal("expected wrong token type to be rejected")
+	}
+}
+
+func TestBurnPasswordHashIsSafeAndRepeatable(t *testing.T) {
+	burnPasswordHash("anything")
+	burnPasswordHash("anything else")
+	if !strings.HasPrefix(dummyHash, "$argon2id$") || !verifyPassword("timing-equaliser-not-a-real-password", dummyHash) {
+		t.Fatalf("dummy hash is not a valid argon2id hash: %q", dummyHash)
 	}
 }

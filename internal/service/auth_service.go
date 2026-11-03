@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -156,10 +157,23 @@ func (s *AuthService) Register(email, password, username string) error {
 	return s.repo.CreateUser(user)
 }
 
+var (
+	dummyHashOnce sync.Once
+	dummyHash     string
+)
+
+func burnPasswordHash(password string) {
+	dummyHashOnce.Do(func() {
+		dummyHash, _ = hashPassword("timing-equaliser-not-a-real-password")
+	})
+	_ = verifyPassword(password, dummyHash)
+}
+
 func (s *AuthService) Login(email, password string) (dto.TokenPair, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	user, err := s.repo.GetByEmail(email)
 	if err != nil {
+		burnPasswordHash(password)
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
 
