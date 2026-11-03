@@ -30,7 +30,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	}
 
 	logger := slog.Default()
-	r.Use(middleware.RequestID(), middleware.AccessLog(logger, healthPath, readyPath), middleware.Recovery(logger))
+	r.Use(middleware.ExtractWSTicket(), middleware.RequestID(), middleware.AccessLog(logger, healthPath, readyPath), middleware.Recovery(logger))
 	r.Use(middleware.SecurityHeaders(cfg.Environment == "production"))
 
 	r.GET(healthPath, func(c *gin.Context) {
@@ -73,6 +73,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		inList      = require(middleware.ResourceList)
 		inTask      = require(middleware.ResourceTask)
 	)
+	ticketLimiter := middleware.RateLimiter(60, time.Minute)
 
 	api := r.Group("/api")
 	{
@@ -89,6 +90,9 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				// token, so it must work after the access token has expired.
 				auth.POST("/logout", middleware.RateLimiter(30, time.Minute), deps.AuthHandler.Logout)
 			}
+
+			v1.GET("/lists/:list_id/events", deps.RealtimeHandler.ConnectList)
+			v1.GET("/spaces/:space_id/events", deps.RealtimeHandler.ConnectSpace)
 
 			protected := v1.Group("/")
 			protected.Use(middleware.AuthMiddleware(deps.AuthService))
@@ -161,6 +165,10 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						inSpace(domain.PermSpaceDelete),
 						deps.SpaceHandler.Delete)
 
+					spaces.POST("/events/ticket",
+						inSpace(domain.PermTaskRead),
+						ticketLimiter, deps.RealtimeHandler.IssueSpaceTicket)
+
 					spaces.GET("/dashboard",
 						inSpace(domain.PermSpaceRead),
 						deps.SpaceHandler.GetDashboard)
@@ -217,6 +225,10 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 
 				lists := protected.Group("/lists/:list_id")
 				{
+					lists.POST("/events/ticket",
+						inList(domain.PermTaskRead),
+						ticketLimiter, deps.RealtimeHandler.IssueListTicket)
+
 					lists.POST("/statuses",
 						inList(domain.PermSpaceUpdate),
 						deps.StatusHandler.Create)

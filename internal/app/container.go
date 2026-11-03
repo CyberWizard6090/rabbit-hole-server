@@ -5,12 +5,14 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"fmt"
+	"log/slog"
 
 	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/handler"
 	"rabbit-hole-server/internal/http/pagination"
+	"rabbit-hole-server/internal/realtime"
 	"rabbit-hole-server/internal/repository"
 	"rabbit-hole-server/internal/service"
 )
@@ -32,7 +34,9 @@ type Container struct {
 
 	PermissionChecker service.PermissionChecker
 
-	Ready func(ctx context.Context) error
+	Ready           func(ctx context.Context) error
+	Realtime        *realtime.Hub
+	RealtimeHandler *handler.RealtimeHandler
 }
 
 func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
@@ -68,10 +72,13 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 		return nil, fmt.Errorf("get database handle for readiness checks: %w", err)
 	}
 
+	hub := realtime.NewHub(realtime.DefaultMaxConnectionsPerUser, slog.Default())
+	tickets := realtime.NewTicketStore(realtime.DefaultTicketTTL)
+
 	return &Container{
 		AuthService: authServ,
 		AuthHandler: handler.NewAuthHandler(authServ, cfg.SecureCookies()),
-		TaskHandler: handler.NewTaskHandler(taskService, cursorCodec),
+		TaskHandler: handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub),
 		UserHandler: handler.NewUserHandler(userService),
 
 		ContactHandler:    handler.NewContactHandler(contactService),
@@ -83,5 +90,8 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 		ListHandler:       handler.NewListHandler(spaceServ, folderService),
 		PermissionChecker: permissionChecker,
 		Ready:             sqlDB.PingContext,
+
+		Realtime:        hub,
+		RealtimeHandler: handler.NewRealtimeHandler(hub, tickets, permissionChecker, cfg.AllowedOrigins),
 	}, nil
 }
