@@ -106,6 +106,9 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					spaces.GET("/tags",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.read"),
 						deps.TagHandler.List)
+					spaces.GET("/tags/:tag_id",
+						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.read"),
+						deps.TagHandler.Get)
 					spaces.PUT("/tags/:tag_id",
 						middleware.RequirePermission(deps.PermissionChecker, middleware.ResourceSpace, "space.update"),
 						deps.TagHandler.Update)

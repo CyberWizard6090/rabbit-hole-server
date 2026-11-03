@@ -51,7 +51,28 @@ func (h *TagHandler) Create(c *gin.Context) {
 }
 
 func (h *TagHandler) Get(c *gin.Context) {
-	//TODO: Создать метод получения тега по ID
+	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, invalidSpaceIDMessage)
+		return
+	}
+	tagID, err := strconv.ParseUint(c.Param("tag_id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid tag id")
+		return
+	}
+
+	tag, err := h.service.GetTag(uint(spaceID), uint(tagID))
+	if err != nil {
+		if errors.Is(err, service.ErrTagNotFound) || errors.Is(err, service.ErrTagSpaceMismatch) {
+			response.HandleError(c, httperrors.NotFound("TAG_NOT_FOUND", "tag not found", err))
+			return
+		}
+		response.HandleError(c, httperrors.Internal("TAG_FETCH_FAILED", "internal server error", err))
+		return
+	}
+
+	response.Success(c, http.StatusOK, tag)
 }
 
 func (h *TagHandler) List(c *gin.Context) {

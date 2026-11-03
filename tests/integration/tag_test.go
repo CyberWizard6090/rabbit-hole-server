@@ -98,3 +98,42 @@ func TestTag_MergeMovesTaskRelations(t *testing.T) {
 		t.Fatalf("target relation count = %d, want 1", count)
 	}
 }
+
+func TestTag_GetByIDIsScopedToItsSpace(t *testing.T) {
+	tc := newTestContext(t)
+	registerAndLogin(t, tc)
+	spaceID := createSpace(t, tc)
+	otherSpaceID := createSpace(t, tc)
+
+	rec := request(t, tc.Router, http.MethodPost, "/api/v1/spaces/"+itoa(spaceID)+"/tags", tc.Token,
+		map[string]any{"name": "Bug", "color": "#ff0000"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create tag: %d: %s", rec.Code, rec.Body.String())
+	}
+	tagID := responseID(t, rec)
+
+	rec = request(t, tc.Router, http.MethodGet, "/api/v1/spaces/"+itoa(spaceID)+"/tags/"+itoa(tagID), tc.Token, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get tag: %d: %s", rec.Code, rec.Body.String())
+	}
+	data := dataObject(t, rec)
+	if data["name"] != "Bug" || data["usage_count"] != float64(0) {
+		t.Fatalf("tag = %v, want name Bug with usage_count 0", data)
+	}
+
+	rec = request(t, tc.Router, http.MethodGet, "/api/v1/spaces/"+itoa(otherSpaceID)+"/tags/"+itoa(tagID), tc.Token, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("tag via wrong space: expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	_, strangerToken := newUser(t, tc, "tag-stranger@example.test")
+	rec = request(t, tc.Router, http.MethodGet, "/api/v1/spaces/"+itoa(spaceID)+"/tags/"+itoa(tagID), strangerToken, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("stranger: expected 403, got %d", rec.Code)
+	}
+
+	rec = request(t, tc.Router, http.MethodGet, "/api/v1/spaces/"+itoa(spaceID)+"/tags/99999", tc.Token, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing tag: expected 404, got %d", rec.Code)
+	}
+}

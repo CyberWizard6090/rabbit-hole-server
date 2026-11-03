@@ -35,6 +35,7 @@ type TagWithUsage struct {
 type TagService interface {
 	CreateTag(spaceID uint, params CreateTagParams) (*domain.Tag, error)
 	GetAllBySpace(spaceID uint) ([]TagWithUsage, error)
+	GetTag(spaceID, tagID uint) (*TagWithUsage, error)
 	UpdateTag(spaceID, tagID uint, params UpdateTagParams) (*domain.Tag, error)
 	DeleteTag(spaceID, tagID uint) error
 
@@ -93,6 +94,21 @@ func (s *tagService) GetAllBySpace(spaceID uint) ([]TagWithUsage, error) {
 		result[i] = TagWithUsage{Tag: t, UsageCount: count}
 	}
 	return result, nil
+}
+
+func (s *tagService) GetTag(spaceID, tagID uint) (*TagWithUsage, error) {
+	tag, err := s.tagRepo.GetByID(tagID)
+	if err != nil {
+		return nil, ErrTagNotFound
+	}
+	if tag.SpaceID != spaceID {
+		return nil, ErrTagSpaceMismatch
+	}
+	count, err := s.tagRepo.CountUsage(tagID)
+	if err != nil {
+		return nil, fmt.Errorf("count tag usage: %w", err)
+	}
+	return &TagWithUsage{Tag: *tag, UsageCount: count}, nil
 }
 
 func (s *tagService) UpdateTag(spaceID, tagID uint, params UpdateTagParams) (*domain.Tag, error) {
