@@ -35,3 +35,6 @@ Thumbs.db
 tmp/
 bin/
 *.log
+
+# Local Claude instructions
+CLAUDE.md
