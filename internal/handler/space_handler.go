@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -147,6 +148,11 @@ func (h *SpaceHandler) Delete(c *gin.Context) {
 	response.Success(c, http.StatusOK, gin.H{"message": "space deleted"})
 }
 
+const (
+	defaultDashboardTasksPerList = 50
+	maxDashboardTasksPerList     = 200
+)
+
 func (h *SpaceHandler) GetDashboard(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
@@ -154,7 +160,18 @@ func (h *SpaceHandler) GetDashboard(c *gin.Context) {
 		return
 	}
 
-	dashboard, err := h.service.GetDashboard(c.Request.Context(), uint(spaceID))
+	tasksPerList := defaultDashboardTasksPerList
+	if raw := c.Query("tasks_per_list"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > maxDashboardTasksPerList {
+			response.HandleError(c, httperrors.BadRequest("INVALID_TASKS_PER_LIST",
+				fmt.Sprintf("tasks_per_list must be an integer between 1 and %d", maxDashboardTasksPerList), err))
+			return
+		}
+		tasksPerList = n
+	}
+
+	dashboard, err := h.service.GetDashboard(c.Request.Context(), uint(spaceID), tasksPerList)
 	if err != nil {
 		response.HandleError(c, httperrors.NotFound("SPACE_NOT_FOUND", "space not found", err))
 		return

@@ -57,24 +57,68 @@ func (r *spaceRepository) GetAll(ctx context.Context, workspaceID uint, limit, o
 	return mapSlice(rows, spaceToDomain), total, nil
 }
 
-func (r *spaceRepository) GetDashboard(ctx context.Context, spaceID uint) (*domain.Space, error) {
+func (r *spaceRepository) GetDashboard(ctx context.Context, spaceID uint, tasksPerList int) (*domain.Space, error) {
 	var m persistence.Space
 
 	err := r.db.WithContext(ctx).
-		Preload("Lists").
-		Preload("Lists.Statuses", func(db *gorm.DB) *gorm.DB {
-			return db.Order("position ASC")
-		}).
-		Preload("Lists.Tasks").
-		Preload("Lists.Tasks.Assignees").
-		Preload("Lists.Tasks.Tags").
+		Preload("Lists", func(db *gorm.DB) *gorm.DB { return db.Order("id ASC") }).
+		Preload("Lists.Statuses", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC") }).
 		Preload("Tags").
 		First(&m, "id = ?", spaceID).Error
-
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	space := spaceToDomain(m)
+	if len(space.Lists) == 0 {
+		return &space, nil
+	}
+
+	listIDs := make([]uint, len(space.Lists))
+	for i, list := range space.Lists {
+		listIDs[i] = list.ID
+	}
+
+	var counts []struct {
+		ListID uint
+		Count  int64
+	}
+	if err := r.db.WithContext(ctx).Model(&persistence.Task{}).
+		Select("list_id, COUNT(*) AS count").
+		Where("list_id IN ?", listIDs).
+		Group("list_id").
+		Scan(&counts).Error; err != nil {
+		return nil, mapErr(err)
+	}
+	totals := make(map[uint]int, len(counts))
+	for _, row := range counts {
+		totals[row.ListID] = int(row.Count)
+	}
+
+	ranked := r.db.WithContext(ctx).Model(&persistence.Task{}).
+		Select("id, ROW_NUMBER() OVER (PARTITION BY list_id ORDER BY created_at DESC, id DESC) AS rn").
+		Where("list_id IN ?", listIDs)
+	var rows []persistence.Task
+	if err := r.db.WithContext(ctx).
+		Preload("Assignees").
+		Preload("Tags").
+		Where("id IN (?)", r.db.WithContext(ctx).Table("(?) AS ranked", ranked).Select("id").Where("rn <= ?", tasksPerList)).
+		Order("created_at DESC, id DESC").
+		Find(&rows).Error; err != nil {
+		return nil, mapErr(err)
+	}
+
+	byList := make(map[uint][]domain.Task, len(space.Lists))
+	for _, task := range mapSlice(rows, taskToDomain) {
+		byList[task.ListID] = append(byList[task.ListID], task)
+	}
+	for i := range space.Lists {
+		id := space.Lists[i].ID
+		space.Lists[i].Tasks = byList[id]
+		if space.Lists[i].Tasks == nil {
+			space.Lists[i].Tasks = []domain.Task{}
+		}
+		space.Lists[i].TaskCount = totals[id]
+	}
 	return &space, nil
 }
 

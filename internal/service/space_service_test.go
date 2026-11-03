@@ -66,7 +66,7 @@ func TestSpaceServiceSimpleOperations(t *testing.T) {
 		}
 		return []domain.Space{{WorkspaceID: id}}, 11, nil
 	}
-	repo.dashboardFn = func(id uint) (*domain.Space, error) { return &domain.Space{Model: gormModel(id)}, nil }
+	repo.dashboardFn = func(id uint, perList int) (*domain.Space, error) { return &domain.Space{Model: gormModel(id)}, nil }
 	repo.getListByIDFn = func(uint) (*domain.List, error) { return &domain.List{Name: "old", SpaceID: 3}, nil }
 	repo.createListFn = func(l *domain.List) error { l.ID = 4; return nil }
 	repo.getListsByFolderFn = func(id uint) ([]domain.List, error) { return []domain.List{{FolderID: &id}}, nil }
@@ -85,7 +85,7 @@ func TestSpaceServiceSimpleOperations(t *testing.T) {
 	if got, total, err := svc.GetAllSpaces(context.Background(), 2, 10, 5); err != nil || total != 11 || len(got) != 1 {
 		t.Fatalf("GetAllSpaces: %+v %d %v", got, total, err)
 	}
-	if got, err := svc.GetDashboard(context.Background(), 3); err != nil || got.ID != 3 {
+	if got, err := svc.GetDashboard(context.Background(), 3, 50); err != nil || got.ID != 3 {
 		t.Fatalf("GetDashboard: %+v %v", got, err)
 	}
 	if got, err := svc.CreateList(context.Background(), 3, "L", nil); err != nil || got.ID != 4 {

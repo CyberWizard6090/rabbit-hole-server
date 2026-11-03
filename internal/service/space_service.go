@@ -14,7 +14,7 @@ type SpaceService interface {
 	CreateSpace(ctx context.Context, workspaceID uint, name string, currency string, userID uint) (*domain.Space, error)
 	GetSpaceByID(ctx context.Context, id uint) (*domain.Space, error)
 	GetAllSpaces(ctx context.Context, workspaceID uint, limit, offset int) ([]domain.Space, int64, error)
-	GetDashboard(ctx context.Context, spaceID uint) (*domain.Space, error)
+	GetDashboard(ctx context.Context, spaceID uint, tasksPerList int) (*domain.Space, error)
 	UpdateSpace(ctx context.Context, id uint, name, currency *string) (*domain.Space, error)
 	DeleteSpace(ctx context.Context, id uint) error
 	CreateList(ctx context.Context, spaceID uint, name string, parentStatusID *uint) (*domain.List, error)
@@ -63,8 +63,8 @@ func (s *spaceService) GetAllSpaces(ctx context.Context, workspaceID uint, limit
 	return s.repo.GetAll(ctx, workspaceID, limit, offset)
 }
 
-func (s *spaceService) GetDashboard(ctx context.Context, spaceID uint) (*domain.Space, error) {
-	return s.repo.GetDashboard(ctx, spaceID)
+func (s *spaceService) GetDashboard(ctx context.Context, spaceID uint, tasksPerList int) (*domain.Space, error) {
+	return s.repo.GetDashboard(ctx, spaceID, tasksPerList)
 }
 
 func (s *spaceService) CreateList(ctx context.Context, spaceID uint, name string, parentStatusID *uint) (*domain.List, error) {

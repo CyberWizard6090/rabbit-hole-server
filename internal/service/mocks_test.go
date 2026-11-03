@@ -149,7 +149,7 @@ type spaceRepositoryMock struct {
 	createFn           func(*domain.Space) error
 	getByIDFn          func(uint) (*domain.Space, error)
 	getAllFn           func(uint, int, int) ([]domain.Space, int64, error)
-	dashboardFn        func(uint) (*domain.Space, error)
+	dashboardFn        func(uint, int) (*domain.Space, error)
 	createListFn       func(*domain.List) error
 	getListByIDFn      func(uint) (*domain.List, error)
 	getListsBySpaceFn  func(uint) ([]domain.List, error)
@@ -199,9 +199,9 @@ func (m *spaceRepositoryMock) GetAll(_ context.Context, workspaceID uint, limit,
 	}
 	return m.spaces, m.spaceCount, m.getAllErr
 }
-func (m *spaceRepositoryMock) GetDashboard(_ context.Context, spaceID uint) (*domain.Space, error) {
+func (m *spaceRepositoryMock) GetDashboard(_ context.Context, spaceID uint, tasksPerList int) (*domain.Space, error) {
 	if m.dashboardFn != nil {
-		return m.dashboardFn(spaceID)
+		return m.dashboardFn(spaceID, tasksPerList)
 	}
 	return m.space, m.getDashboardErr
 }
