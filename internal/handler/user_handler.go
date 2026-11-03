@@ -50,7 +50,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 
 	var req dto.UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		response.ValidationError(c, err)
 		return
 	}
 

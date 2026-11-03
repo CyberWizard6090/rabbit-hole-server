@@ -30,6 +30,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	}
 
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{healthPath, readyPath}}), gin.Recovery())
+	r.Use(middleware.SecurityHeaders(cfg.Environment == "production"))
 
 	r.GET(healthPath, func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -46,14 +47,6 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 			}
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "ready"})
-	})
-
-	r.Use(func(c *gin.Context) {
-		c.Header("X-Frame-Options", "DENY")
-		c.Header("X-Content-Type-Options", "nosniff")
-		c.Header("X-XSS-Protection", "1; mode=block")
-		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
-		c.Next()
 	})
 
 	r.Use(cors.New(cors.Config{
