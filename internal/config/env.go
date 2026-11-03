@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
 	"strings"
@@ -43,7 +42,7 @@ type JWTConfig struct {
 func Load() (*Config, error) {
 	if os.Getenv("APP_ENV") != "production" {
 		if err := godotenv.Load(); err != nil {
-			log.Println("No .env file found, reading configuration from OS environment")
+			slog.Debug("no .env file found, reading configuration from OS environment")
 		}
 	}
 

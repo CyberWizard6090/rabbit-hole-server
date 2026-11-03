@@ -19,3 +19,9 @@ func GetUserID(c *gin.Context) (uint, error) {
 
 	return uid, nil
 }
+
+const RequestIDKey = "request_id"
+
+func GetRequestID(c *gin.Context) string {
+	return c.GetString(RequestIDKey)
+}
