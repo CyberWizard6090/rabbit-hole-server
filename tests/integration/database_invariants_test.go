@@ -341,14 +341,14 @@ func TestStatusDeleteCompactsPositions(t *testing.T) {
 	last := domain.TaskStatus{SpaceID: space.ID, ListID: list.ID, Name: "Done", Color: "#123456", Position: 3, Type: domain.StatusTodo}
 	requireDBSuccess(t, statusRepo.Create(&middle), "create middle status")
 	requireDBSuccess(t, statusRepo.Create(&last), "create last status")
-	requireDBSuccess(t, statusRepo.Delete(list.ID, middle.ID), "delete middle status")
+	requireDBSuccess(t, statusRepo.Delete(list.ID, middle.ID, nil), "delete middle status")
 
 	statuses, err := statusRepo.GetAllByList(list.ID)
 	requireDBSuccess(t, err, "read statuses")
 	if len(statuses) != 2 || statuses[0].Position != 1 || statuses[1].Position != 2 || statuses[1].ID != last.ID {
 		t.Fatalf("statuses after delete = %+v, want positions [1 2] ending with the last status", statuses)
 	}
-	if err := statusRepo.Delete(list.ID, middle.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := statusRepo.Delete(list.ID, middle.ID, nil); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("second delete error = %v, want record not found", err)
 	}
 }

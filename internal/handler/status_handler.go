@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
+	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/dto"
 	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/response"
@@ -115,8 +117,26 @@ func (h *StatusHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.Delete(uint(listID), uint(statusID)); err != nil {
-		response.HandleError(c, httperrors.Internal("STATUS_DELETE_FAILED", "internal server error", err))
+	var replacementID *uint
+	if raw := c.Query("replacement_id"); raw != "" {
+		parsed, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil || parsed == 0 {
+			response.HandleError(c, httperrors.BadRequest("INVALID_REPLACEMENT_ID", "invalid replacement_id", err))
+			return
+		}
+		id := uint(parsed)
+		replacementID = &id
+	}
+
+	if err := h.service.Delete(uint(listID), uint(statusID), replacementID); err != nil {
+		switch {
+		case errors.Is(err, domain.ErrStatusInUse):
+			response.HandleError(c, httperrors.Conflict("STATUS_IN_USE", err.Error(), err))
+		case errors.Is(err, domain.ErrInvalidReplacementStatus):
+			response.HandleError(c, httperrors.BadRequest("INVALID_REPLACEMENT_STATUS", err.Error(), err))
+		default:
+			response.HandleError(c, httperrors.Internal("STATUS_DELETE_FAILED", "internal server error", err))
+		}
 		return
 	}
 

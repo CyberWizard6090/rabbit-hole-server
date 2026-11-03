@@ -328,7 +328,7 @@ func (m *statusRepositoryMock) UpdatePosition(status *domain.TaskStatus, positio
 	}
 	return m.updatePositionErr
 }
-func (m *statusRepositoryMock) Delete(listID uint, statusID uint) error {
+func (m *statusRepositoryMock) Delete(listID uint, statusID uint, replacementID *uint) error {
 	m.deletedListID, m.deletedStatusID = listID, statusID
 	if m.deleteFn != nil {
 		return m.deleteFn(listID, statusID)

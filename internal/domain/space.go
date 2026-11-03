@@ -2,6 +2,7 @@ package domain
 
 import (
 	"database/sql/driver"
+	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -96,6 +97,11 @@ type TaskStatus struct {
 	Type     StatusType `gorm:"type:task_status_type;not null" json:"type"`
 }
 
+var (
+	ErrStatusInUse              = errors.New("status is still used by tasks; pass replacement_id to move them")
+	ErrInvalidReplacementStatus = errors.New("replacement status must be a different status of the same list")
+)
+
 type FolderRepository interface {
 	Create(folder *Folder) error
 	GetByID(id uint) (*Folder, error)
@@ -129,5 +135,5 @@ type StatusRepository interface {
 	GetByID(statusID uint) (*TaskStatus, error)
 	Update(status *TaskStatus) error
 	UpdatePosition(status *TaskStatus, position int) error
-	Delete(listID uint, statusID uint) error
+	Delete(listID uint, statusID uint, replacementID *uint) error
 }
