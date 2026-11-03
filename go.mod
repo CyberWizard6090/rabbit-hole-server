@@ -1,6 +1,6 @@
 module rabbit-hole-server
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/caarlos0/env/v10 v10.0.0
