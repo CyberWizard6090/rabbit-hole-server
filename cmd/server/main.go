@@ -44,13 +44,7 @@ func main() {
 	defer stop()
 
 	addr := fmt.Sprintf("%s:%d", env.Server.Host, env.Server.Port)
-	srv := &http.Server{
-		Addr:         addr,
-		Handler:      application.Handler(),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
+	srv := newHTTPServer(addr, application.Handler())
 
 	go func() {
 		log.Printf("Server starting on %s", addr)

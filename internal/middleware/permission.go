@@ -59,7 +59,7 @@ func RequirePermission(checker service.PermissionChecker, resource Resource, cod
 			return
 		}
 		if !ok {
-			response.Forbidden(c, "permission denied: "+code)
+			response.Forbidden(c, "")
 			c.Abort()
 			return
 		}
