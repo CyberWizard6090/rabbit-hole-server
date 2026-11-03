@@ -29,7 +29,8 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		panic(fmt.Errorf("configure trusted proxies: %w", err))
 	}
 
-	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{healthPath, readyPath}}), gin.Recovery())
+	logger := slog.Default()
+	r.Use(middleware.RequestID(), middleware.AccessLog(logger, healthPath, readyPath), middleware.Recovery(logger))
 	r.Use(middleware.SecurityHeaders(cfg.Environment == "production"))
 
 	r.GET(healthPath, func(c *gin.Context) {
