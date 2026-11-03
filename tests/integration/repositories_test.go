@@ -140,7 +140,7 @@ func TestSpaceRepository_DashboardLoadsListsStatusesInOrder(t *testing.T) {
 		}
 	}
 
-	dash, err := spaces.GetDashboard(context.Background(), space.ID)
+	dash, err := spaces.GetDashboard(context.Background(), space.ID, 50)
 	if err != nil || len(dash.Lists) != 1 {
 		t.Fatalf("dashboard lists=%d err=%v", len(dash.Lists), err)
 	}
@@ -151,7 +151,7 @@ func TestSpaceRepository_DashboardLoadsListsStatusesInOrder(t *testing.T) {
 	if fmt.Sprint(names) != "[first second third]" {
 		t.Fatalf("statuses = %v, want ordered by position", names)
 	}
-	if _, err := spaces.GetDashboard(context.Background(), 999999); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := spaces.GetDashboard(context.Background(), 999999, 50); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("missing dashboard err = %v", err)
 	}
 }
