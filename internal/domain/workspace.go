@@ -1,7 +1,5 @@
 package domain
 
-import ()
-
 type Workspace struct {
 	Model
 	Name        string `gorm:"size:255;not null" json:"name"`
