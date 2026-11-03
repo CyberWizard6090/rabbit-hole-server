@@ -183,8 +183,8 @@ func TestIntegrationResetPreservesPermissions(t *testing.T) {
 	if userCount != 0 {
 		t.Fatalf("users after reset = %d, want 0", userCount)
 	}
-	if permissionCount != 11 {
-		t.Fatalf("permissions after reset = %d, want 11", permissionCount)
+	if permissionCount != 12 {
+		t.Fatalf("permissions after reset = %d, want 12", permissionCount)
 	}
 }
 

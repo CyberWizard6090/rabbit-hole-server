@@ -12,11 +12,12 @@ const (
 	PermTaskCreate      = "task.create"
 	PermTaskUpdate      = "task.update"
 	PermTaskDelete      = "task.delete"
+	PermMemberManage    = "member.manage"
 )
 
 func AllPermissions() []string {
 	return []string{
-		PermWorkspaceRead, PermWorkspaceUpdate, PermWorkspaceDelete,
+		PermWorkspaceRead, PermWorkspaceUpdate, PermWorkspaceDelete, PermMemberManage,
 		PermSpaceRead, PermSpaceCreate, PermSpaceUpdate, PermSpaceDelete,
 		PermTaskRead, PermTaskCreate, PermTaskUpdate, PermTaskDelete,
 	}
@@ -35,6 +36,7 @@ func DefaultRoles() []DefaultRole {
 				PermWorkspaceRead,
 				PermWorkspaceUpdate,
 				PermWorkspaceDelete,
+				PermMemberManage,
 				PermSpaceRead,
 				PermSpaceCreate,
 				PermSpaceUpdate,
@@ -49,6 +51,7 @@ func DefaultRoles() []DefaultRole {
 			Name: "Admin",
 			PermissionCodes: []string{
 				PermWorkspaceRead,
+				PermMemberManage,
 				PermSpaceRead,
 				PermSpaceCreate,
 				PermSpaceUpdate,
@@ -80,3 +83,5 @@ func DefaultRoles() []DefaultRole {
 		},
 	}
 }
+
+func AssignableRoles() []string { return []string{"Admin", "Member", "Guest"} }
