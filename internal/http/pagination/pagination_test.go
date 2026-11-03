@@ -45,3 +45,25 @@ func TestParseFallsBackForInvalidValues(t *testing.T) {
 		})
 	}
 }
+
+func TestParseClampsOversizedLimitAndPage(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("GET", "/items?page=9223372036854775807&limit=1000", nil)
+	got := Parse(c)
+	if got.Limit != MaxLimit || got.Page != MaxPage || got.Offset != (MaxPage-1)*MaxLimit {
+		t.Fatalf("params=%+v", got)
+	}
+}
+
+func TestPages(t *testing.T) {
+	cases := []struct {
+		total int64
+		limit int
+		want  int
+	}{{0, 10, 0}, {1, 10, 1}, {10, 10, 1}, {11, 10, 2}, {5, 0, 0}}
+	for _, tc := range cases {
+		if got := Pages(tc.total, tc.limit); got != tc.want {
+			t.Errorf("Pages(%d,%d)=%d want %d", tc.total, tc.limit, got, tc.want)
+		}
+	}
+}

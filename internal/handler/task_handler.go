@@ -134,7 +134,7 @@ func (h *TaskHandler) List(c *gin.Context) {
 		return
 	}
 
-	pages := (int(total) + p.Limit - 1) / p.Limit
+	pages := pagination.Pages(total, p.Limit)
 
 	response.SuccessWithPagination(c, http.StatusOK, tasks, &response.Pagination{
 		Total: int(total), Page: p.Page, Limit: p.Limit, Pages: pages,
