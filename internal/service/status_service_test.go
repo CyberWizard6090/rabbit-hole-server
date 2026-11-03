@@ -110,7 +110,7 @@ func TestStatusServiceDeleteChecksList(t *testing.T) {
 		}
 		return nil
 	}
-	if err := NewStatusService(repo, newMockSpaceRepository()).Delete(7, 9); err != nil {
+	if err := NewStatusService(repo, newMockSpaceRepository()).Delete(7, 9, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !deleted {

@@ -16,7 +16,7 @@ type StatusService interface {
 	Create(params CreateStatusParams) (*domain.TaskStatus, error)
 	GetAllByList(listID uint) ([]domain.TaskStatus, error)
 	Update(listID uint, statusID uint, params UpdateStatusParams) (*domain.TaskStatus, error)
-	Delete(listID uint, statusID uint) error
+	Delete(listID uint, statusID uint, replacementID *uint) error
 }
 
 type CreateStatusParams struct {
@@ -120,7 +120,7 @@ func (s *statusService) Update(listID uint, statusID uint, params UpdateStatusPa
 	return status, nil
 }
 
-func (s *statusService) Delete(listID uint, statusID uint) error {
+func (s *statusService) Delete(listID uint, statusID uint, replacementID *uint) error {
 	status, err := s.repo.GetByID(statusID)
 	if err != nil {
 		return err
@@ -129,5 +129,5 @@ func (s *statusService) Delete(listID uint, statusID uint) error {
 		return ErrStatusListMismatch
 	}
 
-	return s.repo.Delete(listID, statusID)
+	return s.repo.Delete(listID, statusID, replacementID)
 }

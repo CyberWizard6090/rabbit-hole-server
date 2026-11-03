@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"errors"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -127,7 +129,7 @@ func (r *statusRepository) UpdatePosition(status *domain.TaskStatus, position in
 	})
 }
 
-func (r *statusRepository) Delete(listID uint, statusID uint) error {
+func (r *statusRepository) Delete(listID uint, statusID uint, replacementID *uint) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		var list domain.List
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, listID).Error; err != nil {
@@ -138,6 +140,31 @@ func (r *statusRepository) Delete(listID uint, statusID uint) error {
 		if err := tx.Where(statusListPredicate, listID).First(&status, statusID).Error; err != nil {
 			return err
 		}
+
+		var inUse int64
+		if err := tx.Model(&domain.Task{}).Where("status_id = ?", statusID).Count(&inUse).Error; err != nil {
+			return err
+		}
+		if inUse > 0 {
+			if replacementID == nil {
+				return domain.ErrStatusInUse
+			}
+			if *replacementID == statusID {
+				return domain.ErrInvalidReplacementStatus
+			}
+			var replacement domain.TaskStatus
+			if err := tx.Where(statusListPredicate, listID).First(&replacement, *replacementID).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return domain.ErrInvalidReplacementStatus
+				}
+				return err
+			}
+			if err := tx.Model(&domain.Task{}).Where("status_id = ?", statusID).
+				Update("status_id", replacement.ID).Error; err != nil {
+				return err
+			}
+		}
+
 		if err := tx.Delete(&status).Error; err != nil {
 			return err
 		}
