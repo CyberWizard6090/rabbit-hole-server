@@ -34,7 +34,7 @@ func TestMapErrTranslatesRecordNotFoundOnly(t *testing.T) {
 		t.Fatalf("mapErr(nil) = %v", got)
 	}
 	boom := errors.New("boom")
-	if got := mapErr(boom); got != boom {
+	if got := mapErr(boom); !errors.Is(got, boom) {
 		t.Fatalf("other errors must pass through untouched, got %v", got)
 	}
 	wrapped := fmt.Errorf("lookup: %w", gorm.ErrRecordNotFound)
@@ -46,10 +46,10 @@ func TestMapErrTranslatesRecordNotFoundOnly(t *testing.T) {
 func TestMapSliceKeepsNilAndEmptyApart(t *testing.T) {
 	double := func(i int) int { return i * 2 }
 	if got := mapSlice[int, int](nil, double); got != nil {
-		t.Fatalf("nil input must stay nil (it serialises as null), got %#v", got)
+		t.Fatalf("nil input must stay nil (it serializes as null), got %#v", got)
 	}
 	if got := mapSlice([]int{}, double); got == nil || len(got) != 0 {
-		t.Fatalf("empty input must stay a non-nil empty slice (it serialises as []), got %#v", got)
+		t.Fatalf("empty input must stay a non-nil empty slice (it serializes as []), got %#v", got)
 	}
 }
 
