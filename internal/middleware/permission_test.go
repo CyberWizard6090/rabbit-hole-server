@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -196,6 +197,9 @@ func TestRequirePermissionRejectsDeniedAccess(t *testing.T) {
 		t.Fatalf("checker calls=%d want 1", checker.calls)
 	}
 	assertMiddlewareErrorCode(t, rec, "FORBIDDEN")
+	if strings.Contains(rec.Body.String(), "space.update") {
+		t.Fatalf("403 body leaks the permission code: %s", rec.Body.String())
+	}
 	if handlerCalled {
 		t.Fatal("downstream handler was called after permission denial")
 	}
