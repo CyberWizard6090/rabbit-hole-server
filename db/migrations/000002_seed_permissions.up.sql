@@ -9,5 +9,6 @@ INSERT INTO permissions (code) VALUES
     ('task.read'),
     ('task.create'),
     ('task.update'),
-    ('task.delete')
+    ('task.delete'),
+    ('member.manage')
 ON CONFLICT (code) WHERE deleted_at IS NULL DO NOTHING;

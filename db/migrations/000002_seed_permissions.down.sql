@@ -15,7 +15,8 @@ BEGIN
             'task.read',
             'task.create',
             'task.update',
-            'task.delete'
+            'task.delete',
+            'member.manage'
         )
     ) THEN
         RAISE EXCEPTION
@@ -34,6 +35,7 @@ BEGIN
         'task.read',
         'task.create',
         'task.update',
-        'task.delete'
+        'task.delete',
+        'member.manage'
     );
 END $$;

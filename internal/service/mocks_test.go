@@ -549,3 +549,18 @@ func (m *tagServiceMock) GetOrCreateByName(spaceID uint, name string, defaultCol
 func (m *tagServiceMock) MergeTags(spaceID, sourceTagID, targetTagID uint) error { return nil }
 
 func (m *tagServiceMock) GetTag(spaceID, tagID uint) (*TagWithUsage, error) { return nil, nil }
+func (m *workspaceRepositoryMock) ListMembers(workspaceID uint) ([]domain.MemberDetail, error) {
+	return nil, nil
+}
+func (m *workspaceRepositoryMock) GetMember(workspaceID, userID uint) (*domain.Member, error) {
+	return nil, nil
+}
+func (m *workspaceRepositoryMock) GetRoleByName(workspaceID uint, name string) (*domain.Role, error) {
+	return &domain.Role{}, nil
+}
+func (m *workspaceRepositoryMock) AddMember(member *domain.Member) error { return nil }
+func (m *workspaceRepositoryMock) UpdateMemberRole(workspaceID, userID, roleID uint) error {
+	return nil
+}
+func (m *workspaceRepositoryMock) RemoveMember(workspaceID, userID uint) error  { return nil }
+func (m *workspaceRepositoryMock) IsContact(userID, otherID uint) (bool, error) { return false, nil }

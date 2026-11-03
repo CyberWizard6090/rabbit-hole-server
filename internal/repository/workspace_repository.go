@@ -66,3 +66,75 @@ func (r *workspaceRepository) GetAllForUser(userID uint) ([]domain.Workspace, er
 		Find(&workspaces).Error
 	return workspaces, err
 }
+
+func (r *workspaceRepository) ListMembers(workspaceID uint) ([]domain.MemberDetail, error) {
+	var members []domain.MemberDetail
+	err := r.db.Table("workspace_members").
+		Select(`workspace_members.user_id AS user_id, users.username, users.first_name, users.last_name,
+			users.avatar_url, workspace_members.role_id, roles.name AS role, workspace_members.created_at AS joined_at`).
+		Joins("JOIN users ON users.id = workspace_members.user_id").
+		Joins("JOIN roles ON roles.id = workspace_members.role_id AND roles.deleted_at IS NULL").
+		Where("workspace_members.workspace_id = ? AND workspace_members.deleted_at IS NULL", workspaceID).
+		Order("workspace_members.created_at ASC, workspace_members.id ASC").
+		Scan(&members).Error
+	return members, err
+}
+
+func (r *workspaceRepository) GetMember(workspaceID, userID uint) (*domain.Member, error) {
+	var member domain.Member
+	err := r.db.Preload("Role").
+		Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
+		First(&member).Error
+	if err != nil {
+		return nil, err
+	}
+	return &member, nil
+}
+
+func (r *workspaceRepository) GetRoleByName(workspaceID uint, name string) (*domain.Role, error) {
+	var role domain.Role
+	if err := r.db.Where("workspace_id = ? AND name = ?", workspaceID, name).First(&role).Error; err != nil {
+		return nil, err
+	}
+	return &role, nil
+}
+
+func (r *workspaceRepository) AddMember(member *domain.Member) error {
+	err := r.db.Create(member).Error
+	if err != nil && isUniqueViolation(err) {
+		return domain.ErrAlreadyMember
+	}
+	return err
+}
+
+func (r *workspaceRepository) UpdateMemberRole(workspaceID, userID, roleID uint) error {
+	res := r.db.Model(&domain.Member{}).
+		Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
+		Update("role_id", roleID)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return domain.ErrMemberNotFound
+	}
+	return nil
+}
+
+func (r *workspaceRepository) RemoveMember(workspaceID, userID uint) error {
+	res := r.db.Where("workspace_id = ? AND user_id = ?", workspaceID, userID).Delete(&domain.Member{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return domain.ErrMemberNotFound
+	}
+	return nil
+}
+
+func (r *workspaceRepository) IsContact(userID, otherID uint) (bool, error) {
+	var count int64
+	err := r.db.Table("user_contacts").
+		Where("user_id = ? AND contact_id = ?", userID, otherID).
+		Count(&count).Error
+	return count > 0, err
+}

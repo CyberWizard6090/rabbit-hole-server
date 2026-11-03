@@ -112,6 +112,22 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					workspaces.POST("", deps.WorkspaceHandler.Create)
 					workspaces.GET("", deps.WorkspaceHandler.List)
 
+					workspaces.GET("/:workspace_id/members",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.WorkspaceHandler.ListMembers)
+					workspaces.POST("/:workspace_id/members",
+						inWorkspace(domain.PermMemberManage),
+						deps.WorkspaceHandler.AddMember)
+					workspaces.DELETE("/:workspace_id/members/me",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.WorkspaceHandler.Leave)
+					workspaces.PATCH("/:workspace_id/members/:user_id",
+						inWorkspace(domain.PermMemberManage),
+						deps.WorkspaceHandler.UpdateMemberRole)
+					workspaces.DELETE("/:workspace_id/members/:user_id",
+						inWorkspace(domain.PermMemberManage),
+						deps.WorkspaceHandler.RemoveMember)
+
 					workspaces.POST("/:workspace_id/spaces",
 						inWorkspace(domain.PermSpaceCreate),
 						deps.SpaceHandler.Create)

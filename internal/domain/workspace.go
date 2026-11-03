@@ -1,5 +1,10 @@
 package domain
 
+import (
+	"errors"
+	"time"
+)
+
 type Workspace struct {
 	Model
 	Name        string `gorm:"size:255;not null" json:"name"`
@@ -49,8 +54,32 @@ type Permission struct {
 	Description string `gorm:"size:255"`
 }
 
+var (
+	ErrAlreadyMember  = errors.New("user is already a member of this workspace")
+	ErrMemberNotFound = errors.New("member not found")
+)
+
+type MemberDetail struct {
+	UserID    uint
+	Username  string
+	FirstName string
+	LastName  string
+	AvatarURL string
+	RoleID    uint
+	Role      string
+	JoinedAt  time.Time
+}
+
 type WorkspaceRepository interface {
 	Create(workspace *Workspace, ownerID uint) error
 	GetByID(id uint) (*Workspace, error)
 	GetAllForUser(userID uint) ([]Workspace, error)
+
+	ListMembers(workspaceID uint) ([]MemberDetail, error)
+	GetMember(workspaceID, userID uint) (*Member, error)
+	GetRoleByName(workspaceID uint, name string) (*Role, error)
+	AddMember(member *Member) error
+	UpdateMemberRole(workspaceID, userID, roleID uint) error
+	RemoveMember(workspaceID, userID uint) error
+	IsContact(userID, otherID uint) (bool, error)
 }
