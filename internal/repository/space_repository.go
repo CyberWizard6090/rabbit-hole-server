@@ -39,7 +39,7 @@ func (r *spaceRepository) GetAll(workspaceID uint, limit, offset int) ([]domain.
 	err := baseQuery.
 		Limit(limit).
 		Offset(offset).
-		Order("created_at DESC").
+		Order("created_at DESC, id DESC").
 		Find(&spaces).Error
 
 	return spaces, total, err
