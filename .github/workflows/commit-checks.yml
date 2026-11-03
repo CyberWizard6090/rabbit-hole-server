@@ -47,8 +47,10 @@ jobs:
 
           echo "PR title is valid."
 
+      # develop is an integration branch: its commits were already validated
+      # when they entered develop, so promotion PRs from it skip this step.
       - name: Validate commits in PR
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref != 'develop'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
