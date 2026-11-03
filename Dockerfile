@@ -1,7 +1,7 @@
 # ==========================================
 # 1. Базовый этап (Общий)
 # ==========================================
-FROM golang:1.26.10-alpine AS base
+FROM golang:1.27.3-alpine AS base
 
 WORKDIR /app
 RUN apk add --no-cache git ca-certificates tzdata
