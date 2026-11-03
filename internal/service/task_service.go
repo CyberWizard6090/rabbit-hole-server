@@ -173,6 +173,12 @@ func (s *taskService) UpdateTask(id uint, params UpdateTaskParams) (*domain.Task
 		return nil, err
 	}
 
+	newTagIDs, err := s.resolveNewTags(task.SpaceID, params.AddTagNames)
+	if err != nil {
+		return nil, err
+	}
+	tagIDsToAdd := append(append([]uint{}, params.AddTagIDs...), newTagIDs...)
+
 	if params.Title != nil {
 		task.Title = *params.Title
 	}
@@ -189,19 +195,8 @@ func (s *taskService) UpdateTask(id uint, params UpdateTaskParams) (*domain.Task
 		task.TimeEstimate = *params.TimeEstimate
 	}
 
-	if err := s.repo.Update(task); err != nil {
+	if err := s.repo.Update(task, tagIDsToAdd); err != nil {
 		return nil, err
-	}
-
-	newTagIDs, err := s.resolveNewTags(task.SpaceID, params.AddTagNames)
-	if err != nil {
-		return nil, err
-	}
-	tagIDsToAdd := append(append([]uint{}, params.AddTagIDs...), newTagIDs...)
-	if len(tagIDsToAdd) > 0 {
-		if err := s.repo.AddTags(task.ID, tagIDsToAdd); err != nil {
-			return nil, fmt.Errorf("add tags to task: %w", err)
-		}
 	}
 
 	return s.repo.GetByID(task.ID)

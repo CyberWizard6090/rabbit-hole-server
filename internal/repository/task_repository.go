@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/http/pagination"
@@ -159,12 +160,24 @@ func (r *taskRepository) GetByID(id uint) (*domain.Task, error) {
 	return &task, err
 }
 
-func (r *taskRepository) Update(task *domain.Task) error {
+func (r *taskRepository) Update(task *domain.Task, addTagIDs []uint) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		if err := validateTaskReferences(tx, task, nil, nil); err != nil {
+		addTagIDs = uniqueIDs(addTagIDs)
+		if err := validateTaskReferences(tx, task, nil, addTagIDs); err != nil {
 			return err
 		}
-		return tx.Save(task).Error
+		if err := tx.Omit(clause.Associations).Save(task).Error; err != nil {
+			return err
+		}
+		if len(addTagIDs) == 0 {
+			return nil
+		}
+
+		var tags []domain.Tag
+		if err := tx.Find(&tags, addTagIDs).Error; err != nil {
+			return err
+		}
+		return tx.Model(task).Omit("Tags.*").Association("Tags").Append(tags)
 	})
 }
 
@@ -177,27 +190,6 @@ func (r *taskRepository) Delete(id uint) error {
 		return gorm.ErrRecordNotFound
 	}
 	return nil
-}
-
-func (r *taskRepository) AddTags(taskID uint, tagIDs []uint) error {
-	if len(tagIDs) == 0 {
-		return nil
-	}
-
-	var task domain.Task
-	if err := r.db.First(&task, taskID).Error; err != nil {
-		return err
-	}
-	if err := validateTagReferences(r.db, task.SpaceID, tagIDs); err != nil {
-		return err
-	}
-
-	var tags []domain.Tag
-	if err := r.db.Find(&tags, tagIDs).Error; err != nil {
-		return err
-	}
-
-	return r.db.Model(&task).Association("Tags").Append(tags)
 }
 
 func validateTaskReferences(tx *gorm.DB, task *domain.Task, assigneeIDs, tagIDs []uint) error {
