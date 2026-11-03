@@ -31,24 +31,15 @@ func (s *spaceService) CreateSpace(workspaceID uint, name string, currency strin
 		OwnerID:     userID,
 	}
 
-	if err := s.repo.Create(space); err != nil {
-		return nil, err
-	}
-
-	defaultList := &domain.List{SpaceID: space.ID, Name: "Основной список"}
-	if err := s.repo.CreateList(defaultList); err != nil {
-		return nil, err
-	}
-
+	defaultList := &domain.List{Name: "Основной список"}
 	defaultStatuses := []domain.TaskStatus{
-		{SpaceID: space.ID, ListID: defaultList.ID, Name: "К выполнению", Color: "#94A3B8", Position: 1, Type: domain.StatusTodo},
-		{SpaceID: space.ID, ListID: defaultList.ID, Name: "В работе", Color: "#3B82F6", Position: 2, Type: domain.StatusInProgress},
-		{SpaceID: space.ID, ListID: defaultList.ID, Name: "Готово", Color: "#22C55E", Position: 3, Type: domain.StatusDone},
+		{Name: "К выполнению", Color: "#94A3B8", Position: 1, Type: domain.StatusTodo},
+		{Name: "В работе", Color: "#3B82F6", Position: 2, Type: domain.StatusInProgress},
+		{Name: "Готово", Color: "#22C55E", Position: 3, Type: domain.StatusDone},
 	}
-	for i := range defaultStatuses {
-		if err := s.repo.CreateStatus(&defaultStatuses[i]); err != nil {
-			return nil, err
-		}
+
+	if err := s.repo.CreateWithDefaults(space, defaultList, defaultStatuses); err != nil {
+		return nil, err
 	}
 
 	return space, nil

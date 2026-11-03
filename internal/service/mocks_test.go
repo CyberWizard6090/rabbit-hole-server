@@ -118,30 +118,31 @@ func (m *folderRepositoryMock) Delete(id uint) error {
 }
 
 type spaceRepositoryMock struct {
-	space             *domain.Space
-	spaces            []domain.Space
-	spaceCount        int64
-	list              *domain.List
-	lists             []domain.List
-	statuses          []domain.TaskStatus
-	getSpaceErr       error
-	createSpaceErr    error
-	getAllErr         error
-	getDashboardErr   error
-	createListErr     error
-	getListErr        error
-	getListsSpaceErr  error
-	getStatusErr      error
-	createStatusErr   error
-	createTagErr      error
-	getListsFolderErr error
-	updateListErr     error
-	deleteListErr     error
-	createdSpace      *domain.Space
-	createdList       *domain.List
-	createdStatuses   []*domain.TaskStatus
-	updatedList       *domain.List
-	deletedListID     uint
+	createWithDefaultsFn func(*domain.Space, *domain.List, []domain.TaskStatus) error
+	space                *domain.Space
+	spaces               []domain.Space
+	spaceCount           int64
+	list                 *domain.List
+	lists                []domain.List
+	statuses             []domain.TaskStatus
+	getSpaceErr          error
+	createSpaceErr       error
+	getAllErr            error
+	getDashboardErr      error
+	createListErr        error
+	getListErr           error
+	getListsSpaceErr     error
+	getStatusErr         error
+	createStatusErr      error
+	createTagErr         error
+	getListsFolderErr    error
+	updateListErr        error
+	deleteListErr        error
+	createdSpace         *domain.Space
+	createdList          *domain.List
+	createdStatuses      []*domain.TaskStatus
+	updatedList          *domain.List
+	deletedListID        uint
 
 	createFn           func(*domain.Space) error
 	getByIDFn          func(uint) (*domain.Space, error)
@@ -176,6 +177,19 @@ func (m *spaceRepositoryMock) Create(space *domain.Space) error {
 		space.ID = 100
 	}
 	return m.createSpaceErr
+}
+func (m *spaceRepositoryMock) CreateWithDefaults(space *domain.Space, list *domain.List, statuses []domain.TaskStatus) error {
+	if m.createWithDefaultsFn != nil {
+		return m.createWithDefaultsFn(space, list, statuses)
+	}
+	if m.createSpaceErr != nil {
+		return m.createSpaceErr
+	}
+	space.ID, list.ID, list.SpaceID = 100, 200, 100
+	for i := range statuses {
+		statuses[i].SpaceID, statuses[i].ListID = space.ID, list.ID
+	}
+	return nil
 }
 func (m *spaceRepositoryMock) GetAll(workspaceID uint, limit, offset int) ([]domain.Space, int64, error) {
 	if m.getAllFn != nil {

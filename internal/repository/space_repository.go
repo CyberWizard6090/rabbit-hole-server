@@ -26,6 +26,28 @@ func (r *spaceRepository) Create(space *domain.Space) error {
 	return r.db.Create(space).Error
 }
 
+func (r *spaceRepository) CreateWithDefaults(space *domain.Space, list *domain.List, statuses []domain.TaskStatus) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(space).Error; err != nil {
+			return err
+		}
+
+		list.SpaceID = space.ID
+		if err := tx.Create(list).Error; err != nil {
+			return err
+		}
+
+		if len(statuses) == 0 {
+			return nil
+		}
+		for i := range statuses {
+			statuses[i].SpaceID = space.ID
+			statuses[i].ListID = list.ID
+		}
+		return tx.Create(&statuses).Error
+	})
+}
+
 func (r *spaceRepository) GetAll(workspaceID uint, limit, offset int) ([]domain.Space, int64, error) {
 	var spaces []domain.Space
 	var total int64
