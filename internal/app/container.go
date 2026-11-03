@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"fmt"
@@ -30,6 +31,8 @@ type Container struct {
 	TagHandler     *handler.TagHandler
 
 	PermissionChecker service.PermissionChecker
+
+	Ready func(ctx context.Context) error
 }
 
 func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
@@ -60,6 +63,11 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 
 	permissionChecker := service.NewPermissionChecker(db)
 
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("get database handle for readiness checks: %w", err)
+	}
+
 	return &Container{
 		AuthService: authServ,
 		AuthHandler: handler.NewAuthHandler(authServ, cfg.SecureCookies()),
@@ -74,5 +82,6 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 		FolderHandler:     handler.NewFolderHandler(folderService),
 		ListHandler:       handler.NewListHandler(spaceServ, folderService),
 		PermissionChecker: permissionChecker,
+		Ready:             sqlDB.PingContext,
 	}, nil
 }

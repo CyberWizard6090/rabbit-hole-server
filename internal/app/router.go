@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -12,9 +14,12 @@ import (
 	"rabbit-hole-server/internal/middleware"
 )
 
+const readyTimeout = 2 * time.Second
+
 const (
 	routeLists = "/lists"
-	healthPath = "/healthz"
+	healthPath = "/healthz" // liveness: the process is up and serving
+	readyPath  = "/readyz"  // readiness: dependencies answer too
 )
 
 func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
@@ -23,10 +28,23 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		panic(fmt.Errorf("configure trusted proxies: %w", err))
 	}
 
-	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{healthPath}}), gin.Recovery())
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{SkipPaths: []string{healthPath, readyPath}}), gin.Recovery())
 
 	r.GET(healthPath, func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
+	r.GET(readyPath, func(c *gin.Context) {
+		if deps.Ready != nil {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), readyTimeout)
+			defer cancel()
+			if err := deps.Ready(ctx); err != nil {
+				slog.Warn("readiness check failed", "error", err)
+				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unavailable"})
+				return
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ready"})
 	})
 
 	r.Use(func(c *gin.Context) {
