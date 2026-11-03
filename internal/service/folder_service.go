@@ -1,8 +1,10 @@
 package service
 
-import "context"
+import (
+	"context"
 
-import "rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/domain"
+)
 
 type FolderService interface {
 	CreateFolder(ctx context.Context, spaceID uint, name string) (*domain.Folder, error)

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/http/pagination"
 )

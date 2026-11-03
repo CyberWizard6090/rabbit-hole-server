@@ -17,12 +17,12 @@ func TestContext_CancelledContextAbortsDatabaseCalls(t *testing.T) {
 	cancel()
 
 	if _, err := repository.NewUserRepository(tc.DB).GetByID(ctx, tc.UserID); !errors.Is(err, context.Canceled) {
-		t.Fatalf("repository with cancelled ctx: err = %v, want context.Canceled", err)
+		t.Fatalf("repository with canceled ctx: err = %v, want context.Canceled", err)
 	}
 
 	checker := service.NewPermissionChecker(tc.DB)
 	if _, err := checker.HasWorkspacePermission(ctx, tc.UserID, 1, "space.read"); !errors.Is(err, context.Canceled) {
-		t.Fatalf("permission checker with cancelled ctx: err = %v, want context.Canceled", err)
+		t.Fatalf("permission checker with canceled ctx: err = %v, want context.Canceled", err)
 	}
 
 	if _, err := repository.NewUserRepository(tc.DB).GetByID(context.Background(), tc.UserID); err != nil {

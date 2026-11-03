@@ -1,8 +1,10 @@
 package service
 
-import "context"
+import (
+	"context"
 
-import "rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/domain"
+)
 
 type ContactService interface {
 	GetContacts(ctx context.Context, uid uint) ([]domain.User, error)

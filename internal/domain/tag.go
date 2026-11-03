@@ -1,8 +1,9 @@
 package domain
 
-import "context"
-
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 var ErrTagNameTaken = errors.New("tag with this name already exists in this space")
 

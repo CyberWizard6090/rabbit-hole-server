@@ -1,8 +1,10 @@
 package service
 
-import "context"
+import (
+	"context"
 
-import "gorm.io/gorm"
+	"gorm.io/gorm"
+)
 
 type PermissionChecker interface {
 	HasWorkspacePermission(ctx context.Context, userID, workspaceID uint, code string) (bool, error)
