@@ -18,6 +18,6 @@ type TagRepository interface {
 	GetByName(spaceID uint, name string) (*Tag, error)
 	Update(tag *Tag) error
 	Delete(spaceID, tagID uint) error
-	CountUsage(tagID uint) (int64, error)
+	CountUsageBySpace(spaceID uint) (map[uint]int64, error)
 	Merge(spaceID, sourceTagID, targetTagID uint) error
 }

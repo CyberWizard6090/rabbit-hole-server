@@ -92,13 +92,14 @@ func (s *tagService) GetAllBySpace(spaceID uint) ([]TagWithUsage, error) {
 		return nil, fmt.Errorf("get all tags by space from repo: %w", err)
 	}
 
+	usage, err := s.tagRepo.CountUsageBySpace(spaceID)
+	if err != nil {
+		return nil, fmt.Errorf("count tag usage: %w", err)
+	}
+
 	result := make([]TagWithUsage, len(tags))
 	for i, t := range tags {
-		count, err := s.tagRepo.CountUsage(t.ID)
-		if err != nil {
-			return nil, fmt.Errorf("count tag usage: %w", err)
-		}
-		result[i] = TagWithUsage{Tag: t, UsageCount: count}
+		result[i] = TagWithUsage{Tag: t, UsageCount: usage[t.ID]}
 	}
 	return result, nil
 }
@@ -111,11 +112,11 @@ func (s *tagService) GetTag(spaceID, tagID uint) (*TagWithUsage, error) {
 	if tag.SpaceID != spaceID {
 		return nil, ErrTagSpaceMismatch
 	}
-	count, err := s.tagRepo.CountUsage(tagID)
+	usage, err := s.tagRepo.CountUsageBySpace(spaceID)
 	if err != nil {
 		return nil, fmt.Errorf("count tag usage: %w", err)
 	}
-	return &TagWithUsage{Tag: *tag, UsageCount: count}, nil
+	return &TagWithUsage{Tag: *tag, UsageCount: usage[tagID]}, nil
 }
 
 func (s *tagService) UpdateTag(spaceID, tagID uint, params UpdateTagParams) (*domain.Tag, error) {
