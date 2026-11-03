@@ -156,7 +156,10 @@ func (r *taskRepository) GetByID(id uint) (*domain.Task, error) {
 		Preload("Assignees").
 		Preload("Tags").
 		First(&task).Error
-	return &task, err
+	if err != nil {
+		return nil, err
+	}
+	return &task, nil
 }
 
 func (r *taskRepository) Update(task *domain.Task) error {
