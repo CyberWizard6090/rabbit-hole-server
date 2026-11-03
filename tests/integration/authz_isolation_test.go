@@ -35,7 +35,7 @@ func newTenant(t *testing.T, tc *TestContext, label string) tenant {
 	userID, token := newUser(t, tc, fmt.Sprintf("%s-%d@example.test", label, time.Now().UnixNano()))
 	tn := tenant{token: token, userID: userID}
 
-	tn.workspaceID = mustCreate(t, tc, token, "/api/v1/workspaces/", map[string]any{"name": label + " workspace"})
+	tn.workspaceID = mustCreate(t, tc, token, "/api/v1/workspaces", map[string]any{"name": label + " workspace"})
 	tn.spaceID = mustCreate(t, tc, token, "/api/v1/workspaces/"+itoa(tn.workspaceID)+"/spaces", map[string]any{"name": label + " space"})
 	tn.folderID = mustCreate(t, tc, token, "/api/v1/spaces/"+itoa(tn.spaceID)+"/folders", map[string]any{"name": label + " folder"})
 	tn.listID = mustCreate(t, tc, token, "/api/v1/spaces/"+itoa(tn.spaceID)+"/lists", map[string]any{"name": label + " list"})
@@ -81,11 +81,11 @@ func TestAuthz_ForeignResourcesAreInaccessible(t *testing.T) {
 
 		{http.MethodGet, "/api/v1/folders/" + fo + "/lists", nil},
 		{http.MethodPost, "/api/v1/folders/" + fo + "/lists", map[string]any{"name": "x"}},
-		{http.MethodPatch, "/api/v1/folders/" + fo + "/", map[string]any{"name": "x"}},
-		{http.MethodDelete, "/api/v1/folders/" + fo + "/", nil},
+		{http.MethodPatch, "/api/v1/folders/" + fo, map[string]any{"name": "x"}},
+		{http.MethodDelete, "/api/v1/folders/" + fo, nil},
 
-		{http.MethodPatch, "/api/v1/lists/" + li + "/", map[string]any{"name": "x"}},
-		{http.MethodDelete, "/api/v1/lists/" + li + "/", nil},
+		{http.MethodPatch, "/api/v1/lists/" + li, map[string]any{"name": "x"}},
+		{http.MethodDelete, "/api/v1/lists/" + li, nil},
 		{http.MethodGet, "/api/v1/lists/" + li + "/statuses", nil},
 		{http.MethodPost, "/api/v1/lists/" + li + "/statuses", map[string]any{"name": "x", "color": "#111111", "type": 1, "list_id": victim.listID}},
 		{http.MethodPut, "/api/v1/lists/" + li + "/statuses/" + st, map[string]any{"name": "x"}},
@@ -93,9 +93,9 @@ func TestAuthz_ForeignResourcesAreInaccessible(t *testing.T) {
 		{http.MethodGet, "/api/v1/lists/" + li + "/tasks", nil},
 		{http.MethodPost, "/api/v1/lists/" + li + "/tasks", map[string]any{"title": "x", "status_id": victim.statusID}},
 
-		{http.MethodGet, "/api/v1/tasks/" + tk + "/", nil},
-		{http.MethodPatch, "/api/v1/tasks/" + tk + "/", map[string]any{"title": "pwned"}},
-		{http.MethodDelete, "/api/v1/tasks/" + tk + "/", nil},
+		{http.MethodGet, "/api/v1/tasks/" + tk, nil},
+		{http.MethodPatch, "/api/v1/tasks/" + tk, map[string]any{"title": "pwned"}},
+		{http.MethodDelete, "/api/v1/tasks/" + tk, nil},
 	}
 
 	for _, tcase := range cases {
@@ -157,12 +157,12 @@ func TestAuthz_CrossTenantReferencesAreRejected(t *testing.T) {
 		requireClientError(t, rec)
 	})
 	t.Run("task update with foreign status", func(t *testing.T) {
-		rec := request(t, tc.Router, http.MethodPatch, "/api/v1/tasks/"+itoa(attacker.taskID)+"/", attacker.token,
+		rec := request(t, tc.Router, http.MethodPatch, "/api/v1/tasks/"+itoa(attacker.taskID), attacker.token,
 			map[string]any{"status_id": victim.statusID})
 		requireClientError(t, rec)
 	})
 	t.Run("task update with foreign tag", func(t *testing.T) {
-		rec := request(t, tc.Router, http.MethodPatch, "/api/v1/tasks/"+itoa(attacker.taskID)+"/", attacker.token,
+		rec := request(t, tc.Router, http.MethodPatch, "/api/v1/tasks/"+itoa(attacker.taskID), attacker.token,
 			map[string]any{"add_tag_ids": []uint{victim.tagID}})
 		requireClientError(t, rec)
 	})
@@ -215,7 +215,7 @@ func TestAuthz_ContactsAreScopedToCaller(t *testing.T) {
 	b := newTenant(t, tc, "bob")
 	c := newTenant(t, tc, "carol")
 
-	rec := request(t, tc.Router, http.MethodPost, "/api/v1/contacts/", a.token, map[string]any{"contact_id": c.userID})
+	rec := request(t, tc.Router, http.MethodPost, "/api/v1/contacts", a.token, map[string]any{"contact_id": c.userID})
 	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
 		t.Fatalf("add contact: %d: %s", rec.Code, rec.Body.String())
 	}
@@ -224,7 +224,7 @@ func TestAuthz_ContactsAreScopedToCaller(t *testing.T) {
 	rec = request(t, tc.Router, http.MethodDelete, "/api/v1/contacts/"+itoa(c.userID), b.token, nil)
 	requireClientError(t, rec)
 
-	rec = request(t, tc.Router, http.MethodGet, "/api/v1/contacts/", b.token, nil)
+	rec = request(t, tc.Router, http.MethodGet, "/api/v1/contacts", b.token, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list contacts: %d", rec.Code)
 	}
@@ -238,11 +238,11 @@ func TestAuthz_UnauthenticatedRequestsAreRejected(t *testing.T) {
 	victim := newTenant(t, tc, "victim")
 
 	for _, path := range []string{
-		"/api/v1/profile/",
-		"/api/v1/workspaces/",
+		"/api/v1/profile",
+		"/api/v1/workspaces",
 		"/api/v1/spaces/" + itoa(victim.spaceID) + "/dashboard",
 		"/api/v1/lists/" + itoa(victim.listID) + "/tasks",
-		"/api/v1/tasks/" + itoa(victim.taskID) + "/",
+		"/api/v1/tasks/" + itoa(victim.taskID),
 	} {
 		rec := request(t, tc.Router, http.MethodGet, path, "", nil)
 		if rec.Code != http.StatusUnauthorized {

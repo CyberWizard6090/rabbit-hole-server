@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/http/pagination"
 )
 
 var tagColorPalette = []string{
@@ -20,7 +21,7 @@ func randomTagColor() string {
 
 type TaskService interface {
 	CreateTask(userID uint, input CreateTaskParams) (*domain.Task, error)
-	GetAllTasks(listID uint, limit int, offset int) ([]domain.Task, int64, error)
+	ListTasks(listID uint, params pagination.Params) (pagination.Response[domain.Task], error)
 	GetTaskByID(taskID uint) (*domain.Task, error)
 	UpdateTask(id uint, params UpdateTaskParams) (*domain.Task, error)
 	DeleteTask(taskID uint) error
@@ -50,20 +51,23 @@ type UpdateTaskParams struct {
 }
 
 type taskService struct {
-	repo       domain.TaskRepository
-	spaceRepo  domain.SpaceRepository
-	tagService TagService
+	repo        domain.TaskRepository
+	spaceRepo   domain.SpaceRepository
+	tagService  TagService
+	cursorCodec *pagination.Codec
 }
 
 func NewTaskService(
 	repo domain.TaskRepository,
 	spaceRepo domain.SpaceRepository,
 	tagService TagService,
+	cursorCodec *pagination.Codec,
 ) TaskService {
 	return &taskService{
-		repo:       repo,
-		spaceRepo:  spaceRepo,
-		tagService: tagService,
+		repo:        repo,
+		spaceRepo:   spaceRepo,
+		tagService:  tagService,
+		cursorCodec: cursorCodec,
 	}
 }
 
@@ -123,8 +127,40 @@ func (s *taskService) CreateTask(userID uint, input CreateTaskParams) (*domain.T
 	return task, nil
 }
 
-func (s *taskService) GetAllTasks(listID uint, limit int, offset int) ([]domain.Task, int64, error) {
-	return s.repo.GetAll(listID, limit, offset)
+func (s *taskService) ListTasks(listID uint, params pagination.Params) (pagination.Response[domain.Task], error) {
+	context := pagination.TaskCursorContext(listID)
+	items, hasNext, hasPrev, err := s.repo.List(listID, params)
+	if err != nil {
+		return pagination.Response[domain.Task]{}, err
+	}
+	var nextCursor *string
+	var prevCursor *string
+
+	if len(items) > 0 {
+		if hasNext {
+			cursor, err := pagination.EncodePosition(s.cursorCodec, context, pagination.DirectionNext, pagination.TaskCursorPosition{
+				CreatedAt: items[len(items)-1].CreatedAt,
+				ID:        uint64(items[len(items)-1].ID),
+			})
+			if err != nil {
+				return pagination.Response[domain.Task]{}, err
+			}
+			nextCursor = &cursor
+		}
+
+		if hasPrev {
+			cursor, err := pagination.EncodePosition(s.cursorCodec, context, pagination.DirectionPrev, pagination.TaskCursorPosition{
+				CreatedAt: items[0].CreatedAt,
+				ID:        uint64(items[0].ID),
+			})
+			if err != nil {
+				return pagination.Response[domain.Task]{}, err
+			}
+			prevCursor = &cursor
+		}
+	}
+
+	return pagination.NewResponse(items, hasNext, hasPrev, nextCursor, prevCursor), nil
 }
 
 func (s *taskService) GetTaskByID(taskID uint) (*domain.Task, error) {

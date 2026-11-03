@@ -10,7 +10,7 @@ import (
 func createWorkspace(t *testing.T, tc *TestContext) uint {
 	t.Helper()
 
-	rec := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces/", tc.Token, map[string]any{
+	rec := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces", tc.Token, map[string]any{
 		"name": "Space Test Workspace",
 	})
 	if rec.Code != http.StatusCreated {

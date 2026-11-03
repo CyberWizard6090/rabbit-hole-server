@@ -73,7 +73,11 @@ func (h *SpaceHandler) List(c *gin.Context) {
 		return
 	}
 
-	p := pagination.Parse(c)
+	p, err := pagination.ParseOffset(c.Query("page"), c.Query("limit"))
+	if err != nil {
+		response.HandleError(c, httperrors.BadRequest("INVALID_PAGINATION", err.Error(), err))
+		return
+	}
 
 	spaces, total, err := h.service.GetAllSpaces(uint(workspaceID), p.Limit, p.Offset)
 	if err != nil {
@@ -81,7 +85,7 @@ func (h *SpaceHandler) List(c *gin.Context) {
 		return
 	}
 
-	pages := pagination.Pages(total, p.Limit)
+	pages := (int(total) + p.Limit - 1) / p.Limit
 
 	response.SuccessWithPagination(c, http.StatusOK, spaces, &response.Pagination{
 		Total: int(total), Page: p.Page, Limit: p.Limit, Pages: pages,
