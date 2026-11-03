@@ -8,6 +8,7 @@ info:
     HttpOnly `refresh_token` cookie scoped to `/api/v1/auth`.
     Resource routes additionally require a workspace permission (shown as `x-permission`); callers
     without it, or who do not belong to the workspace, get 403/404.
+    Task lists use keyset pagination (`cursor`, `limit`); contact and space lists use `page`/`limit`.
     Request bodies are capped at 1 MiB (413 `PAYLOAD_TOO_LARGE`).
     Auth endpoints are rate limited per client IP (register 5/min, login 10/min, refresh 30/min,
     logout 30/min) and answer 429 `RATE_LIMIT_EXCEEDED`.
@@ -69,7 +70,7 @@ paths:
       responses:
         '200': {$ref: '#/components/responses/Ok'}
         '404': {$ref: '#/components/responses/Error'}
-  /profile/:
+  /profile:
     get:
       tags: [profile]
       summary: Current user
@@ -106,7 +107,7 @@ paths:
         '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-  /contacts/:
+  /contacts:
     get:
       tags: [contacts]
       summary: List contacts
@@ -131,20 +132,20 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-  /contacts/{id}:
+  /contacts/{contact_id}:
     delete:
       tags: [contacts]
       summary: Remove a contact
       security:
         - bearerAuth: []
       parameters:
-        - {name: id, in: path, required: true, schema: {type: integer}}
+        - {name: contact_id, in: path, required: true, schema: {type: integer}}
       responses:
         '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-  /workspaces/:
+  /workspaces:
     post:
       tags: [workspaces]
       summary: Create a workspace
@@ -412,7 +413,7 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-  /folders/{folder_id}/:
+  /folders/{folder_id}:
     patch:
       tags: [folders]
       summary: Rename a folder
@@ -446,7 +447,7 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-  /lists/{list_id}/:
+  /lists/{list_id}:
     patch:
       tags: [lists]
       summary: Update a list
@@ -553,13 +554,13 @@ paths:
   /lists/{list_id}/tasks:
     get:
       tags: [tasks]
-      summary: List tasks (paginated)
+      summary: "List tasks with keyset pagination, newest first. Responds with {items, next_cursor, prev_cursor, has_next, has_prev} instead of the page/pages envelope."
       x-permission: task.read
       security:
         - bearerAuth: []
       parameters:
         - {name: list_id, in: path, required: true, schema: {type: integer}}
-        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
         '200': {$ref: '#/components/responses/Ok'}
@@ -586,7 +587,7 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
-  /tasks/{id}/:
+  /tasks/{task_id}:
     get:
       tags: [tasks]
       summary: Get a task
@@ -594,7 +595,7 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - {name: id, in: path, required: true, schema: {type: integer}}
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
         '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
@@ -608,7 +609,7 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - {name: id, in: path, required: true, schema: {type: integer}}
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
       requestBody:
         required: true
         content:
@@ -627,7 +628,7 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - {name: id, in: path, required: true, schema: {type: integer}}
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
         '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
@@ -638,8 +639,9 @@ components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
   parameters:
-    Page: {name: page, in: query, schema: {type: integer, minimum: 1, maximum: 1000000, default: 1}}
-    Limit: {name: limit, in: query, description: Values above 100 are clamped to 100; invalid values fall back to 10., schema: {type: integer, minimum: 1, maximum: 100, default: 10}}
+    Page: {name: page, in: query, schema: {type: integer, minimum: 1, maximum: 10000, default: 1}}
+    Cursor: {name: cursor, in: query, description: Opaque keyset cursor from next_cursor/prev_cursor of a previous response. Bound to the list; tampered or foreign cursors are rejected with 400., schema: {type: string}}
+    Limit: {name: limit, in: query, description: Must be 1-100; out-of-range values are rejected with 400 INVALID_PAGINATION., schema: {type: integer, minimum: 1, maximum: 100, default: 10}}
   responses:
     Ok:
       description: Success envelope

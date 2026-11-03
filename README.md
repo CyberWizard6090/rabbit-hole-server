@@ -37,8 +37,10 @@ relies on:
 - **Auth**: `POST /auth/login` returns `access_token` and sets an HttpOnly `refresh_token` cookie
   (path `/api/v1/auth`). Call `/auth/refresh` (cookie, `credentials: 'include'`) to rotate.
   `/auth/logout` needs only the cookie, so it works after the access token expired.
-- **Pagination**: `page` (default 1, max 1,000,000) and `limit` (default 10; values above 100
-  are clamped to 100).
+- **Pagination**: task lists use keyset pagination (`cursor`, `limit`; the response is
+  `{items, next_cursor, prev_cursor, has_next, has_prev}`); contact and space lists use `page`
+  (1-10000) and `limit` (1-100, default 10). Out-of-range values are rejected with 400
+  `INVALID_PAGINATION`.
 - **Limits**: request body max 1 MiB (413). Auth rate limits per IP: register 5/min, login 10/min,
   refresh 30/min, logout 30/min (429).
 - **Authorization**: resource routes check workspace-scoped permissions. IDs that belong to another
