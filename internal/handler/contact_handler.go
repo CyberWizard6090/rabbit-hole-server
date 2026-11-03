@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -99,6 +100,8 @@ func (h *ContactHandler) Delete(c *gin.Context) {
 	})
 }
 
+const minSearchQueryLen = 3
+
 func (h *ContactHandler) Search(c *gin.Context) {
 	uid, err := contextutil.GetUserID(c)
 	if err != nil {
@@ -106,9 +109,9 @@ func (h *ContactHandler) Search(c *gin.Context) {
 		return
 	}
 
-	query := c.Query("q")
-	if len([]rune(query)) < 2 {
-		response.HandleError(c, httperrors.BadRequest("QUERY_TOO_SHORT", "query param 'q' must contain at least 2 characters", nil))
+	query := strings.TrimSpace(c.Query("q"))
+	if len([]rune(query)) < minSearchQueryLen {
+		response.HandleError(c, httperrors.BadRequest("QUERY_TOO_SHORT", "query param 'q' must contain at least 3 characters", nil))
 		return
 	}
 
@@ -118,5 +121,12 @@ func (h *ContactHandler) Search(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, http.StatusOK, users)
+	result := make([]dto.PublicUser, 0, len(users))
+	for _, u := range users {
+		result = append(result, dto.PublicUser{
+			ID: u.ID, Username: u.Username, FirstName: u.FirstName, LastName: u.LastName, AvatarURL: u.AvatarURL,
+		})
+	}
+
+	response.Success(c, http.StatusOK, result)
 }

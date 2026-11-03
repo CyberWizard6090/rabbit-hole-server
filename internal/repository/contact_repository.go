@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
@@ -66,11 +67,18 @@ func (r *ContactRepository) DeleteContact(userID, contactID uint) error {
 	return nil
 }
 
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
 func (r *ContactRepository) SearchUsers(query string, excludeID uint) ([]domain.User, error) {
 	var users []domain.User
 
-	err := r.db.Where("(username ILIKE ? OR email ILIKE ?) AND id != ?",
-		"%"+query+"%", "%"+query+"%", excludeID).
+	query = strings.ToLower(strings.TrimSpace(query))
+	err := r.db.
+		Where(`(LOWER(username) LIKE ? ESCAPE '\' OR LOWER(email) = ?) AND id != ?`,
+			escapeLike(query)+"%", query, excludeID).
+		Order("username ASC, id ASC").
 		Limit(20).
 		Find(&users).Error
 	return users, err
