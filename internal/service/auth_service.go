@@ -38,11 +38,14 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-type RefreshClaims struct {
-	UserID    uint      `json:"user_id"`
-	TokenType TokenType `json:"token_type"`
-	jwt.RegisteredClaims
-}
+type RefreshClaims = Claims
+
+var tokenParser = jwt.NewParser(
+	jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+	jwt.WithExpirationRequired(),
+)
+
+func (s *AuthService) keyFunc(*jwt.Token) (interface{}, error) { return s.jwtSecret, nil }
 
 type AuthService struct {
 	repo       *repository.UserRepository
@@ -245,12 +248,7 @@ func (s *AuthService) generateTokenPair(userID uint) (dto.TokenPair, *domain.Use
 }
 
 func (s *AuthService) Refresh(refreshTokenString string) (dto.TokenPair, error) {
-	token, err := jwt.ParseWithClaims(refreshTokenString, &RefreshClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return s.jwtSecret, nil
-	})
+	token, err := tokenParser.ParseWithClaims(refreshTokenString, &RefreshClaims{}, s.keyFunc)
 	if err != nil || !token.Valid {
 		return dto.TokenPair{}, errors.New("invalid or expired refresh token")
 	}
@@ -298,12 +296,7 @@ func (s *AuthService) Logout(refreshTokenString string) error {
 }
 
 func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return s.jwtSecret, nil
-	})
+	token, err := tokenParser.ParseWithClaims(tokenString, &Claims{}, s.keyFunc)
 	if err != nil {
 		return nil, err
 	}
