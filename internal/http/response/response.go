@@ -73,6 +73,12 @@ func ValidationError(c *gin.Context, err error) {
 		return
 	}
 
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		ErrorWithCode(c, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "request body is too large", nil)
+		return
+	}
+
 	fields := parseValidationFields(err)
 	ErrorWithCode(c, http.StatusBadRequest, "VALIDATION_FAILED", "invalid request", fields)
 }

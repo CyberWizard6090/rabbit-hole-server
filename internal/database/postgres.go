@@ -123,14 +123,22 @@ func runMigrations(db *sql.DB, action string, steps, version int) (uint, bool, e
 	case "force":
 		err = migration.Force(version)
 	case "version":
-		return 0, false, nil
+		// handled below
 	default:
 		return 0, false, fmt.Errorf("unsupported migration action %q", action)
 	}
 	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return 0, false, err
 	}
-	return 0, false, nil
+
+	current, dirty, verr := migration.Version()
+	if errors.Is(verr, migrate.ErrNilVersion) {
+		return 0, false, nil
+	}
+	if verr != nil {
+		return 0, false, fmt.Errorf("read migration version: %w", verr)
+	}
+	return current, dirty, nil
 }
 
 func gormLogger(environment string) gormlogger.Interface {

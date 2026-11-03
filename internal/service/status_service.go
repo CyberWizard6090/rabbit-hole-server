@@ -3,8 +3,14 @@ package service
 import (
 	"fmt"
 
+	"gorm.io/gorm"
+
 	"rabbit-hole-server/internal/domain"
 )
+
+// ErrStatusListMismatch is returned when a status is addressed through a list
+// it does not belong to. It wraps gorm.ErrRecordNotFound so the API answers 404.
+var ErrStatusListMismatch = fmt.Errorf("status does not belong to this list: %w", gorm.ErrRecordNotFound)
 
 type StatusService interface {
 	Create(params CreateStatusParams) (*domain.TaskStatus, error)
@@ -89,7 +95,7 @@ func (s *statusService) Update(listID uint, statusID uint, params UpdateStatusPa
 		return nil, err
 	}
 	if status.ListID != listID {
-		return nil, fmt.Errorf("status does not belong to this list")
+		return nil, ErrStatusListMismatch
 	}
 
 	if params.Name != nil {
@@ -120,7 +126,7 @@ func (s *statusService) Delete(listID uint, statusID uint) error {
 		return err
 	}
 	if status.ListID != listID {
-		return fmt.Errorf("status does not belong to this list")
+		return ErrStatusListMismatch
 	}
 
 	return s.repo.Delete(listID, statusID)
