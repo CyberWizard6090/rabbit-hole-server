@@ -35,7 +35,7 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 	var req dto.CreateWorkspaceRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		response.ValidationError(c, err)
 		return
 	}
 
