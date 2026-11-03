@@ -1,6 +1,8 @@
 package main
 
 import (
+	// Embed the IANA time zone database so time_zone validation does not depend on
+	// the host having tzdata installed.
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/gin-gonic/gin"
 
