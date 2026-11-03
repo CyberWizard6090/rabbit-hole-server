@@ -115,7 +115,7 @@ jobs:
             ./internal/... ./cmd/...
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v5.5.1
+        uses: codecov/codecov-action@v7.1.1
         with:
           files: ./coverage.out
           flags: unittests
