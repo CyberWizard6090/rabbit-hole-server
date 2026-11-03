@@ -17,7 +17,7 @@ func createWorkspace(t *testing.T, tc *TestContext) uint {
 		t.Fatalf("create workspace: %d: %s", rec.Code, rec.Body.String())
 	}
 
-	return uint(dataObject(t, rec)["ID"].(float64))
+	return uint(dataObject(t, rec)["id"].(float64))
 }
 
 func TestSpace_CreateCreatesDefaultListAndStatuses(t *testing.T) {
@@ -35,7 +35,7 @@ func TestSpace_CreateCreatesDefaultListAndStatuses(t *testing.T) {
 	}
 
 	space := dataObject(t, rec)
-	spaceID := uint(space["ID"].(float64))
+	spaceID := uint(space["id"].(float64))
 
 	var lists []domain.List
 	if err := tc.DB.Where("space_id = ?", spaceID).Find(&lists).Error; err != nil {

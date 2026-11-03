@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"gorm.io/gorm"
-
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/http/pagination"
 )
@@ -31,7 +29,7 @@ func TestTaskServiceCreateTaskUsesDefaultsAndResolvesNewTags(t *testing.T) {
 		"Idea": {ID: 11, SpaceID: 55, Name: "Idea"},
 	}}
 	taskRepo := &taskRepositoryMock{}
-	spaceRepo := &spaceRepositoryMock{list: &domain.List{Model: gorm.Model{ID: 7}, SpaceID: 55}}
+	spaceRepo := &spaceRepositoryMock{list: &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55}}
 	svc := newTestTaskService(taskRepo, spaceRepo, tagMock)
 
 	task, err := svc.CreateTask(42, CreateTaskParams{
@@ -65,7 +63,7 @@ func TestTaskServiceCreateTaskUsesDefaultsAndResolvesNewTags(t *testing.T) {
 
 func TestTaskServiceCreateTaskPreservesExplicitPriority(t *testing.T) {
 	taskRepo := &taskRepositoryMock{}
-	spaceRepo := &spaceRepositoryMock{list: &domain.List{Model: gorm.Model{ID: 7}, SpaceID: 55}}
+	spaceRepo := &spaceRepositoryMock{list: &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55}}
 	svc := newTestTaskService(taskRepo, spaceRepo, &tagServiceMock{})
 
 	task, err := svc.CreateTask(42, CreateTaskParams{Title: "Task", ListID: 7, StatusID: 3, Priority: 5})
@@ -93,7 +91,7 @@ func TestTaskServiceCreateTaskStopsWhenListLookupFails(t *testing.T) {
 func TestTaskServiceCreateTaskStopsWhenNewTagResolutionFails(t *testing.T) {
 	wantErr := errors.New("tag service failed")
 	repo := &taskRepositoryMock{}
-	spaceRepo := &spaceRepositoryMock{list: &domain.List{Model: gorm.Model{ID: 7}, SpaceID: 55}}
+	spaceRepo := &spaceRepositoryMock{list: &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55}}
 	svc := newTestTaskService(repo, spaceRepo, &tagServiceMock{err: wantErr})
 
 	if _, err := svc.CreateTask(42, CreateTaskParams{ListID: 7, NewTagNames: []string{"Bug"}}); !errors.Is(err, wantErr) {
@@ -107,7 +105,7 @@ func TestTaskServiceCreateTaskStopsWhenNewTagResolutionFails(t *testing.T) {
 func TestTaskServiceCreateTaskPropagatesRepositoryCreateError(t *testing.T) {
 	wantErr := errors.New("create task failed")
 	taskRepo := &taskRepositoryMock{createErr: wantErr}
-	spaceRepo := &spaceRepositoryMock{list: &domain.List{Model: gorm.Model{ID: 7}, SpaceID: 55}}
+	spaceRepo := &spaceRepositoryMock{list: &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55}}
 	svc := newTestTaskService(taskRepo, spaceRepo, &tagServiceMock{})
 
 	if _, err := svc.CreateTask(42, CreateTaskParams{ListID: 7, StatusID: 3, Title: "Task"}); !errors.Is(err, wantErr) {
@@ -117,8 +115,8 @@ func TestTaskServiceCreateTaskPropagatesRepositoryCreateError(t *testing.T) {
 
 func TestTaskServiceListTasksEncodesCursors(t *testing.T) {
 	tasks := []domain.Task{
-		{Model: gorm.Model{ID: 9, CreatedAt: time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)}},
-		{Model: gorm.Model{ID: 8, CreatedAt: time.Date(2026, 10, 9, 11, 0, 0, 0, time.UTC)}},
+		{Model: domain.Model{ID: 9, CreatedAt: time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)}},
+		{Model: domain.Model{ID: 8, CreatedAt: time.Date(2026, 10, 9, 11, 0, 0, 0, time.UTC)}},
 	}
 	taskRepo := &taskRepositoryMock{task: &tasks[0], tasks: tasks, hasNext: true, hasPrev: true}
 	svc := newTestTaskService(taskRepo, &spaceRepositoryMock{}, &tagServiceMock{})
@@ -168,10 +166,10 @@ func TestTaskServiceListTasksEncodesCursors(t *testing.T) {
 func TestTaskServiceUpdateTaskChangesFieldsAndAddsTags(t *testing.T) {
 	title, description := "New title", "New description"
 	statusID, priority, estimate := uint(8), 4, 120
-	task := &domain.Task{Model: gorm.Model{ID: 9}, SpaceID: 55, ListID: 7, Title: "Old", Description: "Old desc", StatusID: 3, Priority: 2, TimeEstimate: 10}
+	task := &domain.Task{Model: domain.Model{ID: 9}, SpaceID: 55, ListID: 7, Title: "Old", Description: "Old desc", StatusID: 3, Priority: 2, TimeEstimate: 10}
 	taskRepo := &taskRepositoryMock{task: task}
 	tagMock := &tagServiceMock{results: map[string]*domain.Tag{"Bug": {ID: 20, SpaceID: 55, Name: "Bug"}}}
-	returned := &domain.Task{Model: gorm.Model{ID: 9}, SpaceID: 55, Title: "New title"}
+	returned := &domain.Task{Model: domain.Model{ID: 9}, SpaceID: 55, Title: "New title"}
 	_ = returned
 	svc := newTestTaskService(taskRepo, &spaceRepositoryMock{}, tagMock)
 
@@ -194,7 +192,7 @@ func TestTaskServiceUpdateTaskChangesFieldsAndAddsTags(t *testing.T) {
 }
 
 func TestTaskServiceUpdateTaskWithoutTagsAttachesNone(t *testing.T) {
-	task := &domain.Task{Model: gorm.Model{ID: 9}, SpaceID: 55, ListID: 7}
+	task := &domain.Task{Model: domain.Model{ID: 9}, SpaceID: 55, ListID: 7}
 	taskRepo := &taskRepositoryMock{task: task}
 	svc := newTestTaskService(taskRepo, &spaceRepositoryMock{}, &tagServiceMock{})
 
@@ -214,14 +212,14 @@ func TestTaskServiceUpdateTaskPropagatesErrors(t *testing.T) {
 	}
 
 	updateErr := errors.New("update failed")
-	task := &domain.Task{Model: gorm.Model{ID: 1}, SpaceID: 5}
+	task := &domain.Task{Model: domain.Model{ID: 1}, SpaceID: 5}
 	svc = newTestTaskService(&taskRepositoryMock{task: task, updateErr: updateErr}, &spaceRepositoryMock{}, &tagServiceMock{})
 	if _, err := svc.UpdateTask(1, UpdateTaskParams{}); !errors.Is(err, updateErr) {
 		t.Fatalf("update error=%v", err)
 	}
 
 	tagErr := errors.New("tag failed")
-	updatedRepo := &taskRepositoryMock{task: &domain.Task{Model: gorm.Model{ID: 1}, SpaceID: 5}}
+	updatedRepo := &taskRepositoryMock{task: &domain.Task{Model: domain.Model{ID: 1}, SpaceID: 5}}
 	svc = newTestTaskService(updatedRepo, &spaceRepositoryMock{}, &tagServiceMock{err: tagErr})
 	if _, err := svc.UpdateTask(1, UpdateTaskParams{AddTagNames: []string{"Bug"}}); !errors.Is(err, tagErr) {
 		t.Fatalf("tag error=%v", err)
@@ -231,7 +229,7 @@ func TestTaskServiceUpdateTaskPropagatesErrors(t *testing.T) {
 	}
 
 	addErr := errors.New("add tags failed")
-	updatedRepo = &taskRepositoryMock{task: &domain.Task{Model: gorm.Model{ID: 1}, SpaceID: 5}, addTagsErr: addErr}
+	updatedRepo = &taskRepositoryMock{task: &domain.Task{Model: domain.Model{ID: 1}, SpaceID: 5}, addTagsErr: addErr}
 	svc = newTestTaskService(updatedRepo, &spaceRepositoryMock{}, &tagServiceMock{})
 	if _, err := svc.UpdateTask(1, UpdateTaskParams{AddTagIDs: []uint{3}}); !errors.Is(err, addErr) {
 		t.Fatalf("add tags error=%v", err)

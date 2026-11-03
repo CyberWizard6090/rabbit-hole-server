@@ -4,8 +4,6 @@ import (
 	"errors"
 	"time"
 
-	"gorm.io/gorm"
-
 	"rabbit-hole-server/internal/http/pagination"
 )
 
@@ -17,7 +15,7 @@ var (
 )
 
 type Task struct {
-	gorm.Model
+	Model
 	SpaceID      uint       `gorm:"index;not null;column:space_id" json:"-"`
 	ListID       uint       `gorm:"index;not null;column:list_id" json:"list_id"`
 	StatusID     uint       `gorm:"not null;column:status_id" json:"status_id"`

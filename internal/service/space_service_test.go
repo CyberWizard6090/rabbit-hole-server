@@ -4,8 +4,6 @@ import (
 	"errors"
 	"testing"
 
-	"gorm.io/gorm"
-
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -58,7 +56,9 @@ func TestSpaceServiceCreateSpaceReturnsTransactionError(t *testing.T) {
 
 func TestSpaceServiceSimpleOperations(t *testing.T) {
 	repo := newMockSpaceRepository()
-	repo.getByIDFn = func(id uint) (*domain.Space, error) { return &domain.Space{Model: gorm.Model{ID: id}, Name: "S"}, nil }
+	repo.getByIDFn = func(id uint) (*domain.Space, error) {
+		return &domain.Space{Model: domain.Model{ID: id}, Name: "S"}, nil
+	}
 	repo.getAllFn = func(id uint, l, o int) ([]domain.Space, int64, error) {
 		if id != 2 || l != 10 || o != 5 {
 			t.Fatalf("args=%d,%d,%d", id, l, o)
@@ -107,4 +107,4 @@ func TestSpaceServiceSimpleOperations(t *testing.T) {
 	}
 }
 
-func gormModel(id uint) gorm.Model { return gorm.Model{ID: id} }
+func gormModel(id uint) domain.Model { return domain.Model{ID: id} }

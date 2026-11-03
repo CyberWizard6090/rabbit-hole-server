@@ -4,12 +4,10 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-
-	"gorm.io/gorm"
 )
 
 type Space struct {
-	gorm.Model
+	Model
 	Name        string `gorm:"not null" json:"name"`
 	WorkspaceID uint   `gorm:"not null;index;column:workspace_id" json:"workspace_id"`
 
@@ -22,20 +20,20 @@ type Space struct {
 }
 
 type Folder struct {
-	gorm.Model
-	Name     string   `gorm:"size:255;not null"`
-	SpaceID  uint     `gorm:"not null;index"`
-	ParentID *uint    `gorm:"index"`
-	Parent   *Folder  `gorm:"foreignKey:ParentID;constraint:OnDelete:CASCADE;"`
-	Children []Folder `gorm:"foreignKey:ParentID;constraint:OnDelete:CASCADE;"`
-	Lists    []List   `gorm:"constraint:OnDelete:CASCADE;"`
+	Model
+	Name     string   `gorm:"size:255;not null" json:"name"`
+	SpaceID  uint     `gorm:"not null;index" json:"space_id"`
+	ParentID *uint    `gorm:"index" json:"parent_id"`
+	Parent   *Folder  `gorm:"foreignKey:ParentID;constraint:OnDelete:CASCADE;" json:"-"`
+	Children []Folder `gorm:"foreignKey:ParentID;constraint:OnDelete:CASCADE;" json:"-"`
+	Lists    []List   `gorm:"constraint:OnDelete:CASCADE;" json:"-"`
 }
 
 type List struct {
-	gorm.Model
+	Model
 	Name           string       `gorm:"not null" json:"name"`
 	SpaceID        uint         `gorm:"index;not null;column:space_id" json:"space_id"`
-	FolderID       *uint        `gorm:"index"`
+	FolderID       *uint        `gorm:"index" json:"folder_id"`
 	Statuses       []TaskStatus `gorm:"foreignKey:ListID;constraint:OnDelete:CASCADE" json:"statuses"`
 	Tasks          []Task       `gorm:"foreignKey:ListID" json:"tasks"`
 	ParentStatusID *uint        `gorm:"column:parent_status_id;index" json:"parent_status_id,omitempty"`
@@ -88,7 +86,7 @@ func (statusType *StatusType) Scan(value any) error {
 }
 
 type TaskStatus struct {
-	gorm.Model
+	Model
 	SpaceID  uint       `gorm:"index;not null;column:space_id" json:"-"`
 	ListID   uint       `gorm:"index;not null;column:list_id" json:"list_id"`
 	Name     string     `gorm:"not null" json:"name"`
