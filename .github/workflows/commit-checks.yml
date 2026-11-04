@@ -105,11 +105,11 @@ jobs:
             range="${BEFORE_SHA}..${AFTER_SHA}"
           fi
 
-          git log --format='%s' "$range" > /tmp/commit-messages.txt
+          git log --no-merges --format='%s' "$range" > /tmp/commit-messages.txt
 
           if [[ ! -s /tmp/commit-messages.txt ]]; then
-            echo "No commits found to validate."
-            exit 1
+            echo "Only merge commits in range; nothing to validate."
+            exit 0
           fi
 
           failed=0
