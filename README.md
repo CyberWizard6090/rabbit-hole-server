@@ -68,6 +68,10 @@ relies on:
   creates the bucket (inside Compose use `S3_ENDPOINT=minio:9000`).
   Set `PUBLIC_BASE_URL` to the public address of this API so image URLs are absolute, and let the
   reverse proxy pass bodies of at least `MAX_ATTACHMENT_BYTES` (nginx `client_max_body_size`).
+- **Checklists**: `/tasks/{id}/checklists` holds named checklists with items (text, resolved by whom and
+  when, optional assignee). Up to 20 checklists per task and 200 items per checklist; changing the order
+  is one call with the full list of ids (`PUT .../order`). Everything needs `task.update`, reading needs
+  `task.read`. Creating and deleting checklists and resolving or reopening items go to the activity log.
 - **Task order**: every task has an integer `position` within its list; new tasks go to the end and
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.

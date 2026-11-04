@@ -19,13 +19,14 @@ import (
 )
 
 type Container struct {
-	AuthService     *service.AuthService
-	AuthHandler     *handler.AuthHandler
-	TaskHandler     *handler.TaskHandler
-	CommentHandler  *handler.CommentHandler
-	ActivityHandler *handler.ActivityHandler
-	FileHandler     *handler.FileHandler
-	UserHandler     *handler.UserHandler
+	AuthService      *service.AuthService
+	AuthHandler      *handler.AuthHandler
+	TaskHandler      *handler.TaskHandler
+	CommentHandler   *handler.CommentHandler
+	ActivityHandler  *handler.ActivityHandler
+	ChecklistHandler *handler.ChecklistHandler
+	FileHandler      *handler.FileHandler
+	UserHandler      *handler.UserHandler
 
 	WorkspaceHandler *handler.WorkspaceHandler
 	FolderHandler    *handler.FolderHandler
@@ -95,13 +96,14 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 	tickets := realtime.NewTicketStore(realtime.DefaultTicketTTL)
 
 	return &Container{
-		AuthService:     authServ,
-		AuthHandler:     handler.NewAuthHandler(authServ, cfg.SecureCookies()),
-		ActivityHandler: handler.NewActivityHandler(activityService),
-		FileHandler:     handler.NewFileHandler(fileService),
-		CommentHandler:  handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
-		TaskHandler:     handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
-		UserHandler:     handler.NewUserHandler(userService),
+		AuthService:      authServ,
+		AuthHandler:      handler.NewAuthHandler(authServ, cfg.SecureCookies()),
+		ActivityHandler:  handler.NewActivityHandler(activityService),
+		ChecklistHandler: handler.NewChecklistHandler(service.NewChecklistService(repository.NewChecklistRepository(db), activityService)),
+		FileHandler:      handler.NewFileHandler(fileService),
+		CommentHandler:   handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
+		TaskHandler:      handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
+		UserHandler:      handler.NewUserHandler(userService),
 
 		ContactHandler:    handler.NewContactHandler(contactService),
 		SpaceHandler:      handler.NewSpaceHandler(spaceServ),

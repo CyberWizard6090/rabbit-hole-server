@@ -61,10 +61,12 @@ func buildRouteFixture(t *testing.T, tc *TestContext, token string, userID uint)
 	tk := create("/api/v1/lists/"+itoa(li)+"/tasks", map[string]any{"title": "fixture", "status_id": st})
 	cm := create("/api/v1/tasks/"+itoa(tk)+"/comments", map[string]any{"body": "fixture"})
 	att := uploadFixtureFile(t, tc, token, tk)
+	cl := create("/api/v1/tasks/"+itoa(tk)+"/checklists", map[string]any{"name": "fixture"})
+	it := create("/api/v1/tasks/"+itoa(tk)+"/checklists/"+itoa(cl)+"/items", map[string]any{"text": "fixture"})
 
 	return routeFixture{params: map[string]string{
 		"workspace_id": itoa(ws), "space_id": itoa(sp), "folder_id": itoa(fo), "list_id": itoa(li),
-		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "attachment_id": itoa(att), "user_id": itoa(userID), "contact_id": itoa(userID),
+		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "attachment_id": itoa(att), "checklist_id": itoa(cl), "item_id": itoa(it), "user_id": itoa(userID), "contact_id": itoa(userID),
 	}}
 }
 

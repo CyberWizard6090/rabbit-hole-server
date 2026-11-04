@@ -13,6 +13,11 @@ const (
 	ActivityCommentCreated = "comment.created"
 	ActivityCommentUpdated = "comment.updated"
 	ActivityCommentDeleted = "comment.deleted"
+
+	ActivityChecklistCreated      = "checklist.created"
+	ActivityChecklistDeleted      = "checklist.deleted"
+	ActivityChecklistItemResolved = "checklist.item_resolved"
+	ActivityChecklistItemReopened = "checklist.item_reopened"
 )
 
 type Activity struct {
