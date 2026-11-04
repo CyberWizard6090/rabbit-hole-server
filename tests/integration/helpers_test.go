@@ -20,6 +20,7 @@ import (
 	"rabbit-hole-server/internal/app"
 	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/database"
+	"rabbit-hole-server/internal/mail"
 	"rabbit-hole-server/internal/persistence"
 )
 
@@ -33,6 +34,7 @@ type TestContext struct {
 	Router http.Handler
 	Token  string
 	UserID uint
+	Mail   *mail.Memory
 }
 
 func TestMain(m *testing.M) {
@@ -143,7 +145,8 @@ func newTestContextWith(t *testing.T, adjust func(cfg *config.Config)) *TestCont
 		adjust(&cfg)
 	}
 
-	container, err := app.NewContainer(integrationDB, &cfg)
+	outbox := mail.NewMemory()
+	container, err := app.NewContainerWithMailer(integrationDB, &cfg, outbox)
 	if err != nil {
 		t.Fatalf("create integration app dependencies: %v", err)
 	}
@@ -151,6 +154,7 @@ func newTestContextWith(t *testing.T, adjust func(cfg *config.Config)) *TestCont
 	return &TestContext{
 		DB:     integrationDB,
 		Router: app.SetupRouter(container, &cfg),
+		Mail:   outbox,
 	}
 }
 

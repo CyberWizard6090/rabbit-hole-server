@@ -86,6 +86,9 @@ type AuthService struct {
 	jwtTTL     time.Duration
 	refreshTTL time.Duration
 	avatars    AvatarRemover
+
+	verification    VerificationSender
+	requireVerified bool
 }
 
 func NewAuthService(r AuthUserStore, jwtSecret string, accessTTL, refreshTTL time.Duration) *AuthService {
@@ -195,7 +198,15 @@ func (s *AuthService) Register(ctx context.Context, email, password, username st
 		user.Username = fmt.Sprintf("user_%d", time.Now().UnixNano())
 	}
 
-	return s.repo.CreateUser(ctx, user)
+	if err := s.repo.CreateUser(ctx, user); err != nil {
+		return err
+	}
+	if s.verification != nil {
+		if err := s.verification.SendVerification(ctx, user); err != nil {
+			slog.Warn("auth: cannot send the verification mail after registration", "user_id", user.ID, "error", err)
+		}
+	}
+	return nil
 }
 
 var (
@@ -220,6 +231,9 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (dto.To
 
 	if !verifyPassword(password, user.PasswordHash) {
 		return dto.TokenPair{}, ErrInvalidCredentials
+	}
+	if s.requireVerified && user.EmailVerifiedAt == nil {
+		return dto.TokenPair{}, ErrEmailNotVerified
 	}
 
 	return s.issueTokenPair(ctx, user.ID, user.TokenVersion)
@@ -392,6 +406,20 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uint, currentPa
 func (s *AuthService) LogoutAll(ctx context.Context, userID uint) error {
 	_, err := s.repo.RevokeAll(ctx, userID)
 	return err
+}
+
+type VerificationSender interface {
+	SendVerification(ctx context.Context, user *domain.User) error
+}
+
+func (s *AuthService) WithVerificationSender(sender VerificationSender) *AuthService {
+	s.verification = sender
+	return s
+}
+
+func (s *AuthService) WithRequireVerifiedEmail(required bool) *AuthService {
+	s.requireVerified = required
+	return s
 }
 
 type AvatarRemover interface {

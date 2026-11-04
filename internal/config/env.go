@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/mail"
 	"os"
 	"sort"
 	"strings"
@@ -19,6 +20,7 @@ type Config struct {
 	DB             DBConfig
 	JWT            JWTConfig `envPrefix:"JWT_"`
 	Storage        StorageConfig
+	Mail           MailConfig
 	AllowedOrigins []string `env:"ALLOWED_ORIGINS" envDefault:"http://127.0.0.1:3000" envSeparator:"," validate:"required,min=1,dive,url"`
 }
 
@@ -43,6 +45,20 @@ type StorageConfig struct {
 	MaxImageBytes      int64  `env:"MAX_IMAGE_BYTES" envDefault:"10485760" validate:"gt=0"`
 	MaxAvatarBytes     int64  `env:"MAX_AVATAR_BYTES" envDefault:"5242880" validate:"gt=0"`
 	S3                 S3Config
+}
+
+type MailConfig struct {
+	Driver               string        `env:"MAIL_DRIVER" envDefault:"log" validate:"oneof=log smtp"`
+	From                 string        `env:"MAIL_FROM" envDefault:"Rabbit Hole <no-reply@localhost>" validate:"required"`
+	SMTPHost             string        `env:"SMTP_HOST"`
+	SMTPPort             int           `env:"SMTP_PORT" envDefault:"587" validate:"min=1,max=65535"`
+	SMTPUsername         string        `env:"SMTP_USERNAME"`
+	SMTPPassword         string        `env:"SMTP_PASSWORD"`
+	SMTPSecurity         string        `env:"SMTP_SECURITY" envDefault:"starttls" validate:"oneof=none starttls tls"`
+	FrontendURL          string        `env:"FRONTEND_URL" envDefault:"http://localhost:3000" validate:"url"`
+	VerificationTTL      time.Duration `env:"EMAIL_VERIFICATION_TTL" envDefault:"48h" validate:"gt=0"`
+	ResetTTL             time.Duration `env:"PASSWORD_RESET_TTL" envDefault:"1h" validate:"gt=0"`
+	RequireVerifiedEmail bool          `env:"REQUIRE_VERIFIED_EMAIL" envDefault:"false"`
 }
 
 type S3Config struct {
@@ -104,7 +120,20 @@ func Validate(cfg *Config) error {
 	if err := validateStorage(cfg); err != nil {
 		return err
 	}
+	if err := validateMail(cfg); err != nil {
+		return err
+	}
 	return validateDeployment(cfg)
+}
+
+func validateMail(cfg *Config) error {
+	if _, err := mail.ParseAddress(cfg.Mail.From); err != nil || strings.ContainsAny(cfg.Mail.From, "\r\n") {
+		return fmt.Errorf("MAIL_FROM must be an address such as \"Name <user@example.com>\"")
+	}
+	if cfg.Mail.Driver == "smtp" && cfg.Mail.SMTPHost == "" {
+		return fmt.Errorf("MAIL_DRIVER=smtp needs SMTP_HOST")
+	}
+	return nil
 }
 
 func validateStorage(cfg *Config) error {
@@ -160,6 +189,16 @@ func validateDeployment(cfg *Config) error {
 	}
 	if len(distinct) < minDistinctSecretChars {
 		problems = append(problems, fmt.Sprintf("JWT_SECRET uses only %d distinct characters (need at least %d); it does not look random", len(distinct), minDistinctSecretChars))
+	}
+
+	if cfg.Mail.Driver == "log" {
+		problems = append(problems, fmt.Sprintf("MAIL_DRIVER=log only writes mail to the log, so users would never get verification or reset links; set MAIL_DRIVER=smtp in %s", cfg.Environment))
+	}
+	if !strings.HasPrefix(cfg.Mail.FrontendURL, "https://") {
+		problems = append(problems, fmt.Sprintf("FRONTEND_URL %q must use https:// in %s because mail links point to it", cfg.Mail.FrontendURL, cfg.Environment))
+	}
+	if cfg.Mail.SMTPSecurity == "none" && cfg.Mail.SMTPHost != "" && cfg.Mail.SMTPHost != "localhost" && cfg.Mail.SMTPHost != "127.0.0.1" {
+		problems = append(problems, "SMTP_SECURITY=none sends mail and the SMTP password in clear text; use starttls or tls")
 	}
 
 	for _, origin := range cfg.AllowedOrigins {

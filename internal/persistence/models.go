@@ -9,18 +9,19 @@ import (
 )
 
 type User struct {
-	ID           uint   `gorm:"primaryKey"`
-	Email        string `gorm:"uniqueIndex;not null"`
-	PasswordHash string `gorm:"not null"`
-	Username     string `gorm:"uniqueIndex"`
-	FirstName    string
-	LastName     string
-	AvatarURL    string
-	Bio          string    `gorm:"type:text"`
-	TimeZone     string    `gorm:"not null;default:'UTC'"`
-	TokenVersion int       `gorm:"not null;default:0"`
-	CreatedAt    time.Time `gorm:"not null"`
-	UpdatedAt    time.Time `gorm:"not null"`
+	ID              uint   `gorm:"primaryKey"`
+	Email           string `gorm:"uniqueIndex;not null"`
+	PasswordHash    string `gorm:"not null"`
+	Username        string `gorm:"uniqueIndex"`
+	FirstName       string
+	LastName        string
+	AvatarURL       string
+	Bio             string `gorm:"type:text"`
+	TimeZone        string `gorm:"not null;default:'UTC'"`
+	TokenVersion    int    `gorm:"not null;default:0"`
+	EmailVerifiedAt *time.Time
+	CreatedAt       time.Time `gorm:"not null"`
+	UpdatedAt       time.Time `gorm:"not null"`
 }
 
 type UserSession struct {

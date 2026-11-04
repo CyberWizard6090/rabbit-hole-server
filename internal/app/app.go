@@ -14,8 +14,9 @@ import (
 )
 
 type App struct {
-	router   *gin.Engine
-	realtime *realtime.Hub
+	router    *gin.Engine
+	realtime  *realtime.Hub
+	closeMail func()
 }
 
 func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
@@ -24,7 +25,7 @@ func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("create app dependencies: %w", err)
 	}
 	r := SetupRouter(container, cfg)
-	return &App{router: r, realtime: container.Realtime}, nil
+	return &App{router: r, realtime: container.Realtime, closeMail: container.CloseMail}, nil
 }
 
 func (a *App) Run(addr string) error {
@@ -38,6 +39,9 @@ func (a *App) Handler() http.Handler {
 func (a *App) Close(ctx context.Context) error {
 	if a.realtime != nil {
 		a.realtime.Close()
+	}
+	if a.closeMail != nil {
+		a.closeMail()
 	}
 	return nil
 }

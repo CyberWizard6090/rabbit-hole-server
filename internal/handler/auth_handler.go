@@ -54,7 +54,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	if err := h.authService.Register(c.Request.Context(), input.Email, input.Password, input.Username); err != nil {
+	ctx := service.WithLocale(c.Request.Context(), c.GetHeader("Accept-Language"))
+	if err := h.authService.Register(ctx, input.Email, input.Password, input.Username); err != nil {
 		if errors.Is(err, domain.ErrEmailTaken) {
 			response.HandleError(c, httperrors.Conflict("EMAIL_TAKEN", "email is already registered", err))
 			return
@@ -88,6 +89,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	tokenPair, err := h.authService.Login(c.Request.Context(), input.Email, input.Password)
 	if err != nil {
+		if errors.Is(err, service.ErrEmailNotVerified) {
+			response.HandleError(c, httperrors.Forbidden("EMAIL_NOT_VERIFIED", err.Error(), err))
+			return
+		}
 		response.HandleError(c, httperrors.Unauthorized("INVALID_CREDENTIALS", "invalid email or password", err))
 		return
 	}

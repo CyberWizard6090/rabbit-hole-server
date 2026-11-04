@@ -40,6 +40,17 @@ relies on:
 - **Revocation**: access tokens embed the user's token version. Changing the password
   (`POST /profile/password`), `POST /auth/logout-all` and `DELETE /profile` invalidate every token
   issued before, so the frontend must treat a 401 as "sign in again".
+- **Email**: registration sends a confirmation mail, and `POST /auth/forgot-password` +
+  `POST /auth/reset-password` reset a password. Links point to the frontend
+  (`FRONTEND_URL/verify-email?token=...`, `FRONTEND_URL/reset-password?token=...`); the frontend posts
+  the token to `/auth/verify-email` or `/auth/reset-password`. Tokens are random, stored only as a
+  SHA-256 hash, work once and expire (48 h and 1 h). `forgot-password` and `resend-verification`
+  always answer 202, so they do not reveal which addresses exist, and send at most one mail a minute
+  per account. A reset revokes every session. `REQUIRE_VERIFIED_EMAIL=true` makes login answer 403
+  `EMAIL_NOT_VERIFIED` until the address is confirmed. Mail language follows `Accept-Language`
+  (Russian or English). `MAIL_DRIVER=log` (the default) only logs mail; for a test mailbox run
+  `docker compose --profile mail up` and read the mails at http://127.0.0.1:8025 (Mailpit), see
+  `.env.example`. Production needs `MAIL_DRIVER=smtp` with `starttls` or `tls`.
 - **Members**: workspace members are managed under `/workspaces/:id/members`; only contacts can be
   added, and the owner cannot be re-roled, removed or leave.
 - **Pagination**: task lists use keyset pagination (`cursor`, `limit`; the response is
@@ -76,7 +87,8 @@ relies on:
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.
 - **Limits**: request body max 1 MiB (413). Auth rate limits per IP: register 5/min, login 10/min,
-  refresh 30/min, logout 30/min (429).
+  refresh 30/min, logout 30/min, verify-email 20/min, resend-verification and forgot-password 5/min,
+  reset-password 10/min (429).
 - **Real-time**: task changes can be followed over WebSocket. Request a single-use ticket
   (`POST /lists/:id/events/ticket` or `POST /spaces/:id/events/ticket`) and connect with it; see
   [`docs/realtime.md`](docs/realtime.md).

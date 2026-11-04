@@ -48,7 +48,8 @@ func userToDomain(u persistence.User) domain.User {
 	return domain.User{
 		ID: u.ID, Email: u.Email, PasswordHash: u.PasswordHash, Username: u.Username,
 		FirstName: u.FirstName, LastName: u.LastName, AvatarURL: u.AvatarURL, Bio: u.Bio,
-		TimeZone: u.TimeZone, TokenVersion: u.TokenVersion, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+		TimeZone: u.TimeZone, TokenVersion: u.TokenVersion, EmailVerifiedAt: u.EmailVerifiedAt,
+		CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
 	}
 }
 
@@ -56,7 +57,8 @@ func userFromDomain(u domain.User) persistence.User {
 	return persistence.User{
 		ID: u.ID, Email: u.Email, PasswordHash: u.PasswordHash, Username: u.Username,
 		FirstName: u.FirstName, LastName: u.LastName, AvatarURL: u.AvatarURL, Bio: u.Bio,
-		TimeZone: u.TimeZone, TokenVersion: u.TokenVersion, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+		TimeZone: u.TimeZone, TokenVersion: u.TokenVersion, EmailVerifiedAt: u.EmailVerifiedAt,
+		CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
 	}
 }
 

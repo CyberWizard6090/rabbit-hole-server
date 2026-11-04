@@ -39,6 +39,7 @@ paths:
     post:
       tags: [auth]
       summary: "Register a user"
+      description: "Sends a confirmation mail (language from Accept-Language). A failed delivery does not fail the registration; the user can ask for another mail."
       security: []
       requestBody:
         required: true
@@ -53,6 +54,7 @@ paths:
     post:
       tags: [auth]
       summary: "Log in; sets the refresh_token cookie"
+      description: "With REQUIRE_VERIFIED_EMAIL=true an account whose address is not confirmed gets 403 EMAIL_NOT_VERIFIED (after the password was checked). The profile shows email_verified_at (null until confirmed)."
       security: []
       requestBody:
         required: true
@@ -63,6 +65,66 @@ paths:
         '200': {$ref: '#/components/responses/Ok'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /auth/verify-email:
+    post:
+      tags: [auth]
+      summary: "Confirm an email address with the token from the mail"
+      description: "The frontend page at FRONTEND_URL/verify-email?token=... posts the token here. A token works once and expires after EMAIL_VERIFICATION_TTL (48 h by default); a wrong, used or expired token is 400 INVALID_TOKEN."
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/VerifyEmailRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /auth/resend-verification:
+    post:
+      tags: [auth]
+      summary: "Send the confirmation mail again"
+      description: "Always answers 202 with the same body, whether or not the address has an account or is already confirmed, so it cannot be used to find out who is registered. At most one mail a minute per account; a new mail replaces the previous token."
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EmailRequest'}
+      responses:
+        '202': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /auth/forgot-password:
+    post:
+      tags: [auth]
+      summary: "Ask for a password reset mail"
+      description: "Same non-revealing answer as resend-verification. The mail carries FRONTEND_URL/reset-password?token=...; the token works once and expires after PASSWORD_RESET_TTL (1 h by default). The mail language follows Accept-Language (Russian or English)."
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EmailRequest'}
+      responses:
+        '202': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /auth/reset-password:
+    post:
+      tags: [auth]
+      summary: "Set a new password with the token from the mail"
+      description: "The password policy is checked before the token is spent, so a rejected password leaves the link usable. On success every session and access token issued before is revoked, the address counts as confirmed, and the user signs in again. Changing the password in the profile also cancels an outstanding reset link."
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ResetPasswordRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
   /auth/refresh:
     post:
       tags: [auth]
@@ -1601,6 +1663,22 @@ components:
       required: [ids]
       properties:
         ids: {type: array, minItems: 1, maxItems: 200, items: {type: integer}}
+    VerifyEmailRequest:
+      type: object
+      required: [token]
+      properties:
+        token: {type: string, maxLength: 200}
+    EmailRequest:
+      type: object
+      required: [email]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+    ResetPasswordRequest:
+      type: object
+      required: [token, new_password]
+      properties:
+        token: {type: string, maxLength: 200}
+        new_password: {type: string, minLength: 8, maxLength: 128}
     MoveTaskRequest:
       type: object
       properties:

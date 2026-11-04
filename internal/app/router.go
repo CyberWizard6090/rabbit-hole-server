@@ -93,6 +93,10 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				auth.POST("/register", middleware.RateLimiter(5, time.Minute), deps.AuthHandler.Register)
 				auth.POST("/login", middleware.RateLimiter(10, time.Minute), deps.AuthHandler.Login)
 				auth.POST("/refresh", middleware.RateLimiter(30, time.Minute), deps.AuthHandler.Refresh)
+				auth.POST("/verify-email", middleware.RateLimiter(20, time.Minute), deps.AccountEmailHandler.VerifyEmail)
+				auth.POST("/resend-verification", middleware.RateLimiter(5, time.Minute), deps.AccountEmailHandler.ResendVerification)
+				auth.POST("/forgot-password", middleware.RateLimiter(5, time.Minute), deps.AccountEmailHandler.ForgotPassword)
+				auth.POST("/reset-password", middleware.RateLimiter(10, time.Minute), deps.AccountEmailHandler.ResetPassword)
 				// Logout authenticates with the refresh cookie, not the access
 				// token, so it must work after the access token has expired.
 				auth.POST("/logout", middleware.RateLimiter(30, time.Minute), deps.AuthHandler.Logout)

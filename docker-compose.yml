@@ -50,6 +50,17 @@ services:
       S3_SECRET_KEY: ${S3_SECRET_KEY:-}
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_USE_SSL: ${S3_USE_SSL:-false}
+      MAIL_DRIVER: ${MAIL_DRIVER:-log}
+      MAIL_FROM: ${MAIL_FROM:-Rabbit Hole <no-reply@localhost>}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      EMAIL_VERIFICATION_TTL: ${EMAIL_VERIFICATION_TTL:-48h}
+      PASSWORD_RESET_TTL: ${PASSWORD_RESET_TTL:-1h}
+      REQUIRE_VERIFIED_EMAIL: ${REQUIRE_VERIFIED_EMAIL:-false}
     volumes:
       - uploads_data:/data/uploads
     depends_on:

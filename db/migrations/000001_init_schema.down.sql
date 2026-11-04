@@ -22,6 +22,7 @@ DROP TABLE IF EXISTS
     workspaces,
     user_contacts,
     user_sessions,
+    email_tokens,
     users;
 
 DROP FUNCTION IF EXISTS update_updated_at_column();
