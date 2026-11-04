@@ -51,6 +51,10 @@ relies on:
   (Russian or English). `MAIL_DRIVER=log` (the default) only logs mail; for a test mailbox run
   `docker compose --profile mail up` and read the mails at http://127.0.0.1:8025 (Mailpit), see
   `.env.example`. Production needs `MAIL_DRIVER=smtp` with `starttls` or `tls`.
+  A signed-in user changes the login address with `POST /profile/email` (password required): a 24 h
+  single-use link goes to the new address (`FRONTEND_URL/confirm-email-change?token=...`, posted to
+  `/auth/confirm-email-change`), `DELETE /profile/email-change` cancels it, `GET /profile` shows
+  `pending_email`. Confirming revokes every session like a password change and warns the old address.
 - **Members**: workspace members are managed under `/workspaces/:id/members`; only contacts can be
   added, and the owner cannot be re-roled, removed or leave.
 - **Pagination**: task lists use keyset pagination (`cursor`, `limit`; the response is
