@@ -85,12 +85,18 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		StatusID:     req.StatusID,
 		ParentID:     req.ParentID,
 		Priority:     req.Priority,
+		StartDate:    req.StartDate,
+		DueDate:      req.DueDate,
 		AssigneeIDs:  req.AssigneeIDs,
 		TagIDs:       req.TagIDs,
 		NewTagNames:  req.NewTagNames,
 		TimeEstimate: req.TimeEstimate,
 	})
 	if err != nil {
+		if errors.Is(err, domain.ErrInvalidDateRange) {
+			response.HandleError(c, httperrors.BadRequest("INVALID_DATE_RANGE", err.Error(), err))
+			return
+		}
 		if isInvalidTaskReference(err) {
 			response.HandleError(c, httperrors.BadRequest("INVALID_TASK_REFERENCE", err.Error(), err))
 			return
@@ -127,11 +133,19 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		Description:  req.Description,
 		StatusID:     req.StatusID,
 		Priority:     req.Priority,
+		ParentID:     req.ParentID,
+		StartDate:    req.StartDate,
+		DueDate:      req.DueDate,
+		AssigneeIDs:  req.AssigneeIDs,
 		TimeEstimate: req.TimeEstimate,
 		AddTagIDs:    req.AddTagIDs,
 		AddTagNames:  req.AddTagNames,
 	})
 	if err != nil {
+		if errors.Is(err, domain.ErrInvalidDateRange) {
+			response.HandleError(c, httperrors.BadRequest("INVALID_DATE_RANGE", err.Error(), err))
+			return
+		}
 		if isInvalidTaskReference(err) {
 			response.HandleError(c, httperrors.BadRequest("INVALID_TASK_REFERENCE", err.Error(), err))
 			return
