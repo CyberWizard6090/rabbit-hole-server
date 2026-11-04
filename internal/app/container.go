@@ -12,6 +12,7 @@ import (
 	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/handler"
 	"rabbit-hole-server/internal/http/pagination"
+	"rabbit-hole-server/internal/mail"
 	"rabbit-hole-server/internal/realtime"
 	"rabbit-hole-server/internal/repository"
 	"rabbit-hole-server/internal/service"
@@ -19,14 +20,16 @@ import (
 )
 
 type Container struct {
-	AuthService      *service.AuthService
-	AuthHandler      *handler.AuthHandler
-	TaskHandler      *handler.TaskHandler
-	CommentHandler   *handler.CommentHandler
-	ActivityHandler  *handler.ActivityHandler
-	ChecklistHandler *handler.ChecklistHandler
-	FileHandler      *handler.FileHandler
-	UserHandler      *handler.UserHandler
+	AuthService         *service.AuthService
+	AuthHandler         *handler.AuthHandler
+	AccountEmailHandler *handler.AccountEmailHandler
+	CloseMail           func()
+	TaskHandler         *handler.TaskHandler
+	CommentHandler      *handler.CommentHandler
+	ActivityHandler     *handler.ActivityHandler
+	ChecklistHandler    *handler.ChecklistHandler
+	FileHandler         *handler.FileHandler
+	UserHandler         *handler.UserHandler
 
 	WorkspaceHandler *handler.WorkspaceHandler
 	FolderHandler    *handler.FolderHandler
@@ -45,6 +48,35 @@ type Container struct {
 }
 
 func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
+	sender, closeMail, err := newMailSender(cfg.Mail)
+	if err != nil {
+		return nil, err
+	}
+	container, err := NewContainerWithMailer(db, cfg, sender)
+	if err != nil {
+		closeMail()
+		return nil, err
+	}
+	container.CloseMail = closeMail
+	return container, nil
+}
+
+func newMailSender(cfg config.MailConfig) (mail.Sender, func(), error) {
+	if cfg.Driver != "smtp" {
+		return mail.NewLog(slog.Default()), func() {}, nil
+	}
+	smtp, err := mail.NewSMTP(mail.SMTPOptions{
+		Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword,
+		Security: cfg.SMTPSecurity, From: cfg.From,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure the mail sender: %w", err)
+	}
+	async := mail.NewAsync(smtp, slog.Default())
+	return async, async.Close, nil
+}
+
+func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender) (*Container, error) {
 	userRepo := repository.NewUserRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 	contactRepo := repository.NewContactRepository(db)
@@ -54,7 +86,12 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 	folderRepo := repository.NewFolderRepository(db)
 	workspaceRepo := repository.NewWorkspaceRepository(db)
 
-	authServ := service.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
+	accountEmail := service.NewAccountEmailService(userRepo, repository.NewEmailTokenRepository(db), sender, service.AccountEmailConfig{
+		FrontendURL: cfg.Mail.FrontendURL, VerificationTTL: cfg.Mail.VerificationTTL, ResetTTL: cfg.Mail.ResetTTL,
+	})
+	authServ := service.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL).
+		WithVerificationSender(accountEmail).
+		WithRequireVerifiedEmail(cfg.Mail.RequireVerifiedEmail)
 	spaceServ := service.NewSpaceService(spaceRepo)
 	statusServ := service.NewStatusService(statusRepo, spaceRepo)
 	tagService := service.NewTagService(tagRepo)
@@ -96,14 +133,15 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 	tickets := realtime.NewTicketStore(realtime.DefaultTicketTTL)
 
 	return &Container{
-		AuthService:      authServ,
-		AuthHandler:      handler.NewAuthHandler(authServ, cfg.SecureCookies()),
-		ActivityHandler:  handler.NewActivityHandler(activityService),
-		ChecklistHandler: handler.NewChecklistHandler(service.NewChecklistService(repository.NewChecklistRepository(db), activityService)),
-		FileHandler:      handler.NewFileHandler(fileService),
-		CommentHandler:   handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
-		TaskHandler:      handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
-		UserHandler:      handler.NewUserHandler(userService),
+		AuthService:         authServ,
+		AuthHandler:         handler.NewAuthHandler(authServ, cfg.SecureCookies()),
+		AccountEmailHandler: handler.NewAccountEmailHandler(accountEmail),
+		ActivityHandler:     handler.NewActivityHandler(activityService),
+		ChecklistHandler:    handler.NewChecklistHandler(service.NewChecklistService(repository.NewChecklistRepository(db), activityService)),
+		FileHandler:         handler.NewFileHandler(fileService),
+		CommentHandler:      handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
+		TaskHandler:         handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
+		UserHandler:         handler.NewUserHandler(userService),
 
 		ContactHandler:    handler.NewContactHandler(contactService),
 		SpaceHandler:      handler.NewSpaceHandler(spaceServ),

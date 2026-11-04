@@ -19,6 +19,7 @@ CREATE TABLE users (
     bio TEXT,
     time_zone TEXT NOT NULL DEFAULT 'UTC',
     token_version INTEGER NOT NULL DEFAULT 0,
+    email_verified_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -40,6 +41,20 @@ CREATE TABLE user_sessions (
     CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 CREATE INDEX idx_user_sessions_user_id ON user_sessions (user_id);
+
+CREATE TABLE email_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    kind TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    CONSTRAINT chk_email_tokens_kind CHECK (kind IN ('verify_email', 'reset_password')),
+    CONSTRAINT uq_email_tokens_token_hash UNIQUE (token_hash),
+    CONSTRAINT fk_email_tokens_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+CREATE INDEX idx_email_tokens_user_kind ON email_tokens (user_id, kind, created_at DESC);
 
 CREATE TABLE user_contacts (
     user_id BIGINT NOT NULL,

@@ -45,5 +45,13 @@ services:
       S3_BUCKET: ${S3_BUCKET:-rabbit-hole}
     profiles: ["s3"]
 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: rabbit-hole-mailpit
+    ports:
+      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:1025:1025"
+    profiles: ["mail"]
+
 volumes:
   minio_data:

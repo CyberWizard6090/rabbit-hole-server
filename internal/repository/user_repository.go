@@ -190,6 +190,9 @@ func (r *UserRepository) UpdatePasswordAndRevoke(ctx context.Context, userID uin
 			UpdateColumn("password_hash", passwordHash).Error; err != nil {
 			return err
 		}
+		if err := tx.Exec("DELETE FROM email_tokens WHERE user_id = ? AND kind = 'reset_password'", userID).Error; err != nil {
+			return err
+		}
 		return revokeAll(tx, userID, &version)
 	})
 	return version, mapErr(err)
@@ -215,6 +218,12 @@ func (r *UserRepository) Anonymize(ctx context.Context, userID uint) error {
 			"last_name":     "",
 			"avatar_url":    "",
 			"bio":           "",
+		}
+		if err := tx.Exec("DELETE FROM email_tokens WHERE user_id = ?", userID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("UPDATE users SET email_verified_at = NULL WHERE id = ?", userID).Error; err != nil {
+			return err
 		}
 		if err := tx.Model(&persistence.User{}).Where("id = ?", userID).UpdateColumns(tombstone).Error; err != nil {
 			return err

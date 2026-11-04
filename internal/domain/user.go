@@ -10,23 +10,25 @@ var (
 	ErrEmailTaken          = errors.New("email is already registered")
 	ErrUsernameTaken       = errors.New("username is already registered")
 	ErrContactAlreadyAdded = errors.New("contact already added")
+	ErrInvalidToken        = errors.New("the link is invalid, expired or already used")
 )
 
 type User struct {
-	ID            uint          `json:"id"`
-	Email         string        `json:"email" binding:"required,email"`
-	PasswordHash  string        `json:"-"`
-	Username      string        `json:"username" binding:"omitempty,min=3,max=30"`
-	FirstName     string        `json:"first_name"`
-	LastName      string        `json:"last_name"`
-	AvatarURL     string        `json:"avatar_url"`
-	Bio           string        `json:"bio"`
-	TimeZone      string        `json:"time_zone"`
-	TokenVersion  int           `json:"-"`
-	Contacts      []*User       `json:"contacts"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
-	RefreshTokens []UserSession `json:"-"`
+	ID              uint          `json:"id"`
+	Email           string        `json:"email" binding:"required,email"`
+	PasswordHash    string        `json:"-"`
+	Username        string        `json:"username" binding:"omitempty,min=3,max=30"`
+	FirstName       string        `json:"first_name"`
+	LastName        string        `json:"last_name"`
+	AvatarURL       string        `json:"avatar_url"`
+	Bio             string        `json:"bio"`
+	TimeZone        string        `json:"time_zone"`
+	TokenVersion    int           `json:"-"`
+	EmailVerifiedAt *time.Time    `json:"email_verified_at"`
+	Contacts        []*User       `json:"contacts"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
+	RefreshTokens   []UserSession `json:"-"`
 }
 
 type UserSession struct {

@@ -40,6 +40,9 @@ func deployedEnv(t *testing.T, appEnv, secret, origins, dbURL string) error {
 	t.Setenv("JWT_SECRET", secret)
 	t.Setenv("ALLOWED_ORIGINS", origins)
 	t.Setenv("DB_URL", dbURL)
+	t.Setenv("MAIL_DRIVER", "smtp")
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("FRONTEND_URL", "https://app.example.com")
 	_, err := Load()
 	return err
 }
