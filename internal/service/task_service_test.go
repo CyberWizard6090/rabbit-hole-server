@@ -290,3 +290,57 @@ func TestTaskServiceResolveNewTagsWrapsErrorWithName(t *testing.T) {
 		t.Fatalf("error=%q does not include tag name", err)
 	}
 }
+
+func TestTaskServiceCreateTaskRejectsDueBeforeStart(t *testing.T) {
+	svc := newTestTaskService(&taskRepositoryMock{}, &spaceRepositoryMock{list: &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55}}, &tagServiceMock{})
+	start := time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC)
+	due := start.Add(-time.Hour)
+	_, err := svc.CreateTask(context.Background(), 1, CreateTaskParams{Title: "T", ListID: 7, StatusID: 3, StartDate: &start, DueDate: &due})
+	if !errors.Is(err, domain.ErrInvalidDateRange) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestTaskServiceUpdateTaskSetsAndClearsFields(t *testing.T) {
+	start := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	due := start.AddDate(0, 0, 3)
+	parent := uint(4)
+	existing := &domain.Task{Model: domain.Model{ID: 9}, SpaceID: 55, ListID: 7, ParentID: &parent, StartDate: &start}
+	repo := &taskRepositoryMock{task: existing}
+	svc := newTestTaskService(repo, &spaceRepositoryMock{}, &tagServiceMock{})
+
+	assignees := []uint{}
+	_, err := svc.UpdateTask(context.Background(), 9, UpdateTaskParams{
+		ParentID:    domain.Nullable[uint]{Set: true},
+		StartDate:   domain.Nullable[time.Time]{Set: true},
+		DueDate:     domain.Nullable[time.Time]{Set: true, Value: &due},
+		AssigneeIDs: &assignees,
+	})
+	if err != nil {
+		t.Fatalf("UpdateTask error=%v", err)
+	}
+	got := repo.updatedTask
+	if got.ParentID != nil || got.StartDate != nil || got.DueDate == nil || !got.DueDate.Equal(due) {
+		t.Fatalf("task=%+v", got)
+	}
+	if repo.replacedAssignees == nil || len(*repo.replacedAssignees) != 0 {
+		t.Fatalf("assignees=%v", repo.replacedAssignees)
+	}
+}
+
+func TestTaskServiceUpdateTaskRejectsInvalidParentAndDates(t *testing.T) {
+	start := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	due := start.AddDate(0, 0, -1)
+	self := uint(9)
+	repo := &taskRepositoryMock{task: &domain.Task{Model: domain.Model{ID: 9}, StartDate: &start}}
+	svc := newTestTaskService(repo, &spaceRepositoryMock{}, &tagServiceMock{})
+
+	_, err := svc.UpdateTask(context.Background(), 9, UpdateTaskParams{ParentID: domain.Nullable[uint]{Set: true, Value: &self}})
+	if !errors.Is(err, domain.ErrInvalidParentReference) {
+		t.Fatalf("self parent err=%v", err)
+	}
+	_, err = svc.UpdateTask(context.Background(), 9, UpdateTaskParams{DueDate: domain.Nullable[time.Time]{Set: true, Value: &due}})
+	if !errors.Is(err, domain.ErrInvalidDateRange) {
+		t.Fatalf("date err=%v", err)
+	}
+}

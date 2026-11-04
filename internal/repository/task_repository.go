@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -130,8 +131,6 @@ func (r *taskRepository) List(
 
 	hasNext := hasMore
 	if isPrev {
-		// A previous-page request can become stale after deletions. An empty
-		// result must not advertise a next page without a usable cursor.
 		hasNext = len(tasks) > 0
 	}
 
@@ -400,15 +399,33 @@ func (r *taskRepository) GetByID(ctx context.Context, id uint) (*domain.Task, er
 	return &task, nil
 }
 
-func (r *taskRepository) Update(ctx context.Context, task *domain.Task, addTagIDs []uint) error {
+func (r *taskRepository) Update(ctx context.Context, task *domain.Task, addTagIDs []uint, replaceAssigneeIDs *[]uint) error {
 	m := taskFromDomain(*task)
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		addTagIDs = uniqueIDs(addTagIDs)
-		if err := validateTaskReferences(tx, task, nil, addTagIDs); err != nil {
+		var assigneeIDs []uint
+		if replaceAssigneeIDs != nil {
+			assigneeIDs = *replaceAssigneeIDs
+		}
+		if err := validateTaskReferences(tx, task, assigneeIDs, addTagIDs); err != nil {
+			return err
+		}
+		if err := validateParentChain(tx, task); err != nil {
 			return err
 		}
 		if err := tx.Omit(clause.Associations).Save(&m).Error; err != nil {
 			return err
+		}
+		if replaceAssigneeIDs != nil {
+			var users []persistence.User
+			if ids := uniqueIDs(assigneeIDs); len(ids) > 0 {
+				if err := tx.Find(&users, ids).Error; err != nil {
+					return err
+				}
+			}
+			if err := tx.Model(&m).Omit("Assignees.*").Association("Assignees").Replace(users); err != nil {
+				return err
+			}
 		}
 		if len(addTagIDs) == 0 {
 			return nil
@@ -481,6 +498,30 @@ func validateTaskReferences(tx *gorm.DB, task *domain.Task, assigneeIDs, tagIDs 
 		return domain.ErrInvalidAssigneeReference
 	}
 	return nil
+}
+
+const maxTaskDepth = 100
+
+func validateParentChain(tx *gorm.DB, task *domain.Task) error {
+	if task.ParentID == nil || task.ID == 0 {
+		return nil
+	}
+	current := *task.ParentID
+	for i := 0; i < maxTaskDepth; i++ {
+		if current == task.ID {
+			return domain.ErrInvalidParentReference
+		}
+		var parent persistence.Task
+		err := tx.Select("id", "parent_id").Where("id = ?", current).First(&parent).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && parent.ParentID == nil) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		current = *parent.ParentID
+	}
+	return domain.ErrInvalidParentReference
 }
 
 func validateTagReferences(tx *gorm.DB, spaceID uint, tagIDs []uint) error {

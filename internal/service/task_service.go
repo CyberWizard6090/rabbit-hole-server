@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"time"
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/http/pagination"
@@ -39,6 +40,8 @@ type CreateTaskParams struct {
 	AssigneeIDs  []uint
 	TagIDs       []uint
 	NewTagNames  []string
+	StartDate    *time.Time
+	DueDate      *time.Time
 	TimeEstimate int
 }
 
@@ -47,9 +50,20 @@ type UpdateTaskParams struct {
 	Description  *string
 	StatusID     *uint
 	Priority     *int
+	ParentID     domain.Nullable[uint]
+	StartDate    domain.Nullable[time.Time]
+	DueDate      domain.Nullable[time.Time]
 	TimeEstimate *int
+	AssigneeIDs  *[]uint
 	AddTagIDs    []uint
 	AddTagNames  []string
+}
+
+func checkDateRange(start, due *time.Time) error {
+	if start != nil && due != nil && due.Before(*start) {
+		return domain.ErrInvalidDateRange
+	}
+	return nil
 }
 
 type taskService struct {
@@ -90,6 +104,9 @@ func (s *taskService) resolveNewTags(ctx context.Context, spaceID uint, names []
 }
 
 func (s *taskService) CreateTask(ctx context.Context, userID uint, input CreateTaskParams) (*domain.Task, error) {
+	if err := checkDateRange(input.StartDate, input.DueDate); err != nil {
+		return nil, err
+	}
 	list, err := s.spaceRepo.GetListByID(ctx, input.ListID)
 	if err != nil {
 		return nil, fmt.Errorf("get list by id: %w", err)
@@ -119,6 +136,8 @@ func (s *taskService) CreateTask(ctx context.Context, userID uint, input CreateT
 		Title:        input.Title,
 		Description:  input.Description,
 		Priority:     input.Priority,
+		StartDate:    input.StartDate,
+		DueDate:      input.DueDate,
 		TimeEstimate: input.TimeEstimate,
 		Tags:         taskTags,
 	}
@@ -213,11 +232,26 @@ func (s *taskService) UpdateTask(ctx context.Context, id uint, params UpdateTask
 	if params.Priority != nil {
 		task.Priority = *params.Priority
 	}
+	if params.ParentID.Set {
+		if params.ParentID.Value != nil && *params.ParentID.Value == task.ID {
+			return nil, domain.ErrInvalidParentReference
+		}
+		task.ParentID = params.ParentID.Value
+	}
+	if params.StartDate.Set {
+		task.StartDate = params.StartDate.Value
+	}
+	if params.DueDate.Set {
+		task.DueDate = params.DueDate.Value
+	}
+	if err := checkDateRange(task.StartDate, task.DueDate); err != nil {
+		return nil, err
+	}
 	if params.TimeEstimate != nil {
 		task.TimeEstimate = *params.TimeEstimate
 	}
 
-	if err := s.repo.Update(ctx, task, tagIDsToAdd); err != nil {
+	if err := s.repo.Update(ctx, task, tagIDsToAdd, params.AssigneeIDs); err != nil {
 		return nil, err
 	}
 

@@ -13,6 +13,7 @@ var (
 	ErrInvalidParentReference   = errors.New("parent task does not belong to task list")
 	ErrInvalidTagReference      = errors.New("tag does not belong to task space")
 	ErrInvalidAssigneeReference = errors.New("assignee does not belong to task workspace")
+	ErrInvalidDateRange         = errors.New("due date must not be before start date")
 )
 
 type Task struct {
@@ -41,6 +42,6 @@ type TaskRepository interface {
 	List(ctx context.Context, listID uint, query TaskQuery, params pagination.Params) ([]Task, bool, bool, error)
 	Count(ctx context.Context, listID uint, filter TaskFilter) (int64, error)
 	GetByID(ctx context.Context, id uint) (*Task, error)
-	Update(ctx context.Context, task *Task, addTagIDs []uint) error
+	Update(ctx context.Context, task *Task, addTagIDs []uint, replaceAssigneeIDs *[]uint) error
 	Delete(ctx context.Context, id uint) error
 }

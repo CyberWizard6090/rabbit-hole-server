@@ -417,26 +417,27 @@ func (m *tagRepositoryMock) Merge(_ context.Context, spaceID, sourceTagID, targe
 }
 
 type taskRepositoryMock struct {
-	task        *domain.Task
-	tasks       []domain.Task
-	hasNext     bool
-	hasPrev     bool
-	listQuery   domain.TaskQuery
-	total       int64
-	listParams  pagination.Params
-	listCalled  bool
-	getErr      error
-	createErr   error
-	updateErr   error
-	deleteErr   error
-	addTagsErr  error
-	createdTask *domain.Task
-	assigneeIDs []uint
-	tagIDs      []uint
-	updatedTask *domain.Task
-	deletedID   uint
-	addedTaskID uint
-	addedTagIDs []uint
+	replacedAssignees *[]uint
+	task              *domain.Task
+	tasks             []domain.Task
+	hasNext           bool
+	hasPrev           bool
+	listQuery         domain.TaskQuery
+	total             int64
+	listParams        pagination.Params
+	listCalled        bool
+	getErr            error
+	createErr         error
+	updateErr         error
+	deleteErr         error
+	addTagsErr        error
+	createdTask       *domain.Task
+	assigneeIDs       []uint
+	tagIDs            []uint
+	updatedTask       *domain.Task
+	deletedID         uint
+	addedTaskID       uint
+	addedTagIDs       []uint
 }
 
 func (m *taskRepositoryMock) Create(_ context.Context, task *domain.Task, assigneeIDs []uint, tagIDs []uint) error {
@@ -457,7 +458,8 @@ func (m *taskRepositoryMock) List(_ context.Context, _ uint, query domain.TaskQu
 func (m *taskRepositoryMock) GetByID(_ context.Context, id uint) (*domain.Task, error) {
 	return m.task, m.getErr
 }
-func (m *taskRepositoryMock) Update(_ context.Context, task *domain.Task, addTagIDs []uint) error {
+func (m *taskRepositoryMock) Update(_ context.Context, task *domain.Task, addTagIDs []uint, replaceAssigneeIDs *[]uint) error {
+	m.replacedAssignees = replaceAssigneeIDs
 	m.updatedTask = task
 	m.addedTaskID = task.ID
 	if len(addTagIDs) > 0 {
