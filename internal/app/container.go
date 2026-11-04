@@ -36,6 +36,7 @@ type Container struct {
 	ListHandler      *handler.ListHandler
 
 	ContactHandler *handler.ContactHandler
+	SearchHandler  *handler.SearchHandler
 	SpaceHandler   *handler.SpaceHandler
 	StatusHandler  *handler.StatusHandler
 	TagHandler     *handler.TagHandler
@@ -144,6 +145,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender)
 		UserHandler:         handler.NewUserHandler(userService),
 
 		ContactHandler:    handler.NewContactHandler(contactService),
+		SearchHandler:     handler.NewSearchHandler(service.NewSearchService(repository.NewSearchRepository(db))),
 		SpaceHandler:      handler.NewSpaceHandler(spaceServ),
 		StatusHandler:     handler.NewStatusHandler(statusServ),
 		TagHandler:        handler.NewTagHandler(tagService),

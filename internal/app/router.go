@@ -160,6 +160,10 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						inWorkspace(domain.PermWorkspaceDelete),
 						deps.WorkspaceHandler.Delete)
 
+					workspaces.GET("/:workspace_id/search",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.SearchHandler.Search)
+
 					workspaces.POST("/:workspace_id/images",
 						inWorkspace(domain.PermTaskUpdate),
 						uploadLimiter, deps.FileHandler.UploadImage)
