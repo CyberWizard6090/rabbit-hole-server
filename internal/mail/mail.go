@@ -35,7 +35,7 @@ func parseAddress(raw string) (*mail.Address, error) {
 	}
 	addr, err := mail.ParseAddress(raw)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidMessage, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidMessage, err)
 	}
 	return addr, nil
 }
