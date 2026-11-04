@@ -57,7 +57,7 @@ relies on:
   `{items, next_cursor, prev_cursor, has_next, has_prev}`, plus `total_count` with `with_total=true`).
   `GET /lists/{id}/tasks` also takes `sort` (e.g. `-priority,due_date`, NULLs last) and filters
   (`q`, `status_id`, `priority`, `tag_id`, `no_tags`, `assignee_id`, `unassigned`, `created_*`,
-  `due_*`, `start_*`, `has_due`; dates are UTC `YYYY-MM-DD`); invalid values answer 400
+  `due_*`, `start_*`, `has_due`, `has_open_checklist_items`; dates are UTC `YYYY-MM-DD`); invalid values answer 400
   `INVALID_SORT` / `INVALID_FILTER`, and a cursor reused with another sort/filter set answers 400
   `INVALID_PAGINATION`. See `docs/openapi.yaml`. Contact and space lists use `page`
   (1-10000) and `limit` (1-100, default 10). Out-of-range values are rejected with 400
@@ -83,6 +83,8 @@ relies on:
   when, optional assignee). Up to 20 checklists per task and 200 items per checklist; changing the order
   is one call with the full list of ids (`PUT .../order`). Everything needs `task.update`, reading needs
   `task.read`. Creating and deleting checklists and resolving or reopening items go to the activity log.
+  Every task carries `checklist_items_total` / `checklist_items_resolved` (a "2/5" badge, computed in SQL,
+  subtasks not counted); the task list filter `has_open_checklist_items` keeps tasks with / without open items.
 - **Task order**: every task has an integer `position` within its list; new tasks go to the end and
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.

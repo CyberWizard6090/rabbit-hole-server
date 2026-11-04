@@ -66,6 +66,8 @@ type TaskFilter struct {
 	StartFrom   *time.Time
 	StartTo     *time.Time
 	HasDue      *bool
+
+	HasOpenChecklistItems *bool
 }
 
 type TaskQuery struct {
@@ -150,6 +152,9 @@ func (q TaskQuery) FilterSignature() string {
 	}
 	if f.HasDue != nil {
 		add("has_due", strconv.FormatBool(*f.HasDue))
+	}
+	if f.HasOpenChecklistItems != nil {
+		add("has_open_checklist_items", strconv.FormatBool(*f.HasOpenChecklistItems))
 	}
 	if b.Len() == 0 {
 		return ""

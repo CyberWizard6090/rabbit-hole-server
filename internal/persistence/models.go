@@ -202,4 +202,7 @@ type Task struct {
 
 	SortStatusPosition int     `gorm:"->;-:migration"`
 	SortAssignee       *string `gorm:"->;-:migration"`
+
+	ChecklistItemsTotal    int `gorm:"->;-:migration"`
+	ChecklistItemsResolved int `gorm:"->;-:migration"`
 }
