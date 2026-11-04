@@ -151,6 +151,7 @@ func taskToDomain(t persistence.Task) domain.Task {
 		UserID: t.UserID, StartDate: t.StartDate, DueDate: t.DueDate,
 		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent, Position: t.Position,
 		SortStatusPosition: t.SortStatusPosition, SortAssignee: t.SortAssignee,
+		ChecklistItemsTotal: t.ChecklistItemsTotal, ChecklistItemsResolved: t.ChecklistItemsResolved,
 		Assignees: mapSlice(t.Assignees, userToDomain),
 		Tags:      mapSlice(t.Tags, tagToDomain),
 	}

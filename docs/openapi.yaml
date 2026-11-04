@@ -955,7 +955,12 @@ paths:
         **Filters** are combined with AND; list values are comma separated (or repeated parameters), at most
         100 values. Dates are `YYYY-MM-DD`, interpreted as UTC calendar days and inclusive on both ends.
         Invalid values return `400 INVALID_FILTER` with `fields` keyed by parameter name. A `status_id` that does
-        not belong to the list simply matches nothing.
+        not belong to the list simply matches nothing. `has_open_checklist_items=true` keeps tasks with at least
+        one unresolved checklist item; `false` keeps tasks without any (including tasks without checklists).
+
+        Every task, here and in all other task responses and realtime events, carries `checklist_items_total`
+        and `checklist_items_resolved` (items of all checklists of the task, 0 without checklists; subtasks
+        are not counted); see the `Task` schema.
 
         **Cursors** are bound to the list, the effective `sort` and the filters: a cursor used with a different
         `sort` or filter set returns `400 INVALID_PAGINATION`. Changing only `limit` or `with_total` is allowed.
@@ -981,6 +986,7 @@ paths:
         - {name: start_from, in: query, required: false, description: "Starts on or after this UTC day.", schema: {type: string, format: date}}
         - {name: start_to, in: query, required: false, description: "Starts on or before this UTC day.", schema: {type: string, format: date}}
         - {name: has_due, in: query, required: false, description: "`true`/`false`: task has / has no due date.", schema: {type: boolean}}
+        - {name: has_open_checklist_items, in: query, required: false, description: "`true`/`false`: task has / has no unresolved checklist items.", schema: {type: boolean}}
         - {name: with_total, in: query, required: false, description: "`true`: include `total_count` (number of tasks matching the filters, ignoring cursor and limit).", schema: {type: boolean}}
       responses:
         '200': {$ref: '#/components/responses/Ok'}
@@ -1617,6 +1623,14 @@ components:
         color: {type: string}
         position: {type: integer, minimum: 1}
         type: {type: integer, minimum: 1, maximum: 3}
+    Task:
+      type: object
+      description: Task as returned by every task endpoint, the dashboard and realtime events (only the progress fields are described here).
+      properties:
+        id: {type: integer}
+        position: {type: integer}
+        checklist_items_total: {type: integer, minimum: 0, description: "Number of items over all checklists of the task; 0 without checklists. Subtasks are not counted."}
+        checklist_items_resolved: {type: integer, minimum: 0, description: "Number of resolved items; never above checklist_items_total."}
     CreateTaskRequest:
       type: object
       required: [title, status_id]

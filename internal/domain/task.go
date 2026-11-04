@@ -38,6 +38,9 @@ type Task struct {
 	TimeSpent    int        `json:"time_spent"`
 	Position     int64      `json:"position"`
 
+	ChecklistItemsTotal    int `json:"checklist_items_total"`
+	ChecklistItemsResolved int `json:"checklist_items_resolved"`
+
 	SortStatusPosition int     `json:"-"`
 	SortAssignee       *string `json:"-"`
 }
