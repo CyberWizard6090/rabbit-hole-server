@@ -288,3 +288,29 @@ CREATE TABLE task_assignees (
     CONSTRAINT fk_task_assignees_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 CREATE INDEX idx_task_assignees_user_id ON task_assignees (user_id);
+
+CREATE TABLE task_comments (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    deleted_at TIMESTAMPTZ,
+    task_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    body TEXT NOT NULL,
+    CONSTRAINT chk_task_comments_body_not_blank CHECK (btrim(body) <> ''),
+    CONSTRAINT fk_task_comments_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+    CONSTRAINT fk_task_comments_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_task_comments_deleted_at ON task_comments (deleted_at);
+CREATE INDEX idx_task_comments_task_id_id ON task_comments (task_id, id) WHERE deleted_at IS NULL;
+CREATE TRIGGER trg_task_comments_updated_at BEFORE UPDATE ON task_comments
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TABLE task_comment_mentions (
+    comment_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    PRIMARY KEY (comment_id, user_id),
+    CONSTRAINT fk_task_comment_mentions_comment FOREIGN KEY (comment_id) REFERENCES task_comments (id) ON DELETE CASCADE,
+    CONSTRAINT fk_task_comment_mentions_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+CREATE INDEX idx_task_comment_mentions_user_id ON task_comment_mentions (user_id);

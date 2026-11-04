@@ -12,6 +12,10 @@ const (
 	EventTaskCreated = "task.created"
 	EventTaskUpdated = "task.updated"
 	EventTaskDeleted = "task.deleted"
+
+	EventCommentCreated = "comment.created"
+	EventCommentUpdated = "comment.updated"
+	EventCommentDeleted = "comment.deleted"
 )
 
 type Event struct {
@@ -21,8 +25,11 @@ type Event struct {
 	ListID  uint         `json:"list_id,omitempty"`
 	TaskID  uint         `json:"task_id,omitempty"`
 	Task    *domain.Task `json:"task,omitempty"`
-	ActorID uint         `json:"actor_id,omitempty"`
-	At      time.Time    `json:"at"`
+
+	CommentID uint            `json:"comment_id,omitempty"`
+	Comment   *domain.Comment `json:"comment,omitempty"`
+	ActorID   uint            `json:"actor_id,omitempty"`
+	At        time.Time       `json:"at"`
 }
 
 func ListTopic(listID uint) string   { return "list:" + strconv.FormatUint(uint64(listID), 10) }

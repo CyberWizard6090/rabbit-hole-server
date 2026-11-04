@@ -30,6 +30,7 @@ tags:
   - name: lists
   - name: statuses
   - name: tasks
+  - name: comments
   - name: realtime
 paths:
   /auth/register:
@@ -909,6 +910,79 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/comments:
+    get:
+      tags: [comments]
+      summary: "List the comments of a task, oldest first"
+      description: "Offset pagination (`page`, `limit`); the response carries `pagination` like the other offset lists."
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+        - {name: page, in: query, required: false, schema: {type: integer, minimum: 1}}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [comments]
+      summary: "Comment on a task"
+      description: "`mention_user_ids` lists the users @mentioned in `body` (at most 50, each a member of the task's workspace); the client sends them because the server does not parse the body. Needs `task.update`, so guests cannot comment."
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateCommentRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/comments/{comment_id}:
+    patch:
+      tags: [comments]
+      summary: "Edit a comment (author only)"
+      description: "`mention_user_ids` replaces the whole list of mentions (`[]` clears it). The comment then has `edited: true`."
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+        - {name: comment_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateCommentRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [comments]
+      summary: "Delete a comment (author, or anyone with task.delete)"
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+        - {name: comment_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
   /tasks/{task_id}/move:
     post:
       tags: [tasks]
@@ -1136,6 +1210,17 @@ components:
         start_date: {type: string, format: date-time, nullable: true}
         due_date: {type: string, format: date-time, nullable: true, description: Must not be before start_date (400 INVALID_DATE_RANGE).}
         time_estimate: {type: integer, minimum: 0, description: Seconds.}
+    CreateCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body: {type: string, minLength: 1, maxLength: 20000, description: "Stored as sent (after trimming); the client decides the format."}
+        mention_user_ids: {type: array, maxItems: 50, items: {type: integer}}
+    UpdateCommentRequest:
+      type: object
+      properties:
+        body: {type: string, minLength: 1, maxLength: 20000}
+        mention_user_ids: {type: array, maxItems: 50, items: {type: integer}}
     MoveTaskRequest:
       type: object
       properties:
