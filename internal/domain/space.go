@@ -35,6 +35,7 @@ type List struct {
 	FolderID       *uint        `json:"folder_id"`
 	Statuses       []TaskStatus `json:"statuses"`
 	Tasks          []Task       `json:"tasks"`
+	TaskCount      int          `json:"task_count"`
 	ParentStatusID *uint        `json:"parent_status_id,omitempty"`
 }
 
@@ -77,7 +78,7 @@ type SpaceRepository interface {
 	Update(ctx context.Context, space *Space) error
 	Delete(ctx context.Context, id uint) error
 	GetAll(ctx context.Context, workspaceID uint, limit, offset int) ([]Space, int64, error)
-	GetDashboard(ctx context.Context, spaceID uint) (*Space, error)
+	GetDashboard(ctx context.Context, spaceID uint, tasksPerList int) (*Space, error)
 	CreateStatus(ctx context.Context, status *TaskStatus) error
 	CreateTag(ctx context.Context, tag *Tag) error
 
