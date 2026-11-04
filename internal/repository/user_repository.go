@@ -234,6 +234,13 @@ func (r *UserRepository) Anonymize(ctx context.Context, userID uint) error {
 		if err := tx.Exec("DELETE FROM task_assignees WHERE user_id = ?", userID).Error; err != nil {
 			return err
 		}
+		for _, table := range []string{
+			"notifications", "task_watchers", "notification_preferences", "notification_settings", "notification_channels",
+		} {
+			if err := tx.Exec("DELETE FROM "+table+" WHERE user_id = ?", userID).Error; err != nil {
+				return err
+			}
+		}
 		if err := tx.Exec("DELETE FROM task_comment_mentions WHERE user_id = ?", userID).Error; err != nil {
 			return err
 		}

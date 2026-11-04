@@ -21,6 +21,7 @@ type Config struct {
 	JWT            JWTConfig `envPrefix:"JWT_"`
 	Storage        StorageConfig
 	Mail           MailConfig
+	Notifications  NotificationConfig
 	AllowedOrigins []string `env:"ALLOWED_ORIGINS" envDefault:"http://127.0.0.1:3000" envSeparator:"," validate:"required,min=1,dive,url"`
 }
 
@@ -59,6 +60,11 @@ type MailConfig struct {
 	VerificationTTL      time.Duration `env:"EMAIL_VERIFICATION_TTL" envDefault:"48h" validate:"gt=0"`
 	ResetTTL             time.Duration `env:"PASSWORD_RESET_TTL" envDefault:"1h" validate:"gt=0"`
 	RequireVerifiedEmail bool          `env:"REQUIRE_VERIFIED_EMAIL" envDefault:"false"`
+}
+
+type NotificationConfig struct {
+	EmailPerHour int `env:"NOTIFICATION_EMAIL_PER_HOUR" envDefault:"30" validate:"gt=0"`
+	MaxPerUser   int `env:"NOTIFICATION_MAX_PER_USER" envDefault:"1000" validate:"gt=0"`
 }
 
 type S3Config struct {

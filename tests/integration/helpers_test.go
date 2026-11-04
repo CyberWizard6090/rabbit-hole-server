@@ -22,6 +22,7 @@ import (
 	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/mail"
 	"rabbit-hole-server/internal/persistence"
+	"rabbit-hole-server/internal/service"
 )
 
 var (
@@ -35,6 +36,8 @@ type TestContext struct {
 	Token  string
 	UserID uint
 	Mail   *mail.Memory
+
+	Notifications *service.NotificationDispatcher
 }
 
 func TestMain(m *testing.M) {
@@ -151,10 +154,13 @@ func newTestContextWith(t *testing.T, adjust func(cfg *config.Config)) *TestCont
 		t.Fatalf("create integration app dependencies: %v", err)
 	}
 
+	t.Cleanup(container.Notifications.Close)
+
 	return &TestContext{
-		DB:     integrationDB,
-		Router: app.SetupRouter(container, &cfg),
-		Mail:   outbox,
+		DB:            integrationDB,
+		Router:        app.SetupRouter(container, &cfg),
+		Mail:          outbox,
+		Notifications: container.Notifications,
 	}
 }
 

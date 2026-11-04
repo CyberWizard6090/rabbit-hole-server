@@ -158,7 +158,7 @@ func (s *taskService) CreateTask(ctx context.Context, userID uint, input CreateT
 	}
 	recordActivity(ctx, s.activity, domain.ActivityEntry{
 		TaskID: task.ID, ActorID: userID, Action: domain.ActivityTaskCreated,
-		NewValue: mustJSON(map[string]string{"title": task.Title}),
+		NewValue: createdTaskActivity(task.Title, input.AssigneeIDs),
 	})
 	return task, nil
 }
@@ -320,4 +320,12 @@ func (s *taskService) MoveTask(ctx context.Context, userID, taskID uint, params 
 	}
 	recordActivity(ctx, s.activity, diffTask(moved.ID, userID, before, snapshotTask(moved))...)
 	return moved, nil
+}
+
+func createdTaskActivity(title string, assigneeIDs []uint) json.RawMessage {
+	value := map[string]any{"title": title}
+	if len(assigneeIDs) > 0 {
+		value["assignee_ids"] = sortedIDs(assigneeIDs)
+	}
+	return mustJSON(value)
 }

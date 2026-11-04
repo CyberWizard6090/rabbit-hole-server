@@ -34,6 +34,7 @@ tags:
   - name: files
   - name: checklists
   - name: realtime
+  - name: notifications
 paths:
   /auth/register:
     post:
@@ -1063,7 +1064,7 @@ paths:
         Who changed what and when. Offset pagination (`page`, `limit`), like the comments list.
 
         `action` is `task.created`, `task.updated` (one entry per changed `field`), `task.moved` (the list
-        changed; `field` is `list_id`) or `comment.created`/`comment.updated`/`comment.deleted`, `checklist.created`/`checklist.deleted` and `checklist.item_resolved`/`checklist.item_reopened`.
+        changed; `field` is `list_id`) or `comment.created`/`comment.updated`/`comment.deleted`, `checklist.created`/`checklist.deleted` and `checklist.item_resolved`/`checklist.item_reopened`/`checklist.item_assigned`.
         Fields: `title`, `description`, `status_id`, `priority`, `start_date`, `due_date`, `time_estimate`,
         `parent_id`, `assignee_ids`, `tag_ids`, `list_id`. `old_value` and `new_value` are JSON (`null` means
         the value was empty); for `description` they are left out so long texts do not fill the log. Comment
@@ -1493,6 +1494,208 @@ paths:
         '101': {description: Switching Protocols}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/watchers:
+    get:
+      tags: [notifications]
+      summary: "Who watches a task"
+      description: "Returns `{watching, watchers}`: whether the caller watches the task and the public profiles of the active watchers who are still workspace members. The creator, assignees, commenters and mentioned users watch automatically."
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/watch:
+    put:
+      tags: [notifications]
+      summary: "Watch a task"
+      description: "Starts watching (also lifts an earlier explicit unwatch). Idempotent."
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [notifications]
+      summary: "Stop watching a task"
+      description: "The muted state is stored, so automatic rules (commenting, being mentioned or assigned) do not make the caller a watcher again. Mentions and assignments are still delivered. Idempotent."
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /notifications:
+    get:
+      tags: [notifications]
+      summary: "In-app inbox, newest first"
+      description: |
+        Offset pagination (`page`, `limit`). Entries about tasks the caller can no longer read are hidden.
+        Types: `mention`, `assigned`, `comment`, `status_changed`, `due_date_changed`. At most the latest
+        1000 entries per user are kept. `actor` is the public user projection; `payload` depends on the type
+        (`task_title`, `comment_excerpt`, `status_name`, `due_date`, `item_text`).
+      security:
+        - bearerAuth: []
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {name: unread, in: query, schema: {type: boolean}}
+        - {name: type, in: query, schema: {type: string}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+  /notifications/unread-count:
+    get:
+      tags: [notifications]
+      summary: "Unread counts, total and per type"
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+  /notifications/read:
+    post:
+      tags: [notifications]
+      summary: "Mark notifications as read"
+      description: 'Body `{"ids": [..]}` or `{"all": true}`, optionally narrowed with `"type"`. Entries of other users are ignored. Returns `{updated}`.'
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+  /notifications/{notification_id}:
+    delete:
+      tags: [notifications]
+      summary: "Delete a notification"
+      description: "404 for entries that do not belong to the caller."
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: notification_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /notifications/preferences:
+    get:
+      tags: [notifications]
+      summary: "Preference matrix (types x channels)"
+      description: |
+        One cell per type and channel: `enabled` (effective value), `default` (registry default; e-mail is on only
+        for `mention` and `assigned`, in-app for every type) and `usable` (the channel has a confirmed destination:
+        in-app always, e-mail while the account address is verified or an extra address is confirmed).
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+    put:
+      tags: [notifications]
+      summary: "Change preferences"
+      description: 'Partial list: `{"preferences": [{"type", "channel", "enabled"}]}`. Unknown type or channel is 400. Returns the full matrix.'
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+  /notifications/settings:
+    get:
+      tags: [notifications]
+      summary: "Notification settings"
+      description: "`{locale}`: the language of notification mails (`en` by default)."
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+    put:
+      tags: [notifications]
+      summary: "Change notification settings"
+      description: 'Body `{"locale": "en" | "ru"}`.'
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+  /notifications/channels:
+    get:
+      tags: [notifications]
+      summary: "Delivery destinations"
+      description: "The implicit `in_app` and account `email` entries (`implicit: true`; the account address is read from the account and is usable only while verified) followed by the extra addresses the caller added."
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [notifications]
+      summary: "Add an extra destination"
+      description: |
+        Body `{"kind": "email", "destination": "..."}`. A confirmation mail with a single-use token (valid 48 hours,
+        language from Accept-Language) goes to that address; nothing else is ever sent to it before it is confirmed.
+        At most 5 extra addresses per user (422). The same mailbox may be confirmed by different users. Rate limited.
+      security:
+        - bearerAuth: []
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
+  /notifications/channels/confirm:
+    post:
+      tags: [notifications]
+      summary: "Confirm an extra destination"
+      description: 'Public, authenticated by the emailed token: `{"token": "..."}`. The token works once. Rate limited to 20 requests per minute per client IP.'
+      security: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /notifications/channels/{channel_id}/resend:
+    post:
+      tags: [notifications]
+      summary: "Send the confirmation mail again"
+      description: "At most one mail per minute per channel (429); 409 when already confirmed; 404 for channels of other users."
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: channel_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '202': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /notifications/channels/{channel_id}:
+    delete:
+      tags: [notifications]
+      summary: "Remove an extra destination"
+      description: "Deliveries to it stop immediately. 404 for channels of other users."
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: channel_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}

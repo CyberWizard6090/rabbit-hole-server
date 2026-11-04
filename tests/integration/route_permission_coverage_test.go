@@ -13,17 +13,18 @@ import (
 
 var (
 	publicRoutes = map[string]string{
-		"POST /api/v1/auth/register":            "anonymous",
-		"POST /api/v1/auth/login":               "anonymous",
-		"POST /api/v1/auth/refresh":             "authenticated by refresh cookie",
-		"POST /api/v1/auth/logout":              "authenticated by refresh cookie",
-		"POST /api/v1/auth/verify-email":        "authenticated by a single-use emailed token",
-		"POST /api/v1/auth/resend-verification": "anonymous; answers the same for every address",
-		"POST /api/v1/auth/forgot-password":     "anonymous; answers the same for every address",
-		"POST /api/v1/auth/reset-password":      "authenticated by a single-use emailed token",
-		"GET /api/v1/lists/:list_id/events":     "authenticated by a single-use ticket issued after a permission check",
-		"GET /api/v1/spaces/:space_id/events":   "authenticated by a single-use ticket issued after a permission check",
-		"GET /api/v1/images/:public_id":         "editor images and avatars are public by design; the id is a random 128-bit value",
+		"POST /api/v1/auth/register":                  "anonymous",
+		"POST /api/v1/auth/login":                     "anonymous",
+		"POST /api/v1/auth/refresh":                   "authenticated by refresh cookie",
+		"POST /api/v1/auth/logout":                    "authenticated by refresh cookie",
+		"POST /api/v1/auth/verify-email":              "authenticated by a single-use emailed token",
+		"POST /api/v1/auth/resend-verification":       "anonymous; answers the same for every address",
+		"POST /api/v1/auth/forgot-password":           "anonymous; answers the same for every address",
+		"POST /api/v1/auth/reset-password":            "authenticated by a single-use emailed token",
+		"POST /api/v1/notifications/channels/confirm": "authenticated by a single-use emailed token; answers the same for every address",
+		"GET /api/v1/lists/:list_id/events":           "authenticated by a single-use ticket issued after a permission check",
+		"GET /api/v1/spaces/:space_id/events":         "authenticated by a single-use ticket issued after a permission check",
+		"GET /api/v1/images/:public_id":               "editor images and avatars are public by design; the id is a random 128-bit value",
 	}
 	selfScopedRoutes = map[string]string{
 		"GET /api/v1/profile":                 "caller's own profile",
@@ -39,6 +40,19 @@ var (
 		"DELETE /api/v1/contacts/:contact_id": "scoped to caller in SQL",
 		"POST /api/v1/workspaces":             "creates a workspace owned by the caller",
 		"GET /api/v1/workspaces":              "lists the caller's workspaces",
+
+		"GET /api/v1/notifications":                              "caller's own inbox; entries about unreadable tasks are hidden",
+		"GET /api/v1/notifications/unread-count":                 "caller's own unread counts",
+		"POST /api/v1/notifications/read":                        "scoped to the caller in SQL",
+		"DELETE /api/v1/notifications/:notification_id":          "scoped to the caller in SQL; others get 404",
+		"GET /api/v1/notifications/preferences":                  "caller's own preferences",
+		"PUT /api/v1/notifications/preferences":                  "caller's own preferences",
+		"GET /api/v1/notifications/settings":                     "caller's own notification settings",
+		"PUT /api/v1/notifications/settings":                     "caller's own notification settings",
+		"GET /api/v1/notifications/channels":                     "caller's own delivery destinations",
+		"POST /api/v1/notifications/channels":                    "adds a destination to the caller's own account",
+		"POST /api/v1/notifications/channels/:channel_id/resend": "scoped to the caller in SQL; others get 404",
+		"DELETE /api/v1/notifications/channels/:channel_id":      "scoped to the caller in SQL; others get 404",
 	}
 )
 
@@ -70,7 +84,7 @@ func buildRouteFixture(t *testing.T, tc *TestContext, token string, userID uint)
 
 	return routeFixture{params: map[string]string{
 		"workspace_id": itoa(ws), "space_id": itoa(sp), "folder_id": itoa(fo), "list_id": itoa(li),
-		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "attachment_id": itoa(att), "checklist_id": itoa(cl), "item_id": itoa(it), "user_id": itoa(userID), "contact_id": itoa(userID),
+		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "attachment_id": itoa(att), "checklist_id": itoa(cl), "item_id": itoa(it), "user_id": itoa(userID), "contact_id": itoa(userID), "notification_id": "1", "channel_id": "1",
 	}}
 }
 

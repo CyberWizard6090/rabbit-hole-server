@@ -11,12 +11,14 @@ import (
 
 	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/realtime"
+	"rabbit-hole-server/internal/service"
 )
 
 type App struct {
 	router    *gin.Engine
 	realtime  *realtime.Hub
 	closeMail func()
+	notifier  *service.NotificationDispatcher
 }
 
 func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
@@ -25,7 +27,7 @@ func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("create app dependencies: %w", err)
 	}
 	r := SetupRouter(container, cfg)
-	return &App{router: r, realtime: container.Realtime, closeMail: container.CloseMail}, nil
+	return &App{router: r, realtime: container.Realtime, closeMail: container.CloseMail, notifier: container.Notifications}, nil
 }
 
 func (a *App) Run(addr string) error {
@@ -39,6 +41,9 @@ func (a *App) Handler() http.Handler {
 func (a *App) Close(ctx context.Context) error {
 	if a.realtime != nil {
 		a.realtime.Close()
+	}
+	if a.notifier != nil {
+		a.notifier.Close()
 	}
 	if a.closeMail != nil {
 		a.closeMail()

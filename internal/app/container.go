@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -29,6 +30,8 @@ type Container struct {
 	ActivityHandler     *handler.ActivityHandler
 	ChecklistHandler    *handler.ChecklistHandler
 	FileHandler         *handler.FileHandler
+	NotificationHandler *handler.NotificationHandler
+	Notifications       *service.NotificationDispatcher
 	UserHandler         *handler.UserHandler
 
 	WorkspaceHandler *handler.WorkspaceHandler
@@ -102,14 +105,16 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender)
 		return nil, fmt.Errorf("create task cursor codec: %w", err)
 	}
 	activityService := service.NewActivityService(repository.NewActivityRepository(db))
-	taskService := service.NewTaskService(taskRepo, spaceRepo, tagService, cursorCodec, activityService)
+	permissionChecker := repository.NewPermissionChecker(db)
+	notifications := newNotifications(db, cfg, sender, permissionChecker)
+	activityRecorder := service.NewNotifyingRecorder(activityService, notifications.dispatcher)
+	taskService := service.NewTaskService(taskRepo, spaceRepo, tagService, cursorCodec, activityRecorder)
 	userService := service.NewUserService(userRepo)
 	contactService := service.NewContactService(contactRepo)
 	folderService := service.NewFolderService(folderRepo)
 	workspaceService := service.NewWorkspaceService(workspaceRepo)
 
-	permissionChecker := repository.NewPermissionChecker(db)
-	commentService := service.NewCommentService(repository.NewCommentRepository(db), permissionChecker, activityService)
+	commentService := service.NewCommentService(repository.NewCommentRepository(db), permissionChecker, activityRecorder)
 
 	store, err := storage.New(context.Background(), cfg.Storage)
 	if err != nil {
@@ -137,8 +142,10 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender)
 		AuthHandler:         handler.NewAuthHandler(authServ, cfg.SecureCookies()),
 		AccountEmailHandler: handler.NewAccountEmailHandler(accountEmail),
 		ActivityHandler:     handler.NewActivityHandler(activityService),
-		ChecklistHandler:    handler.NewChecklistHandler(service.NewChecklistService(repository.NewChecklistRepository(db), activityService)),
+		ChecklistHandler:    handler.NewChecklistHandler(service.NewChecklistService(repository.NewChecklistRepository(db), activityRecorder)),
 		FileHandler:         handler.NewFileHandler(fileService),
+		NotificationHandler: notifications.handler,
+		Notifications:       notifications.dispatcher,
 		CommentHandler:      handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
 		TaskHandler:         handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
 		UserHandler:         handler.NewUserHandler(userService),
@@ -156,4 +163,34 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender)
 		Realtime:        hub,
 		RealtimeHandler: handler.NewRealtimeHandler(hub, tickets, permissionChecker, cfg.AllowedOrigins),
 	}, nil
+}
+
+type notificationParts struct {
+	dispatcher *service.NotificationDispatcher
+	handler    *handler.NotificationHandler
+}
+
+func newNotifications(db *gorm.DB, cfg *config.Config, sender mail.Sender, permissions service.PermissionChecker) notificationParts {
+	inbox := repository.NewNotificationRepository(db)
+	source := repository.NewNotificationSourceRepository(db)
+	settings := repository.NewNotificationSettingsRepository(db)
+	watchers := repository.NewWatcherRepository(db)
+	channelRepo := repository.NewNotificationChannelRepository(db)
+
+	throttle := service.NewEmailThrottle(cfg.Notifications.EmailPerHour, time.Hour)
+	registry := service.NewChannelRegistry(
+		service.NewInAppChannel(inbox, cfg.Notifications.MaxPerUser),
+		service.NewEmailChannel(source, channelRepo, sender, cfg.Mail.FrontendURL, throttle),
+	)
+	dispatcher := service.NewNotificationDispatcher(service.NotificationDispatcherDeps{
+		Source: source, Watchers: watchers, Settings: settings, Comments: repository.NewCommentRepository(db),
+		Perms: permissions, Channels: registry, Logger: slog.Default(),
+	})
+	return notificationParts{
+		dispatcher: dispatcher,
+		handler: handler.NewNotificationHandler(
+			service.NewNotificationService(inbox, settings, watchers, registry),
+			service.NewNotificationChannelService(channelRepo, source, registry),
+		),
+	}
 }
