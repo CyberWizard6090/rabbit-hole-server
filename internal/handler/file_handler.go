@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/dto"
 	contextutil "rabbit-hole-server/internal/http/context"
 	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/response"
@@ -43,6 +44,8 @@ func (h *FileHandler) handleError(c *gin.Context, code string, err error) {
 	switch {
 	case errors.As(err, &tooBig), errors.Is(err, domain.ErrFileTooLarge):
 		response.HandleError(c, httperrors.New("FILE_TOO_LARGE", "file is larger than the allowed size", http.StatusRequestEntityTooLarge))
+	case errors.Is(err, domain.ErrRehostRefused):
+		response.HandleError(c, httperrors.UnprocessableEntity("REHOST_REFUSED", "the remote image cannot be rehosted", err))
 	case errors.Is(err, domain.ErrEmptyFile):
 		response.HandleError(c, httperrors.BadRequest("FILE_EMPTY", "file is empty", err))
 	case errors.Is(err, domain.ErrUnsupportedFileType):
@@ -191,6 +194,32 @@ func (h *FileHandler) UploadImage(c *gin.Context) {
 	result, err := h.service.UploadImage(c.Request.Context(), uid, workspaceID, upload)
 	if err != nil {
 		h.handleError(c, "IMAGE_UPLOAD_FAILED", err)
+		return
+	}
+	response.Success(c, http.StatusCreated, gin.H{
+		"url": result.URL, "content_type": result.ContentType, "size": result.Size,
+	})
+}
+
+func (h *FileHandler) RehostImage(c *gin.Context) {
+	uid, err := contextutil.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
+	workspaceID, ok := parseUintParam(c, "workspace_id")
+	if !ok {
+		return
+	}
+	var req dto.RehostImageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c, err)
+		return
+	}
+
+	result, err := h.service.RehostImage(c.Request.Context(), uid, workspaceID, req.URL)
+	if err != nil {
+		h.handleError(c, "IMAGE_REHOST_FAILED", err)
 		return
 	}
 	response.Success(c, http.StatusCreated, gin.H{

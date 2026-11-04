@@ -19,6 +19,7 @@ var (
 	ErrEmptyFile           = errors.New("file is empty")
 	ErrUnsupportedFileType = errors.New("file type is not supported")
 	ErrInvalidImage        = errors.New("file is not a valid image")
+	ErrRehostRefused       = errors.New("the remote image cannot be rehosted")
 	ErrTooManyAttachments  = errors.New("task already has the maximum number of attachments")
 	ErrFileForbidden       = errors.New("only the uploader or a user who can delete tasks may delete this file")
 )
