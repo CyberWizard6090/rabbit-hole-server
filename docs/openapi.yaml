@@ -795,7 +795,24 @@ paths:
   /lists/{list_id}/tasks:
     get:
       tags: [tasks]
-      summary: "List tasks with keyset pagination, newest first. Responds with {items, next_cursor, prev_cursor, has_next, has_prev} instead of the page/pages envelope."
+      summary: "List tasks with keyset pagination, sorting and filters. Responds with {items, next_cursor, prev_cursor, has_next, has_prev, total_count?} instead of the page/pages envelope."
+      description: |
+        Without `sort`/filters tasks are returned newest first (`sort=-id`).
+
+        **Sorting.** `sort` is a comma separated list of up to 3 fields; a `-` prefix means descending.
+        Allowed fields: `id`, `title` (case-insensitive, first 100 characters), `status` (status position),
+        `priority`, `time_estimate`, `time_spent`, `start_date`, `due_date`, `created_at`, `updated_at`,
+        `assignee` (name of the alphabetically first assignee). Rows with NULL (no due/start date, no assignee)
+        always come last regardless of direction. `id` ascending is appended as the final tie-break unless `id`
+        is already in `sort`. Anything else returns `400 INVALID_SORT`.
+
+        **Filters** are combined with AND; list values are comma separated (or repeated parameters), at most
+        100 values. Dates are `YYYY-MM-DD`, interpreted as UTC calendar days and inclusive on both ends.
+        Invalid values return `400 INVALID_FILTER` with `fields` keyed by parameter name. A `status_id` that does
+        not belong to the list simply matches nothing.
+
+        **Cursors** are bound to the list, the effective `sort` and the filters: a cursor used with a different
+        `sort` or filter set returns `400 INVALID_PAGINATION`. Changing only `limit` or `with_total` is allowed.
       x-permission: task.read
       security:
         - bearerAuth: []
@@ -803,6 +820,22 @@ paths:
         - {name: list_id, in: path, required: true, schema: {type: integer}}
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
+        - {name: sort, in: query, required: false, description: "Comma separated fields, `-` prefix = descending, max 3. Default `-id`.", schema: {type: string, example: "-priority,due_date"}}
+        - {name: q, in: query, required: false, description: "Case-insensitive substring of the title (max 200 characters).", schema: {type: string}}
+        - {name: status_id, in: query, required: false, description: "Task status is any of these ids.", schema: {type: string, example: "3,4"}}
+        - {name: priority, in: query, required: false, description: "Priority is any of these values (1..5).", schema: {type: string, example: "1,2"}}
+        - {name: tag_id, in: query, required: false, description: "Task has any of these tags.", schema: {type: string, example: "5,7"}}
+        - {name: no_tags, in: query, required: false, description: "`true`: task has no tags (OR with `tag_id` when both are given).", schema: {type: boolean}}
+        - {name: assignee_id, in: query, required: false, description: "Task is assigned to any of these users.", schema: {type: string, example: "12"}}
+        - {name: unassigned, in: query, required: false, description: "`true`: task has no assignee (OR with `assignee_id` when both are given).", schema: {type: boolean}}
+        - {name: created_from, in: query, required: false, description: "Created on or after this UTC day.", schema: {type: string, format: date}}
+        - {name: created_to, in: query, required: false, description: "Created on or before this UTC day.", schema: {type: string, format: date}}
+        - {name: due_from, in: query, required: false, description: "Due on or after this UTC day; tasks without a due date never match.", schema: {type: string, format: date}}
+        - {name: due_to, in: query, required: false, description: "Due on or before this UTC day; tasks without a due date never match.", schema: {type: string, format: date}}
+        - {name: start_from, in: query, required: false, description: "Starts on or after this UTC day.", schema: {type: string, format: date}}
+        - {name: start_to, in: query, required: false, description: "Starts on or before this UTC day.", schema: {type: string, format: date}}
+        - {name: has_due, in: query, required: false, description: "`true`/`false`: task has / has no due date.", schema: {type: boolean}}
+        - {name: with_total, in: query, required: false, description: "`true`: include `total_count` (number of tasks matching the filters, ignoring cursor and limit).", schema: {type: boolean}}
       responses:
         '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}

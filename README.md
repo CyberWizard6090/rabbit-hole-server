@@ -42,8 +42,13 @@ relies on:
   issued before, so the frontend must treat a 401 as "sign in again".
 - **Members**: workspace members are managed under `/workspaces/:id/members`; only contacts can be
   added, and the owner cannot be re-roled, removed or leave.
-- **Pagination**: task lists use keyset pagination (`cursor`, `limit`; response is
-  `{items, next_cursor, prev_cursor, has_next, has_prev}`); contact and space lists use `page`
+- **Pagination**: task lists use keyset pagination (`cursor`, `limit`; the response is
+  `{items, next_cursor, prev_cursor, has_next, has_prev}`, plus `total_count` with `with_total=true`).
+  `GET /lists/{id}/tasks` also takes `sort` (e.g. `-priority,due_date`, NULLs last) and filters
+  (`q`, `status_id`, `priority`, `tag_id`, `no_tags`, `assignee_id`, `unassigned`, `created_*`,
+  `due_*`, `start_*`, `has_due`; dates are UTC `YYYY-MM-DD`); invalid values answer 400
+  `INVALID_SORT` / `INVALID_FILTER`, and a cursor reused with another sort/filter set answers 400
+  `INVALID_PAGINATION`. See `docs/openapi.yaml`. Contact and space lists use `page`
   (1-10000) and `limit` (1-100, default 10). Out-of-range values are rejected with 400
   `INVALID_PAGINATION`.
 - **Limits**: request body max 1 MiB (413). Auth rate limits per IP: register 5/min, login 10/min,

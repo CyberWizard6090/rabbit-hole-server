@@ -190,4 +190,7 @@ type Task struct {
 	DueDate      *time.Time
 	TimeEstimate int `gorm:"type:integer;not null;default:0"`
 	TimeSpent    int `gorm:"type:integer;not null;default:0"`
+
+	SortStatusPosition int     `gorm:"->;-:migration"`
+	SortAssignee       *string `gorm:"->;-:migration"`
 }

@@ -421,6 +421,8 @@ type taskRepositoryMock struct {
 	tasks       []domain.Task
 	hasNext     bool
 	hasPrev     bool
+	listQuery   domain.TaskQuery
+	total       int64
 	listParams  pagination.Params
 	listCalled  bool
 	getErr      error
@@ -443,8 +445,12 @@ func (m *taskRepositoryMock) Create(_ context.Context, task *domain.Task, assign
 	m.tagIDs = append([]uint(nil), tagIDs...)
 	return m.createErr
 }
-func (m *taskRepositoryMock) List(_ context.Context, _ uint, params pagination.Params) ([]domain.Task, bool, bool, error) {
+func (m *taskRepositoryMock) Count(_ context.Context, _ uint, _ domain.TaskFilter) (int64, error) {
+	return m.total, m.getErr
+}
+func (m *taskRepositoryMock) List(_ context.Context, _ uint, query domain.TaskQuery, params pagination.Params) ([]domain.Task, bool, bool, error) {
 	m.listCalled = true
+	m.listQuery = query
 	m.listParams = params
 	return m.tasks, m.hasNext, m.hasPrev, m.getErr
 }

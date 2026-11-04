@@ -44,6 +44,9 @@ func TestQueryIndexesAndTrigramExtensionExist(t *testing.T) {
 		  AND indexname IN (
 			'idx_task_statuses_list_position',
 			'idx_tasks_list_keyset',
+			'idx_tasks_list_id_id',
+			'idx_tasks_list_priority_id',
+			'idx_tasks_list_due_date_id',
 			'idx_user_sessions_user_id',
 			'uq_user_sessions_token_hash',
 			'uq_users_email',
@@ -54,8 +57,8 @@ func TestQueryIndexesAndTrigramExtensionExist(t *testing.T) {
 	`).Scan(&indexCount).Error; err != nil {
 		t.Fatalf("check query indexes: %v", err)
 	}
-	if indexCount != 8 {
-		t.Fatalf("query indexes found = %d, want 8", indexCount)
+	if indexCount != 11 {
+		t.Fatalf("query indexes found = %d, want 11", indexCount)
 	}
 
 	var extensionCount int64

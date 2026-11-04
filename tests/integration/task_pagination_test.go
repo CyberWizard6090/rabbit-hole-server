@@ -20,7 +20,7 @@ func TestTaskRepositoryCursorNavigationPostgres(t *testing.T) {
 	tc, listID, fixtureTasks := setupTaskPaginationFixture(t, 5)
 	repo := repository.NewTaskRepository(tc.DB)
 
-	first, hasNext, hasPrev, err := repo.List(context.Background(), listID, pagination.Params{Limit: 2})
+	first, hasNext, hasPrev, err := repo.List(context.Background(), listID, domain.TaskQuery{}, pagination.Params{Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestTaskRepositoryCursorNavigationPostgres(t *testing.T) {
 	}
 
 	nextCursor := integrationTaskCursor(t, listID, first[1], pagination.DirectionNext)
-	second, hasNext, hasPrev, err := repo.List(context.Background(), listID, pagination.Params{Limit: 2, Cursor: nextCursor})
+	second, hasNext, hasPrev, err := repo.List(context.Background(), listID, domain.TaskQuery{}, pagination.Params{Limit: 2, Cursor: nextCursor})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestTaskRepositoryCursorNavigationPostgres(t *testing.T) {
 	}
 
 	prevCursor := integrationTaskCursor(t, listID, second[0], pagination.DirectionPrev)
-	back, hasNext, hasPrev, err := repo.List(context.Background(), listID, pagination.Params{Limit: 2, Cursor: prevCursor})
+	back, hasNext, hasPrev, err := repo.List(context.Background(), listID, domain.TaskQuery{}, pagination.Params{Limit: 2, Cursor: prevCursor})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestTaskRepositoryCursorLastPageAndEmptyListPostgres(t *testing.T) {
 	tc, listID, fixtureTasks := setupTaskPaginationFixture(t, 3)
 	repo := repository.NewTaskRepository(tc.DB)
 
-	first, hasNext, hasPrev, err := repo.List(context.Background(), listID, pagination.Params{Limit: 2})
+	first, hasNext, hasPrev, err := repo.List(context.Background(), listID, domain.TaskQuery{}, pagination.Params{Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestTaskRepositoryCursorLastPageAndEmptyListPostgres(t *testing.T) {
 		t.Fatalf("first page flags: hasNext=%t hasPrev=%t", hasNext, hasPrev)
 	}
 
-	last, hasNext, hasPrev, err := repo.List(context.Background(), listID, pagination.Params{
+	last, hasNext, hasPrev, err := repo.List(context.Background(), listID, domain.TaskQuery{}, pagination.Params{
 		Limit:  2,
 		Cursor: integrationTaskCursor(t, listID, first[1], pagination.DirectionNext),
 	})
@@ -75,7 +75,7 @@ func TestTaskRepositoryCursorLastPageAndEmptyListPostgres(t *testing.T) {
 		t.Fatalf("last page flags: hasNext=%t hasPrev=%t", hasNext, hasPrev)
 	}
 
-	empty, hasNext, hasPrev, err := repo.List(context.Background(), listID+999999, pagination.Params{Limit: 2})
+	empty, hasNext, hasPrev, err := repo.List(context.Background(), listID+999999, domain.TaskQuery{}, pagination.Params{Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestTaskRepositoryCursorAfterAnchorDeletionPostgres(t *testing.T) {
 	tc, listID, fixtureTasks := setupTaskPaginationFixture(t, 4)
 	repo := repository.NewTaskRepository(tc.DB)
 
-	first, _, _, err := repo.List(context.Background(), listID, pagination.Params{Limit: 2})
+	first, _, _, err := repo.List(context.Background(), listID, domain.TaskQuery{}, pagination.Params{Limit: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestTaskRepositoryCursorAfterAnchorDeletionPostgres(t *testing.T) {
 		t.Fatalf("delete cursor anchor: %v", err)
 	}
 
-	next, hasNext, hasPrev, err := repo.List(context.Background(), listID, pagination.Params{Limit: 2, Cursor: cursor})
+	next, hasNext, hasPrev, err := repo.List(context.Background(), listID, domain.TaskQuery{}, pagination.Params{Limit: 2, Cursor: cursor})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestTaskRepositoryEmptyPreviousPageDoesNotAdvertiseNextPostgres(t *testing.
 	repo := repository.NewTaskRepository(tc.DB)
 	cursor := integrationRawTaskCursor(t, listID, fixtureTasks[0].CreatedAt.Add(time.Hour), 999999, pagination.DirectionPrev)
 
-	items, hasNext, hasPrev, err := repo.List(context.Background(), listID, pagination.Params{Limit: 2, Cursor: cursor})
+	items, hasNext, hasPrev, err := repo.List(context.Background(), listID, domain.TaskQuery{}, pagination.Params{Limit: 2, Cursor: cursor})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,12 +172,12 @@ func integrationTaskCursor(t *testing.T, listID uint, task domain.Task, directio
 
 func integrationRawTaskCursor(t *testing.T, listID uint, createdAt time.Time, id uint64, direction pagination.Direction) *pagination.Cursor {
 	t.Helper()
-	position := pagination.TaskCursorPosition{CreatedAt: createdAt, ID: id}
+	position := pagination.TaskCursorPosition{Keys: []json.RawMessage{json.RawMessage(fmt.Sprint(id))}}
 	rawPosition, err := json.Marshal(position)
 	if err != nil {
 		t.Fatal(err)
 	}
-	context := pagination.TaskCursorContext(listID)
+	context := domain.TaskQuery{}.CursorContext(listID)
 	return &pagination.Cursor{
 		Resource:  context.Resource,
 		Scope:     context.Scope,

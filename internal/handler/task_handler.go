@@ -13,6 +13,7 @@ import (
 	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/http/response"
+	"rabbit-hole-server/internal/http/taskquery"
 	"rabbit-hole-server/internal/realtime"
 	"rabbit-hole-server/internal/service"
 )
@@ -156,13 +157,19 @@ func (h *TaskHandler) List(c *gin.Context) {
 		return
 	}
 
-	params, err := pagination.ParseParams(c.Query("limit"), c.Query("cursor"), h.cursorCodec, pagination.TaskCursorContext(uint(listID)))
+	query, appErr := taskquery.Parse(c.Request.URL.Query())
+	if appErr != nil {
+		response.HandleError(c, appErr)
+		return
+	}
+
+	params, err := pagination.ParseParams(c.Query("limit"), c.Query("cursor"), h.cursorCodec, query.CursorContext(uint(listID)))
 	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_PAGINATION", "invalid pagination parameters", err))
 		return
 	}
 
-	tasks, err := h.service.ListTasks(c.Request.Context(), uint(listID), params)
+	tasks, err := h.service.ListTasks(c.Request.Context(), uint(listID), params, query)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("TASKS_FETCH_FAILED", "internal server error", err))
 		return

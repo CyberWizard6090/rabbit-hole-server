@@ -148,6 +148,7 @@ func taskToDomain(t persistence.Task) domain.Task {
 		ParentID: t.ParentID, Title: t.Title, Description: t.Description, Priority: t.Priority,
 		UserID: t.UserID, StartDate: t.StartDate, DueDate: t.DueDate,
 		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent,
+		SortStatusPosition: t.SortStatusPosition, SortAssignee: t.SortAssignee,
 		Assignees: mapSlice(t.Assignees, userToDomain),
 		Tags:      mapSlice(t.Tags, tagToDomain),
 	}
