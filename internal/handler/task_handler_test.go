@@ -50,6 +50,10 @@ func (s *taskHandlerServiceStub) DeleteTask(context.Context, uint) error {
 	return nil
 }
 
+func (s *taskHandlerServiceStub) MoveTask(context.Context, uint, service.MoveTaskParams) (*domain.Task, error) {
+	return nil, nil
+}
+
 func TestTaskHandlerListParsesCursorParams(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	codec, err := pagination.NewCodec([]byte("handler-cursor-secret-at-least-32-bytes"))

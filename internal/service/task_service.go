@@ -28,6 +28,14 @@ type TaskService interface {
 	GetTaskByID(ctx context.Context, taskID uint) (*domain.Task, error)
 	UpdateTask(ctx context.Context, id uint, params UpdateTaskParams) (*domain.Task, error)
 	DeleteTask(ctx context.Context, taskID uint) error
+	MoveTask(ctx context.Context, taskID uint, params MoveTaskParams) (*domain.Task, error)
+}
+
+type MoveTaskParams struct {
+	ListID   *uint
+	StatusID *uint
+	AfterID  *uint
+	BeforeID *uint
 }
 
 type CreateTaskParams struct {
@@ -260,4 +268,37 @@ func (s *taskService) UpdateTask(ctx context.Context, id uint, params UpdateTask
 
 func (s *taskService) DeleteTask(ctx context.Context, taskID uint) error {
 	return s.repo.Delete(ctx, taskID)
+}
+
+func (s *taskService) MoveTask(ctx context.Context, taskID uint, params MoveTaskParams) (*domain.Task, error) {
+	if params.AfterID != nil && params.BeforeID != nil {
+		return nil, domain.ErrInvalidMoveAnchor
+	}
+	for _, anchor := range []*uint{params.AfterID, params.BeforeID} {
+		if anchor != nil && *anchor == taskID {
+			return nil, domain.ErrInvalidMoveAnchor
+		}
+	}
+
+	task, err := s.repo.GetByID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+
+	target := domain.TaskMove{
+		ListID:   task.ListID,
+		StatusID: task.StatusID,
+		AfterID:  params.AfterID,
+		BeforeID: params.BeforeID,
+	}
+	if params.ListID != nil && *params.ListID != task.ListID {
+		if params.StatusID == nil {
+			return nil, domain.ErrInvalidStatusReference
+		}
+		target.ListID = *params.ListID
+	}
+	if params.StatusID != nil {
+		target.StatusID = *params.StatusID
+	}
+	return s.repo.Move(ctx, taskID, target)
 }

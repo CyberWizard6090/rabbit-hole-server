@@ -26,6 +26,7 @@ type TaskHandler struct {
 	service     service.TaskService
 	cursorCodec *pagination.Codec
 	publisher   TaskEventPublisher
+	permissions service.PermissionChecker
 }
 
 const invalidTaskIDMessage = "invalid task id"
@@ -42,6 +43,11 @@ func NewTaskHandler(
 
 func (h *TaskHandler) WithPublisher(publisher TaskEventPublisher) *TaskHandler {
 	h.publisher = publisher
+	return h
+}
+
+func (h *TaskHandler) WithPermissionChecker(checker service.PermissionChecker) *TaskHandler {
+	h.permissions = checker
 	return h
 }
 
@@ -256,5 +262,91 @@ func isInvalidTaskReference(err error) bool {
 	return errors.Is(err, domain.ErrInvalidStatusReference) ||
 		errors.Is(err, domain.ErrInvalidParentReference) ||
 		errors.Is(err, domain.ErrInvalidTagReference) ||
-		errors.Is(err, domain.ErrInvalidAssigneeReference)
+		errors.Is(err, domain.ErrInvalidAssigneeReference) ||
+		errors.Is(err, domain.ErrInvalidListReference) ||
+		errors.Is(err, domain.ErrInvalidMoveAnchor)
+}
+
+func (h *TaskHandler) Move(c *gin.Context) {
+	uid, err := contextutil.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
+
+	taskID, err := strconv.ParseUint(c.Param("task_id"), 10, 64)
+	if err != nil {
+		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_ID", invalidTaskIDMessage, err))
+		return
+	}
+
+	var req dto.MoveTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c, err)
+		return
+	}
+
+	before, err := h.service.GetTaskByID(c.Request.Context(), uint(taskID))
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			response.HandleError(c, httperrors.NotFound("TASK_NOT_FOUND", "task not found", err))
+			return
+		}
+		response.HandleError(c, httperrors.Internal("TASK_FETCH_FAILED", "internal server error", err))
+		return
+	}
+
+	if req.ListID != nil && *req.ListID != before.ListID {
+		if h.permissions == nil {
+			response.HandleError(c, httperrors.Internal("TASK_MOVE_FAILED", "internal server error", nil))
+			return
+		}
+		allowed, err := h.permissions.HasListPermission(c.Request.Context(), uid, *req.ListID, domain.PermTaskCreate)
+		if err != nil {
+			response.HandleError(c, httperrors.Internal("TASK_MOVE_FAILED", "internal server error", err))
+			return
+		}
+		if !allowed {
+			response.Forbidden(c, "")
+			return
+		}
+	}
+
+	task, err := h.service.MoveTask(c.Request.Context(), uint(taskID), service.MoveTaskParams{
+		ListID:   req.ListID,
+		StatusID: req.StatusID,
+		AfterID:  req.AfterID,
+		BeforeID: req.BeforeID,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrNotFound):
+			response.HandleError(c, httperrors.NotFound("TASK_NOT_FOUND", "task not found", err))
+		case errors.Is(err, domain.ErrTaskHasSubtasks):
+			response.HandleError(c, httperrors.Conflict("TASK_HAS_SUBTASKS", err.Error(), err))
+		case errors.Is(err, domain.ErrConcurrentMove):
+			response.HandleError(c, httperrors.Conflict("TASK_MOVE_CONFLICT", err.Error(), err))
+		case isInvalidTaskReference(err):
+			response.HandleError(c, httperrors.BadRequest("INVALID_TASK_REFERENCE", err.Error(), err))
+		default:
+			response.HandleError(c, httperrors.Internal("TASK_MOVE_FAILED", "internal server error", err))
+		}
+		return
+	}
+
+	if before.ListID != task.ListID {
+		if h.publisher != nil {
+			h.publisher.Publish(realtime.Event{
+				Type:    realtime.EventTaskDeleted,
+				SpaceID: before.SpaceID,
+				ListID:  before.ListID,
+				TaskID:  before.ID,
+				ActorID: uid,
+			})
+		}
+		h.publishTask(realtime.EventTaskCreated, uid, task)
+	} else {
+		h.publishTask(realtime.EventTaskUpdated, uid, task)
+	}
+	response.Success(c, http.StatusOK, task)
 }

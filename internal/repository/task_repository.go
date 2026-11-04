@@ -30,6 +30,14 @@ func (r *taskRepository) Create(ctx context.Context, task *domain.Task, assignee
 		if err := validateTaskReferences(tx, task, assigneeIDs, tagIDs); err != nil {
 			return err
 		}
+		if err := lockLists(tx, task.ListID); err != nil {
+			return err
+		}
+		last, err := lastPosition(tx, task.ListID, 0)
+		if err != nil {
+			return err
+		}
+		m.Position = last + positionStep
 		if len(assigneeIDs) > 0 {
 			var users []persistence.User
 			if err := tx.Find(&users, assigneeIDs).Error; err != nil {
@@ -176,6 +184,7 @@ var taskSortSpecs = map[domain.TaskSortField]taskSortSpec{
 	domain.TaskSortPriority:     {expr: "tasks.priority", kind: sortKindInt, param: "?"},
 	domain.TaskSortTimeEstimate: {expr: "tasks.time_estimate", kind: sortKindInt, param: "?"},
 	domain.TaskSortTimeSpent:    {expr: "tasks.time_spent", kind: sortKindInt, param: "?"},
+	domain.TaskSortPosition:     {expr: "tasks.position", kind: sortKindInt, param: "?"},
 	domain.TaskSortStartDate:    {expr: "tasks.start_date", kind: sortKindTime, nullable: true, param: "?"},
 	domain.TaskSortDueDate:      {expr: "tasks.due_date", kind: sortKindTime, nullable: true, param: "?"},
 	domain.TaskSortCreatedAt:    {expr: "tasks.created_at", kind: sortKindTime, param: "?"},

@@ -14,6 +14,10 @@ var (
 	ErrInvalidTagReference      = errors.New("tag does not belong to task space")
 	ErrInvalidAssigneeReference = errors.New("assignee does not belong to task workspace")
 	ErrInvalidDateRange         = errors.New("due date must not be before start date")
+	ErrInvalidListReference     = errors.New("target list does not belong to the task workspace")
+	ErrInvalidMoveAnchor        = errors.New("anchor task does not belong to the target list")
+	ErrConcurrentMove           = errors.New("task was changed by another request, retry the move")
+	ErrTaskHasSubtasks          = errors.New("task with subtasks cannot be moved to another list")
 )
 
 type Task struct {
@@ -32,6 +36,7 @@ type Task struct {
 	DueDate      *time.Time `json:"due_date"`
 	TimeEstimate int        `json:"time_estimate"`
 	TimeSpent    int        `json:"time_spent"`
+	Position     int64      `json:"position"`
 
 	SortStatusPosition int     `json:"-"`
 	SortAssignee       *string `json:"-"`
@@ -44,4 +49,12 @@ type TaskRepository interface {
 	GetByID(ctx context.Context, id uint) (*Task, error)
 	Update(ctx context.Context, task *Task, addTagIDs []uint, replaceAssigneeIDs *[]uint) error
 	Delete(ctx context.Context, id uint) error
+	Move(ctx context.Context, id uint, target TaskMove) (*Task, error)
+}
+
+type TaskMove struct {
+	ListID   uint
+	StatusID uint
+	AfterID  *uint
+	BeforeID *uint
 }

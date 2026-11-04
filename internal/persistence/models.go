@@ -188,8 +188,9 @@ type Task struct {
 	Tags         []Tag  `gorm:"many2many:task_tags;constraint:OnDelete:CASCADE"`
 	StartDate    *time.Time
 	DueDate      *time.Time
-	TimeEstimate int `gorm:"type:integer;not null;default:0"`
-	TimeSpent    int `gorm:"type:integer;not null;default:0"`
+	TimeEstimate int   `gorm:"type:integer;not null;default:0"`
+	TimeSpent    int   `gorm:"type:integer;not null;default:0"`
+	Position     int64 `gorm:"type:bigint;not null"`
 
 	SortStatusPosition int     `gorm:"->;-:migration"`
 	SortAssignee       *string `gorm:"->;-:migration"`

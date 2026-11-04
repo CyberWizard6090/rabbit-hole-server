@@ -802,7 +802,7 @@ paths:
         **Sorting.** `sort` is a comma separated list of up to 3 fields; a `-` prefix means descending.
         Allowed fields: `id`, `title` (case-insensitive, first 100 characters), `status` (status position),
         `priority`, `time_estimate`, `time_spent`, `start_date`, `due_date`, `created_at`, `updated_at`,
-        `assignee` (name of the alphabetically first assignee). Rows with NULL (no due/start date, no assignee)
+        `assignee` (name of the alphabetically first assignee), `position` (manual order, see `POST /tasks/{task_id}/move`). Rows with NULL (no due/start date, no assignee)
         always come last regardless of direction. `id` ascending is appended as the final tie-break unless `id`
         is already in `sort`. Anything else returns `400 INVALID_SORT`.
 
@@ -909,6 +909,36 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/move:
+    post:
+      tags: [tasks]
+      summary: "Move a task: reorder it, change its status, or move it to another list"
+      description: |
+        Places the task right after `after_id` or right before `before_id` (at most one of them; both must be
+        tasks of the target list). Without an anchor the task goes to the end of the target list. Order within a
+        list is the `position` field; `sort=position` returns tasks in that order.
+
+        Moving to another list needs `list_id` and `status_id` (a status of the target list), `task.create` in
+        the target list, and a target list in the same workspace. The task becomes top-level (`parent_id` is
+        cleared); a task that has subtasks cannot change list (409 `TASK_HAS_SUBTASKS`). Tags are dropped when
+        the target list is in another space. A concurrent move answers 409 `TASK_MOVE_CONFLICT`.
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/MoveTaskRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /lists/{list_id}/events/ticket:
     post:
       tags: [realtime]
@@ -1106,6 +1136,13 @@ components:
         start_date: {type: string, format: date-time, nullable: true}
         due_date: {type: string, format: date-time, nullable: true, description: Must not be before start_date (400 INVALID_DATE_RANGE).}
         time_estimate: {type: integer, minimum: 0, description: Seconds.}
+    MoveTaskRequest:
+      type: object
+      properties:
+        list_id: {type: integer, description: Target list; defaults to the current one.}
+        status_id: {type: integer, description: Target status; required when list_id changes the list.}
+        after_id: {type: integer, description: Place the task right after this task. Mutually exclusive with before_id.}
+        before_id: {type: integer, description: Place the task right before this task.}
     UpdateTaskRequest:
       type: object
       properties:

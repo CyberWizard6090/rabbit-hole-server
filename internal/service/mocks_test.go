@@ -438,6 +438,16 @@ type taskRepositoryMock struct {
 	deletedID         uint
 	addedTaskID       uint
 	addedTagIDs       []uint
+	moveErr           error
+	movedTarget       domain.TaskMove
+}
+
+func (m *taskRepositoryMock) Move(_ context.Context, id uint, target domain.TaskMove) (*domain.Task, error) {
+	m.movedTarget = target
+	if m.moveErr != nil {
+		return nil, m.moveErr
+	}
+	return &domain.Task{Model: domain.Model{ID: id}, ListID: target.ListID, StatusID: target.StatusID}, nil
 }
 
 func (m *taskRepositoryMock) Create(_ context.Context, task *domain.Task, assigneeIDs []uint, tagIDs []uint) error {
