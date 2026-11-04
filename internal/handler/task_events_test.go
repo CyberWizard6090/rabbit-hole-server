@@ -33,7 +33,7 @@ type eventsServiceStub struct {
 func (s *eventsServiceStub) CreateTask(context.Context, uint, service.CreateTaskParams) (*domain.Task, error) {
 	return s.created, s.createErr
 }
-func (s *eventsServiceStub) UpdateTask(context.Context, uint, service.UpdateTaskParams) (*domain.Task, error) {
+func (s *eventsServiceStub) UpdateTask(context.Context, uint, uint, service.UpdateTaskParams) (*domain.Task, error) {
 	return s.updated, s.updateErr
 }
 func (s *eventsServiceStub) GetTaskByID(context.Context, uint) (*domain.Task, error) {
@@ -44,7 +44,7 @@ func (s *eventsServiceStub) DeleteTask(context.Context, uint) error {
 	s.calls = append(s.calls, "delete")
 	return s.deleteErr
 }
-func (s *eventsServiceStub) MoveTask(_ context.Context, _ uint, params service.MoveTaskParams) (*domain.Task, error) {
+func (s *eventsServiceStub) MoveTask(_ context.Context, _, _ uint, params service.MoveTaskParams) (*domain.Task, error) {
 	s.movedWith = params
 	return s.moved, s.moveErr
 }

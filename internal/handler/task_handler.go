@@ -134,7 +134,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.UpdateTask(c.Request.Context(), uint(taskID), service.UpdateTaskParams{
+	task, err := h.service.UpdateTask(c.Request.Context(), uid, uint(taskID), service.UpdateTaskParams{
 		Title:        req.Title,
 		Description:  req.Description,
 		StatusID:     req.StatusID,
@@ -312,7 +312,7 @@ func (h *TaskHandler) Move(c *gin.Context) {
 		}
 	}
 
-	task, err := h.service.MoveTask(c.Request.Context(), uint(taskID), service.MoveTaskParams{
+	task, err := h.service.MoveTask(c.Request.Context(), uid, uint(taskID), service.MoveTaskParams{
 		ListID:   req.ListID,
 		StatusID: req.StatusID,
 		AfterID:  req.AfterID,

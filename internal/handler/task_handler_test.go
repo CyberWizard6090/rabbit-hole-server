@@ -42,7 +42,7 @@ func (s *taskHandlerServiceStub) GetTaskByID(context.Context, uint) (*domain.Tas
 	return s.getTask, s.getErr
 }
 
-func (s *taskHandlerServiceStub) UpdateTask(context.Context, uint, service.UpdateTaskParams) (*domain.Task, error) {
+func (s *taskHandlerServiceStub) UpdateTask(context.Context, uint, uint, service.UpdateTaskParams) (*domain.Task, error) {
 	return nil, nil
 }
 
@@ -50,7 +50,7 @@ func (s *taskHandlerServiceStub) DeleteTask(context.Context, uint) error {
 	return nil
 }
 
-func (s *taskHandlerServiceStub) MoveTask(context.Context, uint, service.MoveTaskParams) (*domain.Task, error) {
+func (s *taskHandlerServiceStub) MoveTask(context.Context, uint, uint, service.MoveTaskParams) (*domain.Task, error) {
 	return nil, nil
 }
 

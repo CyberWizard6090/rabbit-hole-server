@@ -26,9 +26,9 @@ type TaskService interface {
 	CreateTask(ctx context.Context, userID uint, input CreateTaskParams) (*domain.Task, error)
 	ListTasks(ctx context.Context, listID uint, params pagination.Params, query domain.TaskQuery) (pagination.Response[domain.Task], error)
 	GetTaskByID(ctx context.Context, taskID uint) (*domain.Task, error)
-	UpdateTask(ctx context.Context, id uint, params UpdateTaskParams) (*domain.Task, error)
+	UpdateTask(ctx context.Context, userID, id uint, params UpdateTaskParams) (*domain.Task, error)
 	DeleteTask(ctx context.Context, taskID uint) error
-	MoveTask(ctx context.Context, taskID uint, params MoveTaskParams) (*domain.Task, error)
+	MoveTask(ctx context.Context, userID, taskID uint, params MoveTaskParams) (*domain.Task, error)
 }
 
 type MoveTaskParams struct {
@@ -79,6 +79,7 @@ type taskService struct {
 	spaceRepo   domain.SpaceRepository
 	tagService  TagService
 	cursorCodec *pagination.Codec
+	activity    ActivityRecorder
 }
 
 func NewTaskService(
@@ -86,12 +87,14 @@ func NewTaskService(
 	spaceRepo domain.SpaceRepository,
 	tagService TagService,
 	cursorCodec *pagination.Codec,
+	activity ActivityRecorder,
 ) TaskService {
 	return &taskService{
 		repo:        repo,
 		spaceRepo:   spaceRepo,
 		tagService:  tagService,
 		cursorCodec: cursorCodec,
+		activity:    activity,
 	}
 }
 
@@ -153,6 +156,10 @@ func (s *taskService) CreateTask(ctx context.Context, userID uint, input CreateT
 	if err := s.repo.Create(ctx, task, input.AssigneeIDs, allTagIDs); err != nil {
 		return nil, err
 	}
+	recordActivity(ctx, s.activity, domain.ActivityEntry{
+		TaskID: task.ID, ActorID: userID, Action: domain.ActivityTaskCreated,
+		NewValue: mustJSON(map[string]string{"title": task.Title}),
+	})
 	return task, nil
 }
 
@@ -216,11 +223,12 @@ func (s *taskService) GetTaskByID(ctx context.Context, taskID uint) (*domain.Tas
 	return s.repo.GetByID(ctx, taskID)
 }
 
-func (s *taskService) UpdateTask(ctx context.Context, id uint, params UpdateTaskParams) (*domain.Task, error) {
+func (s *taskService) UpdateTask(ctx context.Context, userID, id uint, params UpdateTaskParams) (*domain.Task, error) {
 	task, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+	before := snapshotTask(task)
 
 	newTagIDs, err := s.resolveNewTags(ctx, task.SpaceID, params.AddTagNames)
 	if err != nil {
@@ -263,14 +271,19 @@ func (s *taskService) UpdateTask(ctx context.Context, id uint, params UpdateTask
 		return nil, err
 	}
 
-	return s.repo.GetByID(ctx, task.ID)
+	updated, err := s.repo.GetByID(ctx, task.ID)
+	if err != nil {
+		return nil, err
+	}
+	recordActivity(ctx, s.activity, diffTask(updated.ID, userID, before, snapshotTask(updated))...)
+	return updated, nil
 }
 
 func (s *taskService) DeleteTask(ctx context.Context, taskID uint) error {
 	return s.repo.Delete(ctx, taskID)
 }
 
-func (s *taskService) MoveTask(ctx context.Context, taskID uint, params MoveTaskParams) (*domain.Task, error) {
+func (s *taskService) MoveTask(ctx context.Context, userID, taskID uint, params MoveTaskParams) (*domain.Task, error) {
 	if params.AfterID != nil && params.BeforeID != nil {
 		return nil, domain.ErrInvalidMoveAnchor
 	}
@@ -300,5 +313,11 @@ func (s *taskService) MoveTask(ctx context.Context, taskID uint, params MoveTask
 	if params.StatusID != nil {
 		target.StatusID = *params.StatusID
 	}
-	return s.repo.Move(ctx, taskID, target)
+	before := snapshotTask(task)
+	moved, err := s.repo.Move(ctx, taskID, target)
+	if err != nil {
+		return nil, err
+	}
+	recordActivity(ctx, s.activity, diffTask(moved.ID, userID, before, snapshotTask(moved))...)
+	return moved, nil
 }

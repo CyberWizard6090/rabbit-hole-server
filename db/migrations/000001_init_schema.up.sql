@@ -314,3 +314,17 @@ CREATE TABLE task_comment_mentions (
     CONSTRAINT fk_task_comment_mentions_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 CREATE INDEX idx_task_comment_mentions_user_id ON task_comment_mentions (user_id);
+
+CREATE TABLE task_activities (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    task_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    action TEXT NOT NULL,
+    field TEXT,
+    old_value JSONB,
+    new_value JSONB,
+    CONSTRAINT fk_task_activities_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+    CONSTRAINT fk_task_activities_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT
+);
+CREATE INDEX idx_task_activities_task_id_id ON task_activities (task_id, id DESC);
