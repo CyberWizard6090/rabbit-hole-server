@@ -267,6 +267,18 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					tasks.DELETE("",
 						inTask(domain.PermTaskDelete),
 						deps.TaskHandler.Delete)
+					tasks.POST("/comments",
+						inTask(domain.PermTaskUpdate),
+						deps.CommentHandler.Create)
+					tasks.GET("/comments",
+						inTask(domain.PermTaskRead),
+						deps.CommentHandler.List)
+					tasks.PATCH("/comments/:comment_id",
+						inTask(domain.PermTaskUpdate),
+						deps.CommentHandler.Update)
+					tasks.DELETE("/comments/:comment_id",
+						inTask(domain.PermTaskRead),
+						deps.CommentHandler.Delete)
 					tasks.POST("/move",
 						inTask(domain.PermTaskUpdate),
 						deps.TaskHandler.Move)

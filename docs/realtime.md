@@ -65,6 +65,9 @@ Every frame is a JSON text message. The first one is `ready`.
 | `task.created` | a task was created | `task` |
 | `task.updated` | a task was changed (fields, status, tags) | `task` |
 | `task.deleted` | a task was deleted | none beyond the ids |
+| `comment.created` | a comment was added to a task | `comment_id`, `comment` |
+| `comment.updated` | a comment was edited | `comment_id`, `comment` |
+| `comment.deleted` | a comment was deleted | `comment_id` |
 
 ```json
 {

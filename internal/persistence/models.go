@@ -111,6 +111,13 @@ type List struct {
 	ParentStatusID *uint        `gorm:"column:parent_status_id;index"`
 }
 
+type TaskComment struct {
+	gorm.Model
+	TaskID uint   `gorm:"not null;index"`
+	UserID uint   `gorm:"not null"`
+	Body   string `gorm:"not null"`
+}
+
 type StatusType int
 
 const (

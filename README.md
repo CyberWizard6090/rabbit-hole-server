@@ -51,6 +51,10 @@ relies on:
   `INVALID_PAGINATION`. See `docs/openapi.yaml`. Contact and space lists use `page`
   (1-10000) and `limit` (1-100, default 10). Out-of-range values are rejected with 400
   `INVALID_PAGINATION`.
+- **Comments**: `POST/GET /tasks/{id}/comments`, `PATCH/DELETE /tasks/{id}/comments/{comment_id}`.
+  The body is stored as the client sends it; @mentions are sent as `mention_user_ids` (workspace
+  members only). Creating needs `task.update`, only the author edits, and the author or anyone
+  with `task.delete` deletes. Comment changes are pushed over the realtime feed.
 - **Task order**: every task has an integer `position` within its list; new tasks go to the end and
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.

@@ -18,10 +18,11 @@ import (
 )
 
 type Container struct {
-	AuthService *service.AuthService
-	AuthHandler *handler.AuthHandler
-	TaskHandler *handler.TaskHandler
-	UserHandler *handler.UserHandler
+	AuthService    *service.AuthService
+	AuthHandler    *handler.AuthHandler
+	TaskHandler    *handler.TaskHandler
+	CommentHandler *handler.CommentHandler
+	UserHandler    *handler.UserHandler
 
 	WorkspaceHandler *handler.WorkspaceHandler
 	FolderHandler    *handler.FolderHandler
@@ -66,6 +67,7 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 	workspaceService := service.NewWorkspaceService(workspaceRepo)
 
 	permissionChecker := repository.NewPermissionChecker(db)
+	commentService := service.NewCommentService(repository.NewCommentRepository(db), permissionChecker)
 
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -76,10 +78,11 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 	tickets := realtime.NewTicketStore(realtime.DefaultTicketTTL)
 
 	return &Container{
-		AuthService: authServ,
-		AuthHandler: handler.NewAuthHandler(authServ, cfg.SecureCookies()),
-		TaskHandler: handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
-		UserHandler: handler.NewUserHandler(userService),
+		AuthService:    authServ,
+		AuthHandler:    handler.NewAuthHandler(authServ, cfg.SecureCookies()),
+		CommentHandler: handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
+		TaskHandler:    handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
+		UserHandler:    handler.NewUserHandler(userService),
 
 		ContactHandler:    handler.NewContactHandler(contactService),
 		SpaceHandler:      handler.NewSpaceHandler(spaceServ),
