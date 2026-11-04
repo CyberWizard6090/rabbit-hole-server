@@ -98,11 +98,13 @@ func (r *spaceRepository) GetDashboard(ctx context.Context, spaceID uint, tasksP
 		Select("id, ROW_NUMBER() OVER (PARTITION BY list_id ORDER BY created_at DESC, id DESC) AS rn").
 		Where("list_id IN ?", listIDs)
 	var rows []persistence.Task
-	if err := r.db.WithContext(ctx).
+	if err := r.db.WithContext(ctx).Model(&persistence.Task{}).
+		Select(append([]string{"tasks.*"}, checklistCountSelects...)).
+		Joins(checklistCountsJoin).
 		Preload("Assignees").
 		Preload("Tags").
-		Where("id IN (?)", r.db.WithContext(ctx).Table("(?) AS ranked", ranked).Select("id").Where("rn <= ?", tasksPerList)).
-		Order("created_at DESC, id DESC").
+		Where("tasks.id IN (?)", r.db.WithContext(ctx).Table("(?) AS ranked", ranked).Select("id").Where("rn <= ?", tasksPerList)).
+		Order("tasks.created_at DESC, tasks.id DESC").
 		Find(&rows).Error; err != nil {
 		return nil, mapErr(err)
 	}

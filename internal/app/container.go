@@ -16,6 +16,7 @@ import (
 	"rabbit-hole-server/internal/mail"
 	"rabbit-hole-server/internal/realtime"
 	"rabbit-hole-server/internal/repository"
+	"rabbit-hole-server/internal/safehttp"
 	"rabbit-hole-server/internal/service"
 	"rabbit-hole-server/internal/storage"
 )
@@ -24,6 +25,7 @@ type Container struct {
 	AuthService         *service.AuthService
 	AuthHandler         *handler.AuthHandler
 	AccountEmailHandler *handler.AccountEmailHandler
+	EmailChangeHandler  *handler.EmailChangeHandler
 	CloseMail           func()
 	TaskHandler         *handler.TaskHandler
 	CommentHandler      *handler.CommentHandler
@@ -39,6 +41,7 @@ type Container struct {
 	ListHandler      *handler.ListHandler
 
 	ContactHandler *handler.ContactHandler
+	SearchHandler  *handler.SearchHandler
 	SpaceHandler   *handler.SpaceHandler
 	StatusHandler  *handler.StatusHandler
 	TagHandler     *handler.TagHandler
@@ -79,7 +82,21 @@ func newMailSender(cfg config.MailConfig) (mail.Sender, func(), error) {
 	return async, async.Close, nil
 }
 
-func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender) (*Container, error) {
+type ContainerOption func(*containerOptions)
+
+type containerOptions struct {
+	remoteFetcher service.RemoteFetcher
+}
+
+func WithRemoteFetcher(fetcher service.RemoteFetcher) ContainerOption {
+	return func(o *containerOptions) { o.remoteFetcher = fetcher }
+}
+
+func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender, opts ...ContainerOption) (*Container, error) {
+	options := containerOptions{remoteFetcher: safehttp.New()}
+	for _, opt := range opts {
+		opt(&options)
+	}
 	userRepo := repository.NewUserRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 	contactRepo := repository.NewContactRepository(db)
@@ -92,6 +109,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender)
 	accountEmail := service.NewAccountEmailService(userRepo, repository.NewEmailTokenRepository(db), sender, service.AccountEmailConfig{
 		FrontendURL: cfg.Mail.FrontendURL, VerificationTTL: cfg.Mail.VerificationTTL, ResetTTL: cfg.Mail.ResetTTL,
 	})
+	emailChange := service.NewEmailChangeService(userRepo, repository.NewEmailChangeRepository(db), sender, cfg.Mail.FrontendURL)
 	authServ := service.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL).
 		WithVerificationSender(accountEmail).
 		WithRequireVerifiedEmail(cfg.Mail.RequireVerifiedEmail)
@@ -126,6 +144,8 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender)
 			Attachment: cfg.Storage.MaxAttachmentBytes, Image: cfg.Storage.MaxImageBytes, Avatar: cfg.Storage.MaxAvatarBytes,
 		},
 		cfg.Storage.PublicBaseURL,
+		activityRecorder,
+		service.RehostConfig{Fetcher: options.remoteFetcher, MaxBytes: cfg.Storage.RehostLimit()},
 	)
 	authServ.WithAvatarRemover(fileService)
 
@@ -141,6 +161,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender)
 		AuthService:         authServ,
 		AuthHandler:         handler.NewAuthHandler(authServ, cfg.SecureCookies()),
 		AccountEmailHandler: handler.NewAccountEmailHandler(accountEmail),
+		EmailChangeHandler:  handler.NewEmailChangeHandler(emailChange),
 		ActivityHandler:     handler.NewActivityHandler(activityService),
 		ChecklistHandler:    handler.NewChecklistHandler(service.NewChecklistService(repository.NewChecklistRepository(db), activityRecorder)),
 		FileHandler:         handler.NewFileHandler(fileService),
@@ -148,9 +169,10 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender)
 		Notifications:       notifications.dispatcher,
 		CommentHandler:      handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
 		TaskHandler:         handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
-		UserHandler:         handler.NewUserHandler(userService),
+		UserHandler:         handler.NewUserHandler(userService).WithPendingEmail(emailChange),
 
 		ContactHandler:    handler.NewContactHandler(contactService),
+		SearchHandler:     handler.NewSearchHandler(service.NewSearchService(repository.NewSearchRepository(db))),
 		SpaceHandler:      handler.NewSpaceHandler(spaceServ),
 		StatusHandler:     handler.NewStatusHandler(statusServ),
 		TagHandler:        handler.NewTagHandler(tagService),

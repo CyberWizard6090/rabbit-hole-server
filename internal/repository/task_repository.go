@@ -76,7 +76,7 @@ func (r *taskRepository) List(
 
 	keys := query.SortKeys()
 	specs := make([]taskSortSpec, len(keys))
-	selects := []string{"tasks.*"}
+	selects := append([]string{"tasks.*"}, checklistCountSelects...)
 	for i, key := range keys {
 		spec, ok := taskSortSpecs[key.Field]
 		if !ok {
@@ -91,6 +91,7 @@ func (r *taskRepository) List(
 	db := r.db.WithContext(ctx).
 		Model(&persistence.Task{}).
 		Select(strings.Join(selects, ", ")).
+		Joins(checklistCountsJoin).
 		Where("tasks.list_id = ?", listID).
 		Preload("Assignees").
 		Preload("Tags")
@@ -353,7 +354,28 @@ func applyTaskFilter(db *gorm.DB, f domain.TaskFilter) *gorm.DB {
 			db = db.Where("tasks.due_date IS NULL")
 		}
 	}
+	if f.HasOpenChecklistItems != nil {
+		if *f.HasOpenChecklistItems {
+			db = db.Where(openChecklistItemExists)
+		} else {
+			db = db.Where("NOT " + openChecklistItemExists)
+		}
+	}
 	return db
+}
+
+const openChecklistItemExists = "EXISTS (SELECT 1 FROM task_checklists oc " +
+	"JOIN task_checklist_items oi ON oi.checklist_id = oc.id " +
+	"WHERE oc.task_id = tasks.id AND NOT oi.resolved)"
+
+const checklistCountsJoin = "LEFT JOIN LATERAL (" +
+	"SELECT count(i.id)::int AS total, (count(i.id) FILTER (WHERE i.resolved))::int AS resolved " +
+	"FROM task_checklists c JOIN task_checklist_items i ON i.checklist_id = c.id " +
+	"WHERE c.task_id = tasks.id) cl ON true"
+
+var checklistCountSelects = []string{
+	"cl.total AS checklist_items_total",
+	"cl.resolved AS checklist_items_resolved",
 }
 
 func applyRelationFilter(db *gorm.DB, table, column string, ids []uint, none bool) *gorm.DB {
@@ -397,7 +419,10 @@ func hasPreviousPage(cursor *pagination.Cursor, hasMore bool) bool {
 
 func (r *taskRepository) GetByID(ctx context.Context, id uint) (*domain.Task, error) {
 	var m persistence.Task
-	err := r.db.WithContext(ctx).Where("id = ?", id).
+	err := r.db.WithContext(ctx).
+		Select(append([]string{"tasks.*"}, checklistCountSelects...)).
+		Joins(checklistCountsJoin).
+		Where("tasks.id = ?", id).
 		Preload("Assignees").
 		Preload("Tags").
 		First(&m).Error

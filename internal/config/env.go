@@ -45,7 +45,15 @@ type StorageConfig struct {
 	MaxAttachmentBytes int64  `env:"MAX_ATTACHMENT_BYTES" envDefault:"26214400" validate:"gt=0"`
 	MaxImageBytes      int64  `env:"MAX_IMAGE_BYTES" envDefault:"10485760" validate:"gt=0"`
 	MaxAvatarBytes     int64  `env:"MAX_AVATAR_BYTES" envDefault:"5242880" validate:"gt=0"`
+	MaxRehostBytes     int64  `env:"REHOST_MAX_BYTES" validate:"gte=0"`
 	S3                 S3Config
+}
+
+func (s StorageConfig) RehostLimit() int64 {
+	if s.MaxRehostBytes > 0 {
+		return s.MaxRehostBytes
+	}
+	return s.MaxImageBytes
 }
 
 type MailConfig struct {

@@ -50,7 +50,9 @@ CREATE TABLE email_tokens (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
-    CONSTRAINT chk_email_tokens_kind CHECK (kind IN ('verify_email', 'reset_password')),
+    payload TEXT,
+    CONSTRAINT chk_email_tokens_kind CHECK (kind IN ('verify_email', 'reset_password', 'change_email')),
+    CONSTRAINT chk_email_tokens_payload CHECK ((kind = 'change_email' AND (payload IS NOT NULL OR used_at IS NOT NULL)) OR (kind <> 'change_email' AND payload IS NULL)),
     CONSTRAINT uq_email_tokens_token_hash UNIQUE (token_hash),
     CONSTRAINT fk_email_tokens_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
@@ -276,6 +278,8 @@ CREATE INDEX idx_tasks_list_id_id ON tasks (list_id, id) WHERE deleted_at IS NUL
 CREATE INDEX idx_tasks_list_priority_id ON tasks (list_id, priority, id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_tasks_list_due_date_id ON tasks (list_id, due_date, id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_tasks_list_position_id ON tasks (list_id, position, id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_tasks_title_trgm ON tasks USING GIN (title gin_trgm_ops) WHERE deleted_at IS NULL;
+CREATE INDEX idx_tasks_description_trgm ON tasks USING GIN (description gin_trgm_ops) WHERE deleted_at IS NULL;
 CREATE INDEX idx_tasks_parent_id ON tasks (parent_id);
 CREATE INDEX idx_tasks_space_id ON tasks (space_id);
 CREATE INDEX idx_tasks_status_id ON tasks (status_id);
@@ -318,6 +322,7 @@ CREATE TABLE task_comments (
 );
 CREATE INDEX idx_task_comments_deleted_at ON task_comments (deleted_at);
 CREATE INDEX idx_task_comments_task_id_id ON task_comments (task_id, id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_task_comments_body_trgm ON task_comments USING GIN (body gin_trgm_ops) WHERE deleted_at IS NULL;
 CREATE TRIGGER trg_task_comments_updated_at BEFORE UPDATE ON task_comments
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -401,6 +406,7 @@ CREATE TABLE task_checklist_items (
 );
 CREATE INDEX idx_task_checklist_items_checklist_position ON task_checklist_items (checklist_id, position, id);
 CREATE INDEX idx_task_checklist_items_assignee ON task_checklist_items (assignee_id);
+CREATE INDEX idx_task_checklist_items_text_trgm ON task_checklist_items USING GIN (text gin_trgm_ops);
 CREATE TRIGGER trg_task_checklist_items_updated_at BEFORE UPDATE ON task_checklist_items
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

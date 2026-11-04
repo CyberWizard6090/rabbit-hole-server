@@ -19,6 +19,9 @@ const (
 	ActivityChecklistItemResolved = "checklist.item_resolved"
 	ActivityChecklistItemReopened = "checklist.item_reopened"
 	ActivityChecklistItemAssigned = "checklist.item_assigned"
+
+	ActivityAttachmentCreated = "attachment.created"
+	ActivityAttachmentDeleted = "attachment.deleted"
 )
 
 type Activity struct {

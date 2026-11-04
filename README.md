@@ -51,19 +51,28 @@ relies on:
   (Russian or English). `MAIL_DRIVER=log` (the default) only logs mail; for a test mailbox run
   `docker compose --profile mail up` and read the mails at http://127.0.0.1:8025 (Mailpit), see
   `.env.example`. Production needs `MAIL_DRIVER=smtp` with `starttls` or `tls`.
+  A signed-in user changes the login address with `POST /profile/email` (password required): a 24 h
+  single-use link goes to the new address (`FRONTEND_URL/confirm-email-change?token=...`, posted to
+  `/auth/confirm-email-change`), `DELETE /profile/email-change` cancels it, `GET /profile` shows
+  `pending_email`. Confirming revokes every session like a password change and warns the old address.
 - **Members**: workspace members are managed under `/workspaces/:id/members`; only contacts can be
   added, and the owner cannot be re-roled, removed or leave.
 - **Pagination**: task lists use keyset pagination (`cursor`, `limit`; the response is
   `{items, next_cursor, prev_cursor, has_next, has_prev}`, plus `total_count` with `with_total=true`).
   `GET /lists/{id}/tasks` also takes `sort` (e.g. `-priority,due_date`, NULLs last) and filters
   (`q`, `status_id`, `priority`, `tag_id`, `no_tags`, `assignee_id`, `unassigned`, `created_*`,
-  `due_*`, `start_*`, `has_due`; dates are UTC `YYYY-MM-DD`); invalid values answer 400
+  `due_*`, `start_*`, `has_due`, `has_open_checklist_items`; dates are UTC `YYYY-MM-DD`); invalid values answer 400
   `INVALID_SORT` / `INVALID_FILTER`, and a cursor reused with another sort/filter set answers 400
   `INVALID_PAGINATION`. See `docs/openapi.yaml`. Contact and space lists use `page`
   (1-10000) and `limit` (1-100, default 10). Out-of-range values are rejected with 400
   `INVALID_PAGINATION`.
+- **Search**: `GET /workspaces/{id}/search?q=&types=tasks,comments,checklist_items&space_id=&page=&limit=`
+  searches live tasks (title, description), comments and checklist items of one workspace (guests
+  may search). `q` has 2-100 characters; 3+ characters also match typos (pg_trgm, GIN indexes).
+  Results carry a score, task context and a plain-text snippet with rune offsets of the matches;
+  `pagination.total` is the match count. E-mail addresses are never searched. See `docs/openapi.yaml`.
 - **Activity**: `GET /tasks/{id}/activity` returns who changed what on a task, newest first (field
-  changes with old and new values, moves between lists, comment events). Entries are written after
+  changes with old and new values, moves between lists, comment and attachment events). Entries are written after
   the change succeeds; a failed write is logged and does not fail the request.
 - **Comments**: `POST/GET /tasks/{id}/comments`, `PATCH/DELETE /tasks/{id}/comments/{comment_id}`.
   The body is stored as the client sends it; @mentions are sent as `mention_user_ids` (workspace
@@ -77,12 +86,18 @@ relies on:
   re-encoded to 256x256. Storage is `STORAGE_DRIVER=local` (a directory) or `s3` (MinIO or any
   S3-compatible bucket, see `.env.example`); `docker compose --profile s3 up` starts a local MinIO and
   creates the bucket (inside Compose use `S3_ENDPOINT=minio:9000`).
+  `POST /workspaces/{id}/images/rehost` (`{url}`) is the `images.rehost` hook: the server downloads a
+  remote image through the SSRF-safe client in `internal/safehttp` (public addresses only, DNS pinned
+  per connection, at most 3 re-validated redirects, 10 s, `REHOST_MAX_BYTES`) and stores it like an
+  upload; anything unsafe or not an image answers 422 `REHOST_REFUSED`.
   Set `PUBLIC_BASE_URL` to the public address of this API so image URLs are absolute, and let the
   reverse proxy pass bodies of at least `MAX_ATTACHMENT_BYTES` (nginx `client_max_body_size`).
 - **Checklists**: `/tasks/{id}/checklists` holds named checklists with items (text, resolved by whom and
   when, optional assignee). Up to 20 checklists per task and 200 items per checklist; changing the order
   is one call with the full list of ids (`PUT .../order`). Everything needs `task.update`, reading needs
   `task.read`. Creating and deleting checklists and resolving or reopening items go to the activity log.
+  Every task carries `checklist_items_total` / `checklist_items_resolved` (a "2/5" badge, computed in SQL,
+  subtasks not counted); the task list filter `has_open_checklist_items` keeps tasks with / without open items.
 - **Notifications**: people watch tasks (`PUT/DELETE /tasks/{id}/watch`, `GET /tasks/{id}/watchers`; creators,
   assignees, commenters and mentioned users watch automatically, an explicit unwatch stays). Mentions,
   assignments, comments, status and due date changes become notifications of five types, delivered to the

@@ -82,6 +82,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	ticketLimiter := middleware.RateLimiter(60, time.Minute)
 	uploadLimiter := middleware.RateLimiter(60, time.Minute)
 	channelMailLimiter := middleware.RateLimiter(20, time.Minute)
+	rehostLimiter := middleware.RateLimiter(30, time.Minute)
 
 	api := r.Group("/api")
 	{
@@ -98,6 +99,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				auth.POST("/resend-verification", middleware.RateLimiter(5, time.Minute), deps.AccountEmailHandler.ResendVerification)
 				auth.POST("/forgot-password", middleware.RateLimiter(5, time.Minute), deps.AccountEmailHandler.ForgotPassword)
 				auth.POST("/reset-password", middleware.RateLimiter(10, time.Minute), deps.AccountEmailHandler.ResetPassword)
+				auth.POST("/confirm-email-change", middleware.RateLimiter(10, time.Minute), deps.EmailChangeHandler.Confirm)
 				// Logout authenticates with the refresh cookie, not the access
 				// token, so it must work after the access token has expired.
 				auth.POST("/logout", middleware.RateLimiter(30, time.Minute), deps.AuthHandler.Logout)
@@ -120,6 +122,8 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					profile.GET("", deps.UserHandler.GetCurrentUser)
 					profile.PATCH("", deps.UserHandler.UpdateProfile)
 					profile.POST("/password", middleware.RateLimiter(5, time.Minute), deps.AuthHandler.ChangePassword)
+					profile.POST("/email", middleware.RateLimiter(5, time.Minute), deps.EmailChangeHandler.Request)
+					profile.DELETE("/email-change", middleware.RateLimiter(10, time.Minute), deps.EmailChangeHandler.Cancel)
 					profile.DELETE("", middleware.RateLimiter(5, time.Minute), deps.AuthHandler.DeleteAccount)
 				}
 				profile.POST("/avatar", uploadLimiter, deps.FileHandler.SetAvatar)
@@ -179,9 +183,17 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						inWorkspace(domain.PermWorkspaceDelete),
 						deps.WorkspaceHandler.Delete)
 
+					workspaces.GET("/:workspace_id/search",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.SearchHandler.Search)
+
 					workspaces.POST("/:workspace_id/images",
 						inWorkspace(domain.PermTaskUpdate),
 						uploadLimiter, deps.FileHandler.UploadImage)
+
+					workspaces.POST("/:workspace_id/images/rehost",
+						inWorkspace(domain.PermTaskUpdate),
+						rehostLimiter, deps.FileHandler.RehostImage)
 
 					workspaces.POST("/:workspace_id/spaces",
 						inWorkspace(domain.PermSpaceCreate),

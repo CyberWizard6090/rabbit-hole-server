@@ -129,7 +129,7 @@ func newTestContext(t *testing.T) *TestContext {
 	return newTestContextWith(t, nil)
 }
 
-func newTestContextWith(t *testing.T, adjust func(cfg *config.Config)) *TestContext {
+func newTestContextWith(t *testing.T, adjust func(cfg *config.Config), opts ...app.ContainerOption) *TestContext {
 	t.Helper()
 
 	if integrationDB == nil || integrationConfig == nil {
@@ -149,7 +149,7 @@ func newTestContextWith(t *testing.T, adjust func(cfg *config.Config)) *TestCont
 	}
 
 	outbox := mail.NewMemory()
-	container, err := app.NewContainerWithMailer(integrationDB, &cfg, outbox)
+	container, err := app.NewContainerWithMailer(integrationDB, &cfg, outbox, opts...)
 	if err != nil {
 		t.Fatalf("create integration app dependencies: %v", err)
 	}
