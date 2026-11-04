@@ -1,6 +1,12 @@
 ALTER TABLE IF EXISTS lists DROP CONSTRAINT IF EXISTS fk_lists_parent_status;
 
 DROP TABLE IF EXISTS
+    notifications,
+    channel_confirmations,
+    notification_channels,
+    notification_settings,
+    notification_preferences,
+    task_watchers,
     task_checklist_items,
     task_checklists,
     task_activities,

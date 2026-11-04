@@ -81,6 +81,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	)
 	ticketLimiter := middleware.RateLimiter(60, time.Minute)
 	uploadLimiter := middleware.RateLimiter(60, time.Minute)
+	channelMailLimiter := middleware.RateLimiter(20, time.Minute)
 	rehostLimiter := middleware.RateLimiter(30, time.Minute)
 
 	api := r.Group("/api")
@@ -103,6 +104,8 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				// token, so it must work after the access token has expired.
 				auth.POST("/logout", middleware.RateLimiter(30, time.Minute), deps.AuthHandler.Logout)
 			}
+
+			v1.POST("/notifications/channels/confirm", middleware.RateLimiter(20, time.Minute), deps.NotificationHandler.ConfirmChannel)
 
 			v1.GET("/images/:public_id", deps.FileHandler.ServeImage)
 
@@ -132,6 +135,22 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					contacts.GET("", deps.ContactHandler.List)
 					contacts.POST("", deps.ContactHandler.Add)
 					contacts.DELETE("/:contact_id", deps.ContactHandler.Delete)
+				}
+
+				notifications := protected.Group("/notifications")
+				{
+					notifications.GET("", deps.NotificationHandler.List)
+					notifications.GET("/unread-count", deps.NotificationHandler.UnreadCount)
+					notifications.POST("/read", deps.NotificationHandler.MarkRead)
+					notifications.GET("/preferences", deps.NotificationHandler.Preferences)
+					notifications.PUT("/preferences", deps.NotificationHandler.SavePreferences)
+					notifications.GET("/settings", deps.NotificationHandler.GetSettings)
+					notifications.PUT("/settings", deps.NotificationHandler.SaveSettings)
+					notifications.GET("/channels", deps.NotificationHandler.ListChannels)
+					notifications.POST("/channels", channelMailLimiter, deps.NotificationHandler.AddChannel)
+					notifications.POST("/channels/:channel_id/resend", channelMailLimiter, deps.NotificationHandler.ResendChannel)
+					notifications.DELETE("/channels/:channel_id", deps.NotificationHandler.DeleteChannel)
+					notifications.DELETE("/:notification_id", deps.NotificationHandler.Delete)
 				}
 
 				workspaces := protected.Group("/workspaces")
@@ -298,6 +317,15 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					tasks.DELETE("",
 						inTask(domain.PermTaskDelete),
 						deps.TaskHandler.Delete)
+					tasks.GET("/watchers",
+						inTask(domain.PermTaskRead),
+						deps.NotificationHandler.Watchers)
+					tasks.PUT("/watch",
+						inTask(domain.PermTaskRead),
+						deps.NotificationHandler.Watch)
+					tasks.DELETE("/watch",
+						inTask(domain.PermTaskRead),
+						deps.NotificationHandler.Unwatch)
 					tasks.GET("/activity",
 						inTask(domain.PermTaskRead),
 						deps.ActivityHandler.List)

@@ -409,3 +409,73 @@ CREATE INDEX idx_task_checklist_items_assignee ON task_checklist_items (assignee
 CREATE INDEX idx_task_checklist_items_text_trgm ON task_checklist_items USING GIN (text gin_trgm_ops);
 CREATE TRIGGER trg_task_checklist_items_updated_at BEFORE UPDATE ON task_checklist_items
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TABLE task_watchers (
+    task_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    muted BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (task_id, user_id),
+    CONSTRAINT fk_task_watchers_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+    CONSTRAINT fk_task_watchers_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+CREATE INDEX idx_task_watchers_user_id ON task_watchers (user_id);
+
+CREATE TABLE notification_preferences (
+    user_id BIGINT NOT NULL,
+    type TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL,
+    PRIMARY KEY (user_id, type, channel),
+    CONSTRAINT fk_notification_preferences_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
+CREATE TABLE notification_settings (
+    user_id BIGINT PRIMARY KEY,
+    locale TEXT NOT NULL DEFAULT 'en',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_notification_settings_locale CHECK (locale IN ('en', 'ru')),
+    CONSTRAINT fk_notification_settings_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+
+CREATE TABLE notification_channels (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    kind TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    verified_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_notification_channels_destination CHECK (btrim(destination) <> ''),
+    CONSTRAINT fk_notification_channels_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX uq_notification_channels_destination ON notification_channels (user_id, kind, destination);
+
+CREATE TABLE channel_confirmations (
+    id BIGSERIAL PRIMARY KEY,
+    channel_id BIGINT NOT NULL,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT fk_channel_confirmations_channel FOREIGN KEY (channel_id) REFERENCES notification_channels (id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX uq_channel_confirmations_token ON channel_confirmations (token_hash);
+CREATE INDEX idx_channel_confirmations_channel ON channel_confirmations (channel_id, created_at DESC);
+
+CREATE TABLE notifications (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    type TEXT NOT NULL,
+    task_id BIGINT NOT NULL,
+    actor_id BIGINT NOT NULL,
+    workspace_id BIGINT NOT NULL,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    read_at TIMESTAMPTZ,
+    CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_notifications_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+    CONSTRAINT fk_notifications_actor FOREIGN KEY (actor_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_notifications_workspace FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE
+);
+CREATE INDEX idx_notifications_user_id_id ON notifications (user_id, id DESC);
+CREATE INDEX idx_notifications_user_unread ON notifications (user_id, type) WHERE read_at IS NULL;

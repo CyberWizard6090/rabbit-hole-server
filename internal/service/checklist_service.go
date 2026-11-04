@@ -13,7 +13,7 @@ type ChecklistService interface {
 	DeleteChecklist(ctx context.Context, userID, taskID, checklistID uint) error
 	ReorderChecklists(ctx context.Context, taskID uint, ids []uint) error
 
-	CreateItem(ctx context.Context, taskID, checklistID uint, text string, assigneeID *uint) (*domain.ChecklistItem, error)
+	CreateItem(ctx context.Context, userID, taskID, checklistID uint, text string, assigneeID *uint) (*domain.ChecklistItem, error)
 	UpdateItem(ctx context.Context, userID, taskID, checklistID, itemID uint, update domain.ChecklistItemUpdate) (*domain.ChecklistItem, error)
 	DeleteItem(ctx context.Context, taskID, checklistID, itemID uint) error
 	ReorderItems(ctx context.Context, taskID, checklistID uint, ids []uint) error
@@ -67,8 +67,27 @@ func (s *checklistService) ReorderChecklists(ctx context.Context, taskID uint, i
 	return s.repo.ReorderChecklists(ctx, taskID, ids)
 }
 
-func (s *checklistService) CreateItem(ctx context.Context, taskID, checklistID uint, text string, assigneeID *uint) (*domain.ChecklistItem, error) {
-	return s.repo.CreateItem(ctx, taskID, checklistID, text, assigneeID)
+func (s *checklistService) CreateItem(
+	ctx context.Context, userID, taskID, checklistID uint, text string, assigneeID *uint,
+) (*domain.ChecklistItem, error) {
+	item, err := s.repo.CreateItem(ctx, taskID, checklistID, text, assigneeID)
+	if err != nil {
+		return nil, err
+	}
+	s.recordAssignment(ctx, userID, taskID, item)
+	return item, nil
+}
+
+func (s *checklistService) recordAssignment(ctx context.Context, userID, taskID uint, item *domain.ChecklistItem) {
+	if item.Assignee == nil {
+		return
+	}
+	recordActivity(ctx, s.activity, domain.ActivityEntry{
+		TaskID: taskID, ActorID: userID, Action: domain.ActivityChecklistItemAssigned,
+		NewValue: mustJSON(map[string]any{
+			"checklist_id": item.ChecklistID, "item_id": item.ID, "text": item.Text, "assignee_id": item.Assignee.ID,
+		}),
+	})
 }
 
 func (s *checklistService) UpdateItem(
@@ -91,6 +110,9 @@ func (s *checklistService) UpdateItem(
 			TaskID: taskID, ActorID: userID, Action: action,
 			NewValue: mustJSON(map[string]any{"checklist_id": checklistID, "item_id": itemID, "text": item.Text}),
 		})
+	}
+	if item.Assignee != nil && (before.Assignee == nil || before.Assignee.ID != item.Assignee.ID) {
+		s.recordAssignment(ctx, userID, taskID, item)
 	}
 	return item, nil
 }

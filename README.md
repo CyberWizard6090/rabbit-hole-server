@@ -98,6 +98,12 @@ relies on:
   `task.read`. Creating and deleting checklists and resolving or reopening items go to the activity log.
   Every task carries `checklist_items_total` / `checklist_items_resolved` (a "2/5" badge, computed in SQL,
   subtasks not counted); the task list filter `has_open_checklist_items` keeps tasks with / without open items.
+- **Notifications**: people watch tasks (`PUT/DELETE /tasks/{id}/watch`, `GET /tasks/{id}/watchers`; creators,
+  assignees, commenters and mentioned users watch automatically, an explicit unwatch stays). Mentions,
+  assignments, comments, status and due date changes become notifications of five types, delivered to the
+  in-app inbox (`/notifications`) and by e-mail according to per-type preferences
+  (`/notifications/preferences`). Extra e-mail addresses (`/notifications/channels`) receive nothing until
+  the owner confirms them with an emailed link. `NOTIFICATION_EMAIL_PER_HOUR` caps mails per user.
 - **Task order**: every task has an integer `position` within its list; new tasks go to the end and
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.

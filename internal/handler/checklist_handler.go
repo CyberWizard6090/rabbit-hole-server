@@ -152,6 +152,11 @@ func (h *ChecklistHandler) respondWithLists(c *gin.Context, taskID uint) {
 }
 
 func (h *ChecklistHandler) CreateItem(c *gin.Context) {
+	uid, err := contextutil.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
 	taskID, checklistID, _, ok := checklistIDs(c, true, false)
 	if !ok {
 		return
@@ -161,7 +166,7 @@ func (h *ChecklistHandler) CreateItem(c *gin.Context) {
 		response.ValidationError(c, err)
 		return
 	}
-	item, err := h.service.CreateItem(c.Request.Context(), taskID, checklistID, req.Text, req.AssigneeID)
+	item, err := h.service.CreateItem(c.Request.Context(), uid, taskID, checklistID, req.Text, req.AssigneeID)
 	if err != nil {
 		h.handleError(c, "CHECKLIST_ITEM_CREATE_FAILED", err)
 		return
