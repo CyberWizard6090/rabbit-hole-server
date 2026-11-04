@@ -1063,11 +1063,13 @@ paths:
         Who changed what and when. Offset pagination (`page`, `limit`), like the comments list.
 
         `action` is `task.created`, `task.updated` (one entry per changed `field`), `task.moved` (the list
-        changed; `field` is `list_id`) or `comment.created`/`comment.updated`/`comment.deleted`, `checklist.created`/`checklist.deleted` and `checklist.item_resolved`/`checklist.item_reopened`.
+        changed; `field` is `list_id`) or `comment.created`/`comment.updated`/`comment.deleted`, `checklist.created`/`checklist.deleted` and `checklist.item_resolved`/`checklist.item_reopened`, and `attachment.created`/`attachment.deleted`.
         Fields: `title`, `description`, `status_id`, `priority`, `start_date`, `due_date`, `time_estimate`,
         `parent_id`, `assignee_ids`, `tag_ids`, `list_id`. `old_value` and `new_value` are JSON (`null` means
         the value was empty); for `description` they are left out so long texts do not fill the log. Comment
-        entries carry `new_value: {"comment_id": N}`. Reordering inside a list changes nothing and is not logged.
+        entries carry `new_value: {"comment_id": N}`. Attachment entries carry the attachment `id`, `name` and `size`
+        in `new_value` (created) or `old_value` (deleted, plus `deleted_by`, the acting user; the uploader or a moderator).
+        Editor images and avatars are not logged. Reordering inside a list changes nothing and is not logged.
 
         Entries are written after the change succeeds; if writing fails the change still stands and the
         failure is only logged.
