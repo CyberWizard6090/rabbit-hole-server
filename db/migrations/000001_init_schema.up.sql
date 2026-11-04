@@ -50,7 +50,9 @@ CREATE TABLE email_tokens (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
-    CONSTRAINT chk_email_tokens_kind CHECK (kind IN ('verify_email', 'reset_password')),
+    payload TEXT,
+    CONSTRAINT chk_email_tokens_kind CHECK (kind IN ('verify_email', 'reset_password', 'change_email')),
+    CONSTRAINT chk_email_tokens_payload CHECK ((kind = 'change_email' AND (payload IS NOT NULL OR used_at IS NOT NULL)) OR (kind <> 'change_email' AND payload IS NULL)),
     CONSTRAINT uq_email_tokens_token_hash UNIQUE (token_hash),
     CONSTRAINT fk_email_tokens_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );

@@ -25,6 +25,7 @@ type User struct {
 	TimeZone        string        `json:"time_zone"`
 	TokenVersion    int           `json:"-"`
 	EmailVerifiedAt *time.Time    `json:"email_verified_at"`
+	PendingEmail    string        `json:"pending_email,omitempty"`
 	Contacts        []*User       `json:"contacts"`
 	CreatedAt       time.Time     `json:"created_at"`
 	UpdatedAt       time.Time     `json:"updated_at"`

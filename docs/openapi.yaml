@@ -110,6 +110,22 @@ paths:
         '202': {$ref: '#/components/responses/Ok'}
         '400': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
+  /auth/confirm-email-change:
+    post:
+      tags: [auth]
+      summary: "Confirm an email change with the token from the mail"
+      description: "In one transaction sets the account email to the new address (409 EMAIL_TAKEN if someone registered it meanwhile, the token stays valid then), marks it confirmed, revokes every session and access token like a password change and cancels outstanding password reset links. A security notice with the masked new address goes to the OLD address. The user signs in again with the new address. A wrong, used, replaced, cancelled or expired token is 400 INVALID_TOKEN."
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/VerifyEmailRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
   /auth/reset-password:
     post:
       tags: [auth]
@@ -200,10 +216,39 @@ paths:
         '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
+  /profile/email:
+    post:
+      tags: [profile]
+      summary: "Start changing the login email"
+      description: "Needs the current password (401 INVALID_CREDENTIALS otherwise). 400 SAME_EMAIL for the current address, 409 EMAIL_TAKEN for an address that already has an account, 429 EMAIL_CHANGE_COOLDOWN when a mail went out less than a minute ago. A confirmation link FRONTEND_URL/confirm-email-change?token=... is mailed to the NEW address (24 h, single use, language from Accept-Language); a new request replaces the pending one. Nothing changes until the link is confirmed. While pending, GET /profile shows pending_email."
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangeEmailRequest'}
+      responses:
+        '202': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /profile/email-change:
+    delete:
+      tags: [profile]
+      summary: "Cancel the pending email change"
+      description: "Idempotent: the link that was mailed stops working."
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
   /profile:
     get:
       tags: [profile]
       summary: "Current user"
+      description: "pending_email (the requested new address) is present only for the owner while an email change awaits confirmation."
       security:
         - bearerAuth: []
       responses:
@@ -1668,6 +1713,12 @@ components:
       required: [token]
       properties:
         token: {type: string, maxLength: 200}
+    ChangeEmailRequest:
+      type: object
+      required: [new_email, password]
+      properties:
+        new_email: {type: string, format: email, maxLength: 254}
+        password: {type: string}
     EmailRequest:
       type: object
       required: [email]
