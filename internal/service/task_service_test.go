@@ -21,7 +21,7 @@ func newTestTaskService(
 	if err != nil {
 		panic(err)
 	}
-	return NewTaskService(repo, spaceRepo, tagService, codec)
+	return NewTaskService(repo, spaceRepo, tagService, codec, nil)
 }
 
 func TestTaskServiceCreateTaskUsesDefaultsAndResolvesNewTags(t *testing.T) {
@@ -174,7 +174,7 @@ func TestTaskServiceUpdateTaskChangesFieldsAndAddsTags(t *testing.T) {
 	_ = returned
 	svc := newTestTaskService(taskRepo, &spaceRepositoryMock{}, tagMock)
 
-	got, err := svc.UpdateTask(context.Background(), 9, UpdateTaskParams{
+	got, err := svc.UpdateTask(context.Background(), 7, 9, UpdateTaskParams{
 		Title: &title, Description: &description, StatusID: &statusID,
 		Priority: &priority, TimeEstimate: &estimate, AddTagIDs: []uint{12}, AddTagNames: []string{"Bug"},
 	})
@@ -197,7 +197,7 @@ func TestTaskServiceUpdateTaskWithoutTagsAttachesNone(t *testing.T) {
 	taskRepo := &taskRepositoryMock{task: task}
 	svc := newTestTaskService(taskRepo, &spaceRepositoryMock{}, &tagServiceMock{})
 
-	if _, err := svc.UpdateTask(context.Background(), 9, UpdateTaskParams{}); err != nil {
+	if _, err := svc.UpdateTask(context.Background(), 7, 9, UpdateTaskParams{}); err != nil {
 		t.Fatalf("UpdateTask error=%v", err)
 	}
 	if taskRepo.addedTagIDs != nil {
@@ -208,21 +208,21 @@ func TestTaskServiceUpdateTaskWithoutTagsAttachesNone(t *testing.T) {
 func TestTaskServiceUpdateTaskPropagatesErrors(t *testing.T) {
 	getErr := errors.New("get failed")
 	svc := newTestTaskService(&taskRepositoryMock{getErr: getErr}, &spaceRepositoryMock{}, &tagServiceMock{})
-	if _, err := svc.UpdateTask(context.Background(), 1, UpdateTaskParams{}); !errors.Is(err, getErr) {
+	if _, err := svc.UpdateTask(context.Background(), 7, 1, UpdateTaskParams{}); !errors.Is(err, getErr) {
 		t.Fatalf("get error=%v", err)
 	}
 
 	updateErr := errors.New("update failed")
 	task := &domain.Task{Model: domain.Model{ID: 1}, SpaceID: 5}
 	svc = newTestTaskService(&taskRepositoryMock{task: task, updateErr: updateErr}, &spaceRepositoryMock{}, &tagServiceMock{})
-	if _, err := svc.UpdateTask(context.Background(), 1, UpdateTaskParams{}); !errors.Is(err, updateErr) {
+	if _, err := svc.UpdateTask(context.Background(), 7, 1, UpdateTaskParams{}); !errors.Is(err, updateErr) {
 		t.Fatalf("update error=%v", err)
 	}
 
 	tagErr := errors.New("tag failed")
 	updatedRepo := &taskRepositoryMock{task: &domain.Task{Model: domain.Model{ID: 1}, SpaceID: 5}}
 	svc = newTestTaskService(updatedRepo, &spaceRepositoryMock{}, &tagServiceMock{err: tagErr})
-	if _, err := svc.UpdateTask(context.Background(), 1, UpdateTaskParams{AddTagNames: []string{"Bug"}}); !errors.Is(err, tagErr) {
+	if _, err := svc.UpdateTask(context.Background(), 7, 1, UpdateTaskParams{AddTagNames: []string{"Bug"}}); !errors.Is(err, tagErr) {
 		t.Fatalf("tag error=%v", err)
 	}
 	if updatedRepo.updatedTask != nil {
@@ -232,7 +232,7 @@ func TestTaskServiceUpdateTaskPropagatesErrors(t *testing.T) {
 	addErr := errors.New("add tags failed")
 	updatedRepo = &taskRepositoryMock{task: &domain.Task{Model: domain.Model{ID: 1}, SpaceID: 5}, addTagsErr: addErr}
 	svc = newTestTaskService(updatedRepo, &spaceRepositoryMock{}, &tagServiceMock{})
-	if _, err := svc.UpdateTask(context.Background(), 1, UpdateTaskParams{AddTagIDs: []uint{3}}); !errors.Is(err, addErr) {
+	if _, err := svc.UpdateTask(context.Background(), 7, 1, UpdateTaskParams{AddTagIDs: []uint{3}}); !errors.Is(err, addErr) {
 		t.Fatalf("add tags error=%v", err)
 	}
 }
@@ -310,7 +310,7 @@ func TestTaskServiceUpdateTaskSetsAndClearsFields(t *testing.T) {
 	svc := newTestTaskService(repo, &spaceRepositoryMock{}, &tagServiceMock{})
 
 	assignees := []uint{}
-	_, err := svc.UpdateTask(context.Background(), 9, UpdateTaskParams{
+	_, err := svc.UpdateTask(context.Background(), 7, 9, UpdateTaskParams{
 		ParentID:    domain.Nullable[uint]{Set: true},
 		StartDate:   domain.Nullable[time.Time]{Set: true},
 		DueDate:     domain.Nullable[time.Time]{Set: true, Value: &due},
@@ -335,11 +335,11 @@ func TestTaskServiceUpdateTaskRejectsInvalidParentAndDates(t *testing.T) {
 	repo := &taskRepositoryMock{task: &domain.Task{Model: domain.Model{ID: 9}, StartDate: &start}}
 	svc := newTestTaskService(repo, &spaceRepositoryMock{}, &tagServiceMock{})
 
-	_, err := svc.UpdateTask(context.Background(), 9, UpdateTaskParams{ParentID: domain.Nullable[uint]{Set: true, Value: &self}})
+	_, err := svc.UpdateTask(context.Background(), 7, 9, UpdateTaskParams{ParentID: domain.Nullable[uint]{Set: true, Value: &self}})
 	if !errors.Is(err, domain.ErrInvalidParentReference) {
 		t.Fatalf("self parent err=%v", err)
 	}
-	_, err = svc.UpdateTask(context.Background(), 9, UpdateTaskParams{DueDate: domain.Nullable[time.Time]{Set: true, Value: &due}})
+	_, err = svc.UpdateTask(context.Background(), 7, 9, UpdateTaskParams{DueDate: domain.Nullable[time.Time]{Set: true, Value: &due}})
 	if !errors.Is(err, domain.ErrInvalidDateRange) {
 		t.Fatalf("date err=%v", err)
 	}

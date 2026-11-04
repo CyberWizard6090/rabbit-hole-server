@@ -267,6 +267,9 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					tasks.DELETE("",
 						inTask(domain.PermTaskDelete),
 						deps.TaskHandler.Delete)
+					tasks.GET("/activity",
+						inTask(domain.PermTaskRead),
+						deps.ActivityHandler.List)
 					tasks.POST("/comments",
 						inTask(domain.PermTaskUpdate),
 						deps.CommentHandler.Create)

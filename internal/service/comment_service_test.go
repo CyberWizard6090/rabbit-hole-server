@@ -72,7 +72,7 @@ func commentBy(author uint) *domain.Comment {
 
 func TestCommentServiceCreateRecordsAuthorAndMentions(t *testing.T) {
 	repo := &commentRepositoryMock{}
-	svc := NewCommentService(repo, &taskPermissionStub{})
+	svc := NewCommentService(repo, &taskPermissionStub{}, nil)
 
 	comment, err := svc.CreateComment(context.Background(), 7, 9, "hello", []uint{2, 3})
 	if err != nil {
@@ -85,7 +85,7 @@ func TestCommentServiceCreateRecordsAuthorAndMentions(t *testing.T) {
 
 func TestCommentServiceOnlyTheAuthorCanEdit(t *testing.T) {
 	repo := &commentRepositoryMock{existing: commentBy(7)}
-	svc := NewCommentService(repo, &taskPermissionStub{allow: true})
+	svc := NewCommentService(repo, &taskPermissionStub{allow: true}, nil)
 	body := "new"
 
 	if _, err := svc.UpdateComment(context.Background(), 8, 9, 4, &body, nil); !errors.Is(err, domain.ErrCommentForbidden) {
@@ -102,7 +102,7 @@ func TestCommentServiceOnlyTheAuthorCanEdit(t *testing.T) {
 func TestCommentServiceDeleteByAuthorNeedsNoPermissionLookup(t *testing.T) {
 	repo := &commentRepositoryMock{existing: commentBy(7)}
 	perms := &taskPermissionStub{}
-	svc := NewCommentService(repo, perms)
+	svc := NewCommentService(repo, perms, nil)
 
 	if err := svc.DeleteComment(context.Background(), 7, 9, 4); err != nil || !repo.deleted {
 		t.Fatalf("err=%v deleted=%t", err, repo.deleted)
@@ -115,7 +115,7 @@ func TestCommentServiceDeleteByAuthorNeedsNoPermissionLookup(t *testing.T) {
 func TestCommentServiceDeleteByAnotherUserNeedsTaskDelete(t *testing.T) {
 	repo := &commentRepositoryMock{existing: commentBy(7)}
 	perms := &taskPermissionStub{allow: false}
-	svc := NewCommentService(repo, perms)
+	svc := NewCommentService(repo, perms, nil)
 
 	if err := svc.DeleteComment(context.Background(), 8, 9, 4); !errors.Is(err, domain.ErrCommentForbidden) || repo.deleted {
 		t.Fatalf("err=%v deleted=%t", err, repo.deleted)
@@ -132,14 +132,14 @@ func TestCommentServiceDeleteByAnotherUserNeedsTaskDelete(t *testing.T) {
 
 func TestCommentServicePropagatesLookupAndPermissionErrors(t *testing.T) {
 	repo := &commentRepositoryMock{getErr: domain.ErrNotFound}
-	svc := NewCommentService(repo, &taskPermissionStub{})
+	svc := NewCommentService(repo, &taskPermissionStub{}, nil)
 	if err := svc.DeleteComment(context.Background(), 7, 9, 4); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("missing: err=%v", err)
 	}
 
 	boom := errors.New("boom")
 	repo = &commentRepositoryMock{existing: commentBy(7)}
-	svc = NewCommentService(repo, &taskPermissionStub{err: boom})
+	svc = NewCommentService(repo, &taskPermissionStub{err: boom}, nil)
 	if err := svc.DeleteComment(context.Background(), 8, 9, 4); !errors.Is(err, boom) || repo.deleted {
 		t.Fatalf("permission error: err=%v deleted=%t", err, repo.deleted)
 	}

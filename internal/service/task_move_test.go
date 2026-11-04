@@ -17,7 +17,7 @@ func TestTaskServiceMoveTaskKeepsCurrentListAndStatusByDefault(t *testing.T) {
 	svc, repo := newMoveService(&domain.Task{Model: domain.Model{ID: 5}, ListID: 7, StatusID: 3})
 	after := uint(9)
 
-	if _, err := svc.MoveTask(context.Background(), 5, MoveTaskParams{AfterID: &after}); err != nil {
+	if _, err := svc.MoveTask(context.Background(), 7, 5, MoveTaskParams{AfterID: &after}); err != nil {
 		t.Fatalf("MoveTask error=%v", err)
 	}
 	got := repo.movedTarget
@@ -30,10 +30,10 @@ func TestTaskServiceMoveTaskToAnotherListRequiresStatus(t *testing.T) {
 	svc, repo := newMoveService(&domain.Task{Model: domain.Model{ID: 5}, ListID: 7, StatusID: 3})
 	list, status := uint(8), uint(21)
 
-	if _, err := svc.MoveTask(context.Background(), 5, MoveTaskParams{ListID: &list}); !errors.Is(err, domain.ErrInvalidStatusReference) {
+	if _, err := svc.MoveTask(context.Background(), 7, 5, MoveTaskParams{ListID: &list}); !errors.Is(err, domain.ErrInvalidStatusReference) {
 		t.Fatalf("err=%v", err)
 	}
-	if _, err := svc.MoveTask(context.Background(), 5, MoveTaskParams{ListID: &list, StatusID: &status}); err != nil {
+	if _, err := svc.MoveTask(context.Background(), 7, 5, MoveTaskParams{ListID: &list, StatusID: &status}); err != nil {
 		t.Fatalf("MoveTask error=%v", err)
 	}
 	if repo.movedTarget.ListID != 8 || repo.movedTarget.StatusID != 21 {
@@ -45,7 +45,7 @@ func TestTaskServiceMoveTaskSameListIdIsNotACrossListMove(t *testing.T) {
 	svc, repo := newMoveService(&domain.Task{Model: domain.Model{ID: 5}, ListID: 7, StatusID: 3})
 	list := uint(7)
 
-	if _, err := svc.MoveTask(context.Background(), 5, MoveTaskParams{ListID: &list}); err != nil {
+	if _, err := svc.MoveTask(context.Background(), 7, 5, MoveTaskParams{ListID: &list}); err != nil {
 		t.Fatalf("MoveTask error=%v", err)
 	}
 	if repo.movedTarget.ListID != 7 || repo.movedTarget.StatusID != 3 {
@@ -62,7 +62,7 @@ func TestTaskServiceMoveTaskRejectsBadAnchors(t *testing.T) {
 		"before self": {BeforeID: &self},
 		"both":        {AfterID: &other, BeforeID: &other},
 	} {
-		if _, err := svc.MoveTask(context.Background(), 5, params); !errors.Is(err, domain.ErrInvalidMoveAnchor) {
+		if _, err := svc.MoveTask(context.Background(), 7, 5, params); !errors.Is(err, domain.ErrInvalidMoveAnchor) {
 			t.Errorf("%s: err=%v", name, err)
 		}
 	}
@@ -75,7 +75,7 @@ func TestTaskServiceMoveTaskPropagatesRepositoryErrors(t *testing.T) {
 	svc, repo := newMoveService(&domain.Task{Model: domain.Model{ID: 5}, ListID: 7, StatusID: 3})
 	repo.moveErr = domain.ErrTaskHasSubtasks
 
-	if _, err := svc.MoveTask(context.Background(), 5, MoveTaskParams{}); !errors.Is(err, domain.ErrTaskHasSubtasks) {
+	if _, err := svc.MoveTask(context.Background(), 7, 5, MoveTaskParams{}); !errors.Is(err, domain.ErrTaskHasSubtasks) {
 		t.Fatalf("err=%v", err)
 	}
 }
