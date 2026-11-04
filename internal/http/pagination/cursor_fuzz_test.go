@@ -14,7 +14,7 @@ func FuzzDecode(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	valid, err := EncodePosition(codec, TaskCursorContext(7), DirectionNext, TaskCursorPosition{ID: 1})
+	valid, err := EncodePosition(codec, TaskCursorContext(7, "id_desc", ""), DirectionNext, TaskCursorPosition{Keys: []json.RawMessage{json.RawMessage("1")}})
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -68,24 +68,24 @@ func FuzzDecodeSignedPayload(f *testing.F) {
 		if err := cursor.Validate(); err != nil {
 			t.Fatalf("accepted invalid cursor %+v: %v", cursor, err)
 		}
-		_, _ = DecodePosition[TaskCursorPosition](cursor, TaskCursorContext(7))
+		_, _ = DecodePosition[TaskCursorPosition](cursor, TaskCursorContext(7, "id_desc", ""))
 	})
 }
 
 func FuzzDecodePosition(f *testing.F) {
 	for _, seed := range []string{
-		`{"created_at":"2026-01-02T03:04:05Z","id":42}`, `{}`, `null`, `[]`, `{"id":"1"}`,
-		`{"id":18446744073709551615}`, `{"id":-1}`, `{"created_at":"0000-00-00T00:00:00Z"}`, `1e999`,
+		`{"k":[42]}`, `{"k":["2026-01-02T03:04:05Z",42]}`, `{}`, `null`, `[]`, `{"k":["1"]}`,
+		`{"k":[18446744073709551615]}`, `{"k":[-1]}`, `{"k":[null]}`, `1e999`,
 	} {
 		f.Add([]byte(seed))
 	}
 
 	f.Fuzz(func(t *testing.T, position []byte) {
 		cursor := &Cursor{
-			Resource: taskResource, Scope: "7", Sort: taskSort,
+			Resource: taskResource, Scope: "7", Sort: "id_desc",
 			Position: json.RawMessage(position), Direction: DirectionNext,
 		}
-		_, _ = DecodePosition[TaskCursorPosition](cursor, TaskCursorContext(7))
+		_, _ = DecodePosition[TaskCursorPosition](cursor, TaskCursorContext(7, "id_desc", ""))
 	})
 }
 

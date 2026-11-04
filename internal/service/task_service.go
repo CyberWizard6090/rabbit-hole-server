@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -22,7 +23,7 @@ func randomTagColor() string {
 
 type TaskService interface {
 	CreateTask(ctx context.Context, userID uint, input CreateTaskParams) (*domain.Task, error)
-	ListTasks(ctx context.Context, listID uint, params pagination.Params) (pagination.Response[domain.Task], error)
+	ListTasks(ctx context.Context, listID uint, params pagination.Params, query domain.TaskQuery) (pagination.Response[domain.Task], error)
 	GetTaskByID(ctx context.Context, taskID uint) (*domain.Task, error)
 	UpdateTask(ctx context.Context, id uint, params UpdateTaskParams) (*domain.Task, error)
 	DeleteTask(ctx context.Context, taskID uint) error
@@ -128,9 +129,9 @@ func (s *taskService) CreateTask(ctx context.Context, userID uint, input CreateT
 	return task, nil
 }
 
-func (s *taskService) ListTasks(ctx context.Context, listID uint, params pagination.Params) (pagination.Response[domain.Task], error) {
-	context := pagination.TaskCursorContext(listID)
-	items, hasNext, hasPrev, err := s.repo.List(ctx, listID, params)
+func (s *taskService) ListTasks(ctx context.Context, listID uint, params pagination.Params, query domain.TaskQuery) (pagination.Response[domain.Task], error) {
+	context := query.CursorContext(listID)
+	items, hasNext, hasPrev, err := s.repo.List(ctx, listID, query, params)
 	if err != nil {
 		return pagination.Response[domain.Task]{}, err
 	}
@@ -138,11 +139,9 @@ func (s *taskService) ListTasks(ctx context.Context, listID uint, params paginat
 	var prevCursor *string
 
 	if len(items) > 0 {
+		keys := query.SortKeys()
 		if hasNext {
-			cursor, err := pagination.EncodePosition(s.cursorCodec, context, pagination.DirectionNext, pagination.TaskCursorPosition{
-				CreatedAt: items[len(items)-1].CreatedAt,
-				ID:        uint64(items[len(items)-1].ID),
-			})
+			cursor, err := s.encodeTaskCursor(context, pagination.DirectionNext, keys, items[len(items)-1])
 			if err != nil {
 				return pagination.Response[domain.Task]{}, err
 			}
@@ -150,10 +149,7 @@ func (s *taskService) ListTasks(ctx context.Context, listID uint, params paginat
 		}
 
 		if hasPrev {
-			cursor, err := pagination.EncodePosition(s.cursorCodec, context, pagination.DirectionPrev, pagination.TaskCursorPosition{
-				CreatedAt: items[0].CreatedAt,
-				ID:        uint64(items[0].ID),
-			})
+			cursor, err := s.encodeTaskCursor(context, pagination.DirectionPrev, keys, items[0])
 			if err != nil {
 				return pagination.Response[domain.Task]{}, err
 			}
@@ -161,7 +157,32 @@ func (s *taskService) ListTasks(ctx context.Context, listID uint, params paginat
 		}
 	}
 
-	return pagination.NewResponse(items, hasNext, hasPrev, nextCursor, prevCursor), nil
+	response := pagination.NewResponse(items, hasNext, hasPrev, nextCursor, prevCursor)
+	if query.WithTotal {
+		total, err := s.repo.Count(ctx, listID, query.Filter)
+		if err != nil {
+			return pagination.Response[domain.Task]{}, err
+		}
+		response.TotalCount = &total
+	}
+	return response, nil
+}
+
+func (s *taskService) encodeTaskCursor(
+	context pagination.CursorContext,
+	direction pagination.Direction,
+	keys []domain.TaskSortKey,
+	task domain.Task,
+) (string, error) {
+	position := pagination.TaskCursorPosition{Keys: make([]json.RawMessage, len(keys))}
+	for i, key := range keys {
+		raw, err := json.Marshal(task.SortValue(key.Field))
+		if err != nil {
+			return "", err
+		}
+		position.Keys[i] = raw
+	}
+	return pagination.EncodePosition(s.cursorCodec, context, direction, position)
 }
 
 func (s *taskService) GetTaskByID(ctx context.Context, taskID uint) (*domain.Task, error) {

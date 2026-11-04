@@ -41,7 +41,7 @@ func (s *eventsServiceStub) DeleteTask(context.Context, uint) error {
 	s.calls = append(s.calls, "delete")
 	return s.deleteErr
 }
-func (s *eventsServiceStub) ListTasks(context.Context, uint, pagination.Params) (pagination.Response[domain.Task], error) {
+func (s *eventsServiceStub) ListTasks(context.Context, uint, pagination.Params, domain.TaskQuery) (pagination.Response[domain.Task], error) {
 	return pagination.Response[domain.Task]{}, nil
 }
 

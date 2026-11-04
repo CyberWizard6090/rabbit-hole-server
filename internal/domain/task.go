@@ -31,11 +31,15 @@ type Task struct {
 	DueDate      *time.Time `json:"due_date"`
 	TimeEstimate int        `json:"time_estimate"`
 	TimeSpent    int        `json:"time_spent"`
+
+	SortStatusPosition int     `json:"-"`
+	SortAssignee       *string `json:"-"`
 }
 
 type TaskRepository interface {
 	Create(ctx context.Context, task *Task, assigneeIDs []uint, tagIDs []uint) error
-	List(ctx context.Context, listID uint, params pagination.Params) ([]Task, bool, bool, error)
+	List(ctx context.Context, listID uint, query TaskQuery, params pagination.Params) ([]Task, bool, bool, error)
+	Count(ctx context.Context, listID uint, filter TaskFilter) (int64, error)
 	GetByID(ctx context.Context, id uint) (*Task, error)
 	Update(ctx context.Context, task *Task, addTagIDs []uint) error
 	Delete(ctx context.Context, id uint) error

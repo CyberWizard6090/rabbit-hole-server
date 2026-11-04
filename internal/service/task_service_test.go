@@ -122,7 +122,7 @@ func TestTaskServiceListTasksEncodesCursors(t *testing.T) {
 	taskRepo := &taskRepositoryMock{task: &tasks[0], tasks: tasks, hasNext: true, hasPrev: true}
 	svc := newTestTaskService(taskRepo, &spaceRepositoryMock{}, &tagServiceMock{})
 
-	got, err := svc.ListTasks(context.Background(), 7, pagination.Params{Limit: 2})
+	got, err := svc.ListTasks(context.Background(), 7, pagination.Params{Limit: 2}, domain.TaskQuery{})
 	if err != nil || !reflect.DeepEqual(got.Items, tasks) || !got.HasNext || !got.HasPrev {
 		t.Fatalf("ListTasks=%#v err=%v", got, err)
 	}
@@ -134,12 +134,12 @@ func TestTaskServiceListTasksEncodesCursors(t *testing.T) {
 		t.Fatal(err)
 	}
 	next, err := codec.Decode(*got.NextCursor)
-	cursorCtx := pagination.TaskCursorContext(7)
+	cursorCtx := domain.TaskQuery{}.CursorContext(7)
 	if err != nil || next.Direction != pagination.DirectionNext || next.Resource != cursorCtx.Resource || next.Scope != cursorCtx.Scope || next.Sort != cursorCtx.Sort {
 		t.Fatalf("next cursor=(%+v, %v)", next, err)
 	}
 	nextPosition, err := pagination.DecodePosition[pagination.TaskCursorPosition](next, cursorCtx)
-	if err != nil || nextPosition.ID != 8 {
+	if err != nil || string(nextPosition.Keys[0]) != "8" {
 		t.Fatalf("next position=(%+v, %v)", nextPosition, err)
 	}
 	prev, err := codec.Decode(*got.PrevCursor)
@@ -147,13 +147,13 @@ func TestTaskServiceListTasksEncodesCursors(t *testing.T) {
 		t.Fatalf("previous cursor=(%+v, %v)", prev, err)
 	}
 	prevPosition, err := pagination.DecodePosition[pagination.TaskCursorPosition](prev, cursorCtx)
-	if err != nil || prevPosition.ID != 9 {
+	if err != nil || string(prevPosition.Keys[0]) != "9" {
 		t.Fatalf("previous position=(%+v, %v)", prevPosition, err)
 	}
 
 	firstPageRepo := &taskRepositoryMock{tasks: tasks, hasNext: true}
 	firstPageService := newTestTaskService(firstPageRepo, &spaceRepositoryMock{}, &tagServiceMock{})
-	firstPage, err := firstPageService.ListTasks(context.Background(), 7, pagination.Params{Limit: 2})
+	firstPage, err := firstPageService.ListTasks(context.Background(), 7, pagination.Params{Limit: 2}, domain.TaskQuery{})
 	if err != nil || firstPage.HasPrev || firstPage.PrevCursor != nil {
 		t.Fatalf("first page should have no previous cursor: response=%#v err=%v", firstPage, err)
 	}

@@ -1,8 +1,6 @@
 package repository
 
 import (
-	"encoding/json"
-	"errors"
 	"testing"
 
 	"rabbit-hole-server/internal/http/pagination"
@@ -47,35 +45,5 @@ func TestUniqueIDsHandlesEmptyInput(t *testing.T) {
 	got := uniqueIDs(nil)
 	if len(got) != 0 {
 		t.Fatalf("got=%v", got)
-	}
-}
-
-func TestDecodeTaskCursorPositionRejectsInvalidIDs(t *testing.T) {
-	for _, raw := range []string{
-		`{"created_at":"2026-10-09T12:00:00Z","id":0}`,
-		`{"created_at":"2026-10-09T12:00:00Z","id":-1}`,
-		`{"created_at":"2026-10-09T12:00:00Z","id":"42"}`,
-		`{"created_at":"2026-10-09T12:00:00Z","id":9223372036854775808}`,
-		`{"created_at":"2026-10-09T12:00:00Z","id":18446744073709551616}`,
-		`not-json`,
-	} {
-		t.Run(raw, func(t *testing.T) {
-			_, err := decodeTaskCursorPosition(&pagination.Cursor{Position: json.RawMessage(raw)})
-			if !errors.Is(err, pagination.ErrInvalidCursor) {
-				t.Fatalf("expected ErrInvalidCursor for position %s, got %v", raw, err)
-			}
-		})
-	}
-}
-
-func TestDecodeTaskCursorPositionAcceptsPositiveID(t *testing.T) {
-	got, err := decodeTaskCursorPosition(&pagination.Cursor{
-		Position: json.RawMessage(`{"created_at":"2026-10-09T12:00:00Z","id":42}`),
-	})
-	if err != nil {
-		t.Fatalf("decodeTaskCursorPosition returned error: %v", err)
-	}
-	if got.ID != 42 {
-		t.Fatalf("decodeTaskCursorPosition() = %+v, want ID 42", got)
 	}
 }
