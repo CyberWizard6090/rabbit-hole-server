@@ -66,6 +66,11 @@ relies on:
   `INVALID_PAGINATION`. See `docs/openapi.yaml`. Contact and space lists use `page`
   (1-10000) and `limit` (1-100, default 10). Out-of-range values are rejected with 400
   `INVALID_PAGINATION`.
+- **Search**: `GET /workspaces/{id}/search?q=&types=tasks,comments,checklist_items&space_id=&page=&limit=`
+  searches live tasks (title, description), comments and checklist items of one workspace (guests
+  may search). `q` has 2-100 characters; 3+ characters also match typos (pg_trgm, GIN indexes).
+  Results carry a score, task context and a plain-text snippet with rune offsets of the matches;
+  `pagination.total` is the match count. E-mail addresses are never searched. See `docs/openapi.yaml`.
 - **Activity**: `GET /tasks/{id}/activity` returns who changed what on a task, newest first (field
   changes with old and new values, moves between lists, comment and attachment events). Entries are written after
   the change succeeds; a failed write is logged and does not fail the request.

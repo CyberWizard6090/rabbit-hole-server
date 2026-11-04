@@ -617,6 +617,42 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/search:
+    get:
+      tags: [workspaces]
+      summary: "Search tasks, comments and checklist items in a workspace"
+      description: |
+        Needs `workspace.read`, so guests may search. Only live data of this workspace is searched:
+        soft-deleted tasks, comments, and everything in deleted spaces, lists or folders is excluded.
+        Short queries (2 characters) match case-insensitively as a substring; from 3 characters
+        trigram similarity adds typo tolerance. `%`, `_` and `\` are matched literally. Tasks are
+        matched on title and description (title ranks higher). Results are ordered by `score`
+        (1.0 exact, 0.9 prefix, 0.8 substring, below 0.8 fuzzy), then by `updated_at` (newest first),
+        then by type and id. E-mail addresses are never searched or returned.
+        `snippet.text` is plain text (markup removed, entities decoded, whitespace collapsed, long
+        text shortened with a leading and/or trailing `…`). `snippet.matches` holds `start`/`end`
+        offsets counted in Unicode code points (runes, not bytes or UTF-16 units) into `snippet.text`;
+        `end` is exclusive. `field` tells where the snippet comes from (`title`, `description`, `body`, `text`).
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: q, in: query, required: true, description: "2-100 characters after trimming. 400 QUERY_REQUIRED, QUERY_TOO_SHORT, QUERY_TOO_LONG or INVALID_QUERY.", schema: {type: string, minLength: 2, maxLength: 100}}
+        - {name: types, in: query, description: "Comma-separated subset of tasks, comments, checklist_items (default all). 400 INVALID_SEARCH_TYPES.", schema: {type: string, example: "tasks,comments"}}
+        - {name: space_id, in: query, description: "Restrict to one space of the workspace. 400 INVALID_SPACE_ID.", schema: {type: integer}}
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: "`data` is an array of SearchResult; `pagination.total` counts all matches."
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Envelope'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
   /spaces/{space_id}:
     get:
       tags: [spaces]
@@ -1624,6 +1660,30 @@ components:
             page: {type: integer}
             limit: {type: integer}
             pages: {type: integer}
+    SearchResult:
+      type: object
+      properties:
+        type: {type: string, enum: [task, comment, checklist_item]}
+        id: {type: integer}
+        task_id: {type: integer}
+        list_id: {type: integer}
+        space_id: {type: integer}
+        task_title: {type: string}
+        field: {type: string, enum: [title, description, body, text]}
+        score: {type: number, format: double}
+        updated_at: {type: string, format: date-time}
+        snippet:
+          type: object
+          properties:
+            text: {type: string, description: Plain text, never HTML}
+            matches:
+              type: array
+              description: Offsets in Unicode code points (runes) into snippet.text; end is exclusive.
+              items:
+                type: object
+                properties:
+                  start: {type: integer}
+                  end: {type: integer}
     RegisterRequest:
       type: object
       required: [email, password]
