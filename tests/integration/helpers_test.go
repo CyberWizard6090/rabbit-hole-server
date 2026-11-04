@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +92,8 @@ func TestMain(m *testing.M) {
 		}
 	}
 
+	cfg.Storage.Driver = "local"
+	cfg.Storage.LocalDir = filepath.Join(os.TempDir(), "rabbit-hole-integration-uploads")
 	cfg.DB.URL = testDBURL
 	integrationDB, err = database.ConnectDB(
 		testDBURL,
@@ -118,6 +121,11 @@ func integrationDBRequiredInCI(ci, testDBURL string) bool {
 
 func newTestContext(t *testing.T) *TestContext {
 	t.Helper()
+	return newTestContextWith(t, nil)
+}
+
+func newTestContextWith(t *testing.T, adjust func(cfg *config.Config)) *TestContext {
+	t.Helper()
 
 	if integrationDB == nil || integrationConfig == nil {
 		t.Skip("TEST_DB_URL is not set; integration tests require a dedicated PostgreSQL test database")
@@ -129,14 +137,20 @@ func newTestContext(t *testing.T) *TestContext {
 		}
 	})
 
-	container, err := app.NewContainer(integrationDB, integrationConfig)
+	cfg := *integrationConfig
+	cfg.Storage.LocalDir = t.TempDir()
+	if adjust != nil {
+		adjust(&cfg)
+	}
+
+	container, err := app.NewContainer(integrationDB, &cfg)
 	if err != nil {
 		t.Fatalf("create integration app dependencies: %v", err)
 	}
 
 	return &TestContext{
 		DB:     integrationDB,
-		Router: app.SetupRouter(container, integrationConfig),
+		Router: app.SetupRouter(container, &cfg),
 	}
 }
 

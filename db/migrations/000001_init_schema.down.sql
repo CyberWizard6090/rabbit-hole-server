@@ -2,6 +2,7 @@ ALTER TABLE IF EXISTS lists DROP CONSTRAINT IF EXISTS fk_lists_parent_status;
 
 DROP TABLE IF EXISTS
     task_activities,
+    files,
     task_comment_mentions,
     task_comments,
     task_assignees,

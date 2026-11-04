@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -84,6 +85,7 @@ type AuthService struct {
 	jwtSecret  []byte
 	jwtTTL     time.Duration
 	refreshTTL time.Duration
+	avatars    AvatarRemover
 }
 
 func NewAuthService(r AuthUserStore, jwtSecret string, accessTTL, refreshTTL time.Duration) *AuthService {
@@ -392,6 +394,15 @@ func (s *AuthService) LogoutAll(ctx context.Context, userID uint) error {
 	return err
 }
 
+type AvatarRemover interface {
+	RemoveAvatar(ctx context.Context, userID uint) error
+}
+
+func (s *AuthService) WithAvatarRemover(remover AvatarRemover) *AuthService {
+	s.avatars = remover
+	return s
+}
+
 func (s *AuthService) DeleteAccount(ctx context.Context, userID uint, password string) error {
 	user, err := s.repo.GetByID(ctx, userID)
 	if err != nil || !verifyPassword(password, user.PasswordHash) {
@@ -404,5 +415,13 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID uint, password s
 	if owned > 0 {
 		return ErrOwnsWorkspaces
 	}
-	return s.repo.Anonymize(ctx, userID)
+	if err := s.repo.Anonymize(ctx, userID); err != nil {
+		return err
+	}
+	if s.avatars != nil {
+		if err := s.avatars.RemoveAvatar(ctx, userID); err != nil {
+			slog.Warn("auth: cannot remove the avatar of a deleted account", "user_id", userID, "error", err)
+		}
+	}
+	return nil
 }

@@ -31,6 +31,7 @@ tags:
   - name: statuses
   - name: tasks
   - name: comments
+  - name: files
   - name: realtime
 paths:
   /auth/register:
@@ -81,6 +82,41 @@ paths:
     post:
       tags: [auth]
       summary: "Sign out everywhere: revokes all refresh sessions and every issued access token"
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+  /profile/avatar:
+    post:
+      tags: [files]
+      summary: "Set the avatar"
+      description: |
+        Send the picture as `multipart/form-data` in the `file` field (PNG, JPEG, GIF or WebP, at most
+        `MAX_AVATAR_BYTES`, 5 MiB by default, and 16 megapixels). The server decodes it, applies the JPEG EXIF
+        rotation, crops the centre square, scales it down to at most 256x256 and re-encodes it (JPEG, or PNG
+        when it has transparency), so metadata such as GPS positions is dropped. A previous avatar is deleted.
+        Returns the new `avatar_url`, which is also what `GET /profile` shows.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '413': {$ref: '#/components/responses/Error'}
+        '415': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [files]
+      summary: "Remove the avatar"
       security:
         - bearerAuth: []
       responses:
@@ -349,6 +385,52 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/images:
+    post:
+      tags: [files]
+      summary: "Upload an image from the editor"
+      description: |
+        For Inkbrick's `images.upload` hook: send the file as `multipart/form-data` in the `file` field and put
+        `data.url` into the image block. PNG, JPEG, GIF, WebP and AVIF are accepted, at most `MAX_IMAGE_BYTES`
+        (10 MiB by default); SVG and anything whose content is not an image are refused with 415. The file is
+        stored as sent, so animated GIFs keep working, but EXIF metadata stays in it.
+
+        The url is `PUBLIC_BASE_URL` + `/api/v1/images/{public_id}` (relative when the variable is empty) and
+        never expires, so it can live in saved documents. Anyone who knows the url can open the image; it is a
+        random 128-bit value. Needs `task.update` in the workspace, so guests cannot upload.
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '413': {$ref: '#/components/responses/Error'}
+        '415': {$ref: '#/components/responses/Error'}
+  /images/{public_id}:
+    get:
+      tags: [files]
+      summary: "Fetch an editor image or an avatar"
+      description: "Public, no token needed, so it works in an `<img>` tag. Cached for a year (`immutable`), served with `Cross-Origin-Resource-Policy: cross-origin` and a sandboxing CSP."
+      security: []
+      parameters:
+        - {name: public_id, in: path, required: true, schema: {type: string, pattern: '^[0-9a-f]{32}$'}}
+      responses:
+        '200': {description: The image}
+        '304': {description: Not modified}
+        '404': {$ref: '#/components/responses/Error'}
   /workspaces/{workspace_id}/spaces:
     post:
       tags: [spaces]
@@ -1010,6 +1092,81 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/attachments:
+    get:
+      tags: [files]
+      summary: "List the attachments of a task, oldest first"
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [files]
+      summary: "Attach a file to a task"
+      description: |
+        `multipart/form-data`, field `file`, at most `MAX_ATTACHMENT_BYTES` (25 MiB by default) and 100 files per
+        task (409 `TOO_MANY_ATTACHMENTS`). Any file type is accepted; `content_type` is detected from the content,
+        not taken from the client. The file name is cleaned of paths and control characters. Needs `task.update`.
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '413': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/attachments/{attachment_id}/download:
+    get:
+      tags: [files]
+      summary: "Download an attachment"
+      description: |
+        Needs the bearer token, so fetch it from the client and save the blob; it cannot be a plain link. The
+        answer is always `Content-Disposition: attachment`. Only images, PDF and plain text keep their type;
+        everything else, HTML included, is sent as `application/octet-stream`.
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+        - {name: attachment_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {description: The file}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/attachments/{attachment_id}:
+    delete:
+      tags: [files]
+      summary: "Delete an attachment (uploader, or anyone with task.delete)"
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+        - {name: attachment_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
   /tasks/{task_id}/move:
     post:

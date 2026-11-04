@@ -38,7 +38,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-w -s" -o /app/migrate
 FROM alpine:3.24 AS prod
 
 RUN apk --no-cache add ca-certificates tzdata \
-    && addgroup -S app && adduser -S -G app app
+    && addgroup -S app && adduser -S -G app app \
+    && mkdir -p /data/uploads && chown -R app:app /data
 
 WORKDIR /app
 

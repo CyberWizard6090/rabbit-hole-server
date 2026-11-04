@@ -36,5 +36,8 @@ tmp/
 bin/
 *.log
 
+# Local uploads (STORAGE_DRIVER=local)
+/data/
+
 # Local Claude instructions
 CLAUDE.md
