@@ -73,7 +73,7 @@ func (l *Local) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.Open(target)
+	file, err := os.Open(target) //nolint:gosec // target is built from a key checked against keyPattern
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ErrNotFound
 	}

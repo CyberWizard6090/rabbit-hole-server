@@ -89,7 +89,7 @@ func newTestS3(t *testing.T, bucket string) (*S3, *fakeS3) {
 		Endpoint:  strings.TrimPrefix(server.URL, "https://"),
 		Bucket:    bucket,
 		AccessKey: "access", SecretKey: "secret", Region: "us-east-1", UseSSL: true,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // test server certificate
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
 	})
 	if err != nil {
 		t.Fatalf("NewS3: %v", err)
@@ -126,7 +126,7 @@ func TestS3FailsWhenTheBucketIsMissing(t *testing.T) {
 	_, err := NewS3(context.Background(), S3Options{
 		Endpoint: strings.TrimPrefix(server.URL, "https://"), Bucket: "other",
 		AccessKey: "a", SecretKey: "s", Region: "us-east-1", UseSSL: true,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // test server certificate
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
 	})
 	if err == nil {
 		t.Fatal("NewS3 must fail for a bucket that does not exist")
