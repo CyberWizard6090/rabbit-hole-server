@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -16,13 +17,13 @@ func TestUserServiceGetAndUpdateProfile(t *testing.T) {
 	}
 	svc := NewUserService(repo)
 
-	got, err := svc.GetUserByID(7)
+	got, err := svc.GetUserByID(context.Background(), 7)
 	if err != nil || got != user {
 		t.Fatalf("got=%+v err=%v", got, err)
 	}
 
 	username, first, last, bio, tz := "new", "A", "B", "about", "Europe/Berlin"
-	got, err = svc.UpdateProfile(7, UpdateProfileParams{
+	got, err = svc.UpdateProfile(context.Background(), 7, UpdateProfileParams{
 		Username: &username, FirstName: &first, LastName: &last, Bio: &bio, TimeZone: &tz,
 	})
 	if err != nil || !updated {
@@ -39,10 +40,10 @@ func TestUserServiceMapsGetErrorToNotFound(t *testing.T) {
 		updateFn:  func(*domain.User) error { return nil },
 	}
 	svc := NewUserService(repo)
-	if _, err := svc.GetUserByID(1); !errors.Is(err, ErrUserNotFound) {
+	if _, err := svc.GetUserByID(context.Background(), 1); !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("err=%v", err)
 	}
-	if _, err := svc.UpdateProfile(1, UpdateProfileParams{}); !errors.Is(err, ErrUserNotFound) {
+	if _, err := svc.UpdateProfile(context.Background(), 1, UpdateProfileParams{}); !errors.Is(err, ErrUserNotFound) {
 		t.Fatalf("err=%v", err)
 	}
 }
@@ -53,7 +54,7 @@ func TestUserServiceWrapsUpdateError(t *testing.T) {
 		getByIDFn: func(uint) (*domain.User, error) { return &domain.User{ID: 1}, nil },
 		updateFn:  func(*domain.User) error { return want },
 	}
-	if _, err := NewUserService(repo).UpdateProfile(1, UpdateProfileParams{}); !errors.Is(err, want) {
+	if _, err := NewUserService(repo).UpdateProfile(context.Background(), 1, UpdateProfileParams{}); !errors.Is(err, want) {
 		t.Fatalf("err=%v", err)
 	}
 }

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -8,20 +9,52 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/argon2"
-	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/dto"
-	"rabbit-hole-server/internal/repository"
 )
 
-var ErrInvalidCredentials = errors.New("invalid email or password")
+var (
+	ErrInvalidCredentials = errors.New("invalid email or password")
+	ErrWeakPassword       = errors.New("password must be between 8 and 128 characters")
+	ErrTokenRevoked       = errors.New("token has been revoked")
+	ErrOwnsWorkspaces     = errors.New("transfer or delete your workspaces before deleting the account")
+)
+
+const (
+	MinPasswordLength = 8
+	MaxPasswordLength = 128
+)
+
+type AuthUserStore interface {
+	CreateUser(ctx context.Context, user *domain.User) error
+	GetByEmail(ctx context.Context, email string) (*domain.User, error)
+	GetByID(ctx context.Context, id uint) (*domain.User, error)
+	GetTokenVersion(ctx context.Context, userID uint) (int, error)
+	CreateSession(ctx context.Context, session *domain.UserSession) error
+	DeleteSession(ctx context.Context, tokenHash string) error
+	RotateSession(ctx context.Context, tokenHash string, replacement *domain.UserSession) error
+	RevokeAll(ctx context.Context, userID uint) (int, error)
+	HasSessionCreatedSince(ctx context.Context, userID uint, since time.Time) (bool, error)
+	UpdatePasswordAndRevoke(ctx context.Context, userID uint, passwordHash string) (int, error)
+	CountOwnedWorkspaces(ctx context.Context, userID uint) (int64, error)
+	Anonymize(ctx context.Context, userID uint) error
+}
+
+func validatePassword(password string) error {
+	if n := len([]rune(password)); n < MinPasswordLength || n > MaxPasswordLength {
+		return ErrWeakPassword
+	}
+	return nil
+}
 
 type TokenType string
 
@@ -31,25 +64,29 @@ const (
 )
 
 type Claims struct {
-	UserID    uint      `json:"user_id"`
-	TokenType TokenType `json:"token_type"`
+	UserID       uint      `json:"user_id"`
+	TokenType    TokenType `json:"token_type"`
+	TokenVersion int       `json:"tv"`
 	jwt.RegisteredClaims
 }
 
-type RefreshClaims struct {
-	UserID    uint      `json:"user_id"`
-	TokenType TokenType `json:"token_type"`
-	jwt.RegisteredClaims
-}
+type RefreshClaims = Claims
+
+var tokenParser = jwt.NewParser(
+	jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+	jwt.WithExpirationRequired(),
+)
+
+func (s *AuthService) keyFunc(*jwt.Token) (interface{}, error) { return s.jwtSecret, nil }
 
 type AuthService struct {
-	repo       *repository.UserRepository
+	repo       AuthUserStore
 	jwtSecret  []byte
 	jwtTTL     time.Duration
 	refreshTTL time.Duration
 }
 
-func NewAuthService(r *repository.UserRepository, jwtSecret string, accessTTL, refreshTTL time.Duration) *AuthService {
+func NewAuthService(r AuthUserStore, jwtSecret string, accessTTL, refreshTTL time.Duration) *AuthService {
 	return &AuthService{
 		repo:       r,
 		jwtSecret:  []byte(jwtSecret),
@@ -136,9 +173,12 @@ func (s *AuthService) hashToken(token string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func (s *AuthService) Register(email, password, username string) error {
+func (s *AuthService) Register(ctx context.Context, email, password, username string) error {
 	email = strings.ToLower(strings.TrimSpace(email))
 	username = strings.TrimSpace(username)
+	if err := validatePassword(password); err != nil {
+		return err
+	}
 	passwordHash, err := hashPassword(password)
 	if err != nil {
 		return err
@@ -153,13 +193,26 @@ func (s *AuthService) Register(email, password, username string) error {
 		user.Username = fmt.Sprintf("user_%d", time.Now().UnixNano())
 	}
 
-	return s.repo.CreateUser(user)
+	return s.repo.CreateUser(ctx, user)
 }
 
-func (s *AuthService) Login(email, password string) (dto.TokenPair, error) {
+var (
+	dummyHashOnce sync.Once
+	dummyHash     string
+)
+
+func burnPasswordHash(password string) {
+	dummyHashOnce.Do(func() {
+		dummyHash, _ = hashPassword("timing-equalizer-not-a-real-password")
+	})
+	_ = verifyPassword(password, dummyHash)
+}
+
+func (s *AuthService) Login(ctx context.Context, email, password string) (dto.TokenPair, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
-	user, err := s.repo.GetByEmail(email)
+	user, err := s.repo.GetByEmail(ctx, email)
 	if err != nil {
+		burnPasswordHash(password)
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
 
@@ -167,21 +220,29 @@ func (s *AuthService) Login(email, password string) (dto.TokenPair, error) {
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
 
-	return s.GenerateTokenPair(user.ID)
+	return s.issueTokenPair(ctx, user.ID, user.TokenVersion)
 }
 
-func (s *AuthService) GenerateTokenPair(userID uint) (dto.TokenPair, error) {
-	pair, session, err := s.generateTokenPair(userID)
+func (s *AuthService) GenerateTokenPair(ctx context.Context, userID uint) (dto.TokenPair, error) {
+	version, err := s.repo.GetTokenVersion(ctx, userID)
 	if err != nil {
 		return dto.TokenPair{}, err
 	}
-	if err := s.repo.CreateSession(session); err != nil {
+	return s.issueTokenPair(ctx, userID, version)
+}
+
+func (s *AuthService) issueTokenPair(ctx context.Context, userID uint, version int) (dto.TokenPair, error) {
+	pair, session, err := s.generateTokenPair(userID, version)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	if err := s.repo.CreateSession(ctx, session); err != nil {
 		return dto.TokenPair{}, err
 	}
 	return pair, nil
 }
 
-func (s *AuthService) generateTokenPair(userID uint) (dto.TokenPair, *domain.UserSession, error) {
+func (s *AuthService) generateTokenPair(userID uint, version int) (dto.TokenPair, *domain.UserSession, error) {
 	nonceBytes := make([]byte, 16)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return dto.TokenPair{}, nil, fmt.Errorf("generate token id: %w", err)
@@ -189,8 +250,9 @@ func (s *AuthService) generateTokenPair(userID uint) (dto.TokenPair, *domain.Use
 	nonce := hex.EncodeToString(nonceBytes)
 
 	accessClaims := Claims{
-		UserID:    userID,
-		TokenType: TokenAccess,
+		UserID:       userID,
+		TokenType:    TokenAccess,
+		TokenVersion: version,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        nonce,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtTTL)),
@@ -229,13 +291,8 @@ func (s *AuthService) generateTokenPair(userID uint) (dto.TokenPair, *domain.Use
 	}, session, nil
 }
 
-func (s *AuthService) Refresh(refreshTokenString string) (dto.TokenPair, error) {
-	token, err := jwt.ParseWithClaims(refreshTokenString, &RefreshClaims{}, func(token *jwt.Token) (interface{}, error) {
-		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return s.jwtSecret, nil
-	})
+func (s *AuthService) Refresh(ctx context.Context, refreshTokenString string) (dto.TokenPair, error) {
+	token, err := tokenParser.ParseWithClaims(refreshTokenString, &RefreshClaims{}, s.keyFunc)
 	if err != nil || !token.Valid {
 		return dto.TokenPair{}, errors.New("invalid or expired refresh token")
 	}
@@ -249,12 +306,17 @@ func (s *AuthService) Refresh(refreshTokenString string) (dto.TokenPair, error) 
 	}
 
 	tokenHash := s.hashToken(refreshTokenString)
-	pair, replacement, err := s.generateTokenPair(claims.UserID)
+	version, err := s.repo.GetTokenVersion(ctx, claims.UserID)
+	if err != nil {
+		return dto.TokenPair{}, errors.New("session not found")
+	}
+	pair, replacement, err := s.generateTokenPair(claims.UserID, version)
 	if err != nil {
 		return dto.TokenPair{}, err
 	}
-	if err := s.repo.RotateSession(tokenHash, replacement); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := s.repo.RotateSession(ctx, tokenHash, replacement); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			s.handleUnknownRefreshSession(ctx, claims.UserID)
 			return dto.TokenPair{}, errors.New("session not found")
 		}
 		return dto.TokenPair{}, fmt.Errorf("rotate refresh session: %w", err)
@@ -262,18 +324,27 @@ func (s *AuthService) Refresh(refreshTokenString string) (dto.TokenPair, error) 
 	return pair, nil
 }
 
-func (s *AuthService) Logout(refreshTokenString string) error {
+const refreshReuseGrace = 10 * time.Second
+
+func (s *AuthService) handleUnknownRefreshSession(ctx context.Context, userID uint) {
+	recent, err := s.repo.HasSessionCreatedSince(ctx, userID, time.Now().Add(-refreshReuseGrace))
+	if err != nil || recent {
+		return
+	}
+	if _, err := s.repo.RevokeAll(context.WithoutCancel(ctx), userID); err != nil {
+		log.Printf("revoke sessions after refresh token reuse (user %d): %v", userID, err)
+		return
+	}
+	log.Printf("refresh token reuse detected: revoked all sessions of user %d", userID)
+}
+
+func (s *AuthService) Logout(ctx context.Context, refreshTokenString string) error {
 	tokenHash := s.hashToken(refreshTokenString)
-	return s.repo.DeleteSession(tokenHash)
+	return s.repo.DeleteSession(ctx, tokenHash)
 }
 
 func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		if token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return s.jwtSecret, nil
-	})
+	token, err := tokenParser.ParseWithClaims(tokenString, &Claims{}, s.keyFunc)
 	if err != nil {
 		return nil, err
 	}
@@ -283,4 +354,55 @@ func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
 	}
 
 	return nil, jwt.ErrSignatureInvalid
+}
+
+func (s *AuthService) Authenticate(ctx context.Context, tokenString string) (*Claims, error) {
+	claims, err := s.ParseToken(tokenString)
+	if err != nil {
+		return nil, err
+	}
+	current, err := s.repo.GetTokenVersion(ctx, claims.UserID)
+	if err != nil || current != claims.TokenVersion {
+		return nil, ErrTokenRevoked
+	}
+	return claims, nil
+}
+
+func (s *AuthService) ChangePassword(ctx context.Context, userID uint, currentPassword, newPassword string) (dto.TokenPair, error) {
+	if err := validatePassword(newPassword); err != nil {
+		return dto.TokenPair{}, err
+	}
+	user, err := s.repo.GetByID(ctx, userID)
+	if err != nil || !verifyPassword(currentPassword, user.PasswordHash) {
+		return dto.TokenPair{}, ErrInvalidCredentials
+	}
+	hash, err := hashPassword(newPassword)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	version, err := s.repo.UpdatePasswordAndRevoke(ctx, userID, hash)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	return s.issueTokenPair(ctx, userID, version)
+}
+
+func (s *AuthService) LogoutAll(ctx context.Context, userID uint) error {
+	_, err := s.repo.RevokeAll(ctx, userID)
+	return err
+}
+
+func (s *AuthService) DeleteAccount(ctx context.Context, userID uint, password string) error {
+	user, err := s.repo.GetByID(ctx, userID)
+	if err != nil || !verifyPassword(password, user.PasswordHash) {
+		return ErrInvalidCredentials
+	}
+	owned, err := s.repo.CountOwnedWorkspaces(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if owned > 0 {
+		return ErrOwnsWorkspaces
+	}
+	return s.repo.Anonymize(ctx, userID)
 }

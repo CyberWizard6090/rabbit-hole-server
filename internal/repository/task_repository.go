@@ -1,13 +1,16 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/http/pagination"
+	"rabbit-hole-server/internal/persistence"
 )
 
 type taskRepository struct {
@@ -18,32 +21,39 @@ func NewTaskRepository(db *gorm.DB) domain.TaskRepository {
 	return &taskRepository{db: db}
 }
 
-func (r *taskRepository) Create(task *domain.Task, assigneeIDs []uint, tagIDs []uint) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *taskRepository) Create(ctx context.Context, task *domain.Task, assigneeIDs []uint, tagIDs []uint) error {
+	m := taskFromDomain(*task)
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := validateTaskReferences(tx, task, assigneeIDs, tagIDs); err != nil {
 			return err
 		}
 		if len(assigneeIDs) > 0 {
-			var users []domain.User
+			var users []persistence.User
 			if err := tx.Find(&users, assigneeIDs).Error; err != nil {
 				return err
 			}
-			task.Assignees = users
+			m.Assignees = users
 		}
 
 		if len(tagIDs) > 0 {
-			var tags []domain.Tag
+			var tags []persistence.Tag
 			if err := tx.Find(&tags, tagIDs).Error; err != nil {
 				return err
 			}
-			task.Tags = tags
+			m.Tags = tags
 		}
 
-		return tx.Create(task).Error
+		return tx.Create(&m).Error
 	})
+	if err != nil {
+		return mapErr(err)
+	}
+	*task = taskToDomain(m)
+	return nil
 }
 
 func (r *taskRepository) List(
+	ctx context.Context,
 	listID uint,
 	params pagination.Params,
 ) ([]domain.Task, bool, bool, error) {
@@ -52,9 +62,9 @@ func (r *taskRepository) List(
 		return nil, false, false, err
 	}
 
-	var tasks []domain.Task
+	var rows []persistence.Task
 
-	query := r.db.
+	query := r.db.WithContext(ctx).
 		Where("list_id = ?", listID).
 		Preload("Assignees").
 		Preload("Tags")
@@ -96,11 +106,12 @@ func (r *taskRepository) List(
 	err = query.
 		Order(order).
 		Limit(fetchLimit).
-		Find(&tasks).Error
+		Find(&rows).Error
 	if err != nil {
-		return nil, false, false, err
+		return nil, false, false, mapErr(err)
 	}
 
+	tasks := mapSlice(rows, taskToDomain)
 	hasMore := len(tasks) > params.Limit
 	if hasMore {
 		tasks = tasks[:params.Limit]
@@ -150,59 +161,60 @@ func hasPreviousPage(cursor *pagination.Cursor, hasMore bool) bool {
 	}
 }
 
-func (r *taskRepository) GetByID(id uint) (*domain.Task, error) {
-	var task domain.Task
-	err := r.db.Where("id = ?", id).
+func (r *taskRepository) GetByID(ctx context.Context, id uint) (*domain.Task, error) {
+	var m persistence.Task
+	err := r.db.WithContext(ctx).Where("id = ?", id).
 		Preload("Assignees").
 		Preload("Tags").
-		First(&task).Error
-	return &task, err
+		First(&m).Error
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	task := taskToDomain(m)
+	return &task, nil
 }
 
-func (r *taskRepository) Update(task *domain.Task) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
-		if err := validateTaskReferences(tx, task, nil, nil); err != nil {
+func (r *taskRepository) Update(ctx context.Context, task *domain.Task, addTagIDs []uint) error {
+	m := taskFromDomain(*task)
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		addTagIDs = uniqueIDs(addTagIDs)
+		if err := validateTaskReferences(tx, task, nil, addTagIDs); err != nil {
 			return err
 		}
-		return tx.Save(task).Error
+		if err := tx.Omit(clause.Associations).Save(&m).Error; err != nil {
+			return err
+		}
+		if len(addTagIDs) == 0 {
+			return nil
+		}
+
+		var tags []persistence.Tag
+		if err := tx.Find(&tags, addTagIDs).Error; err != nil {
+			return err
+		}
+		return tx.Model(&m).Omit("Tags.*").Association("Tags").Append(tags)
 	})
+	if err != nil {
+		return mapErr(err)
+	}
+	task.UpdatedAt = m.UpdatedAt
+	return nil
 }
 
-func (r *taskRepository) Delete(id uint) error {
-	res := r.db.Where("id = ?", id).Delete(&domain.Task{})
+func (r *taskRepository) Delete(ctx context.Context, id uint) error {
+	res := r.db.WithContext(ctx).Where("id = ?", id).Delete(&persistence.Task{})
 	if res.Error != nil {
-		return res.Error
+		return mapErr(res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
+		return domain.ErrNotFound
 	}
 	return nil
 }
 
-func (r *taskRepository) AddTags(taskID uint, tagIDs []uint) error {
-	if len(tagIDs) == 0 {
-		return nil
-	}
-
-	var task domain.Task
-	if err := r.db.First(&task, taskID).Error; err != nil {
-		return err
-	}
-	if err := validateTagReferences(r.db, task.SpaceID, tagIDs); err != nil {
-		return err
-	}
-
-	var tags []domain.Tag
-	if err := r.db.Find(&tags, tagIDs).Error; err != nil {
-		return err
-	}
-
-	return r.db.Model(&task).Association("Tags").Append(tags)
-}
-
 func validateTaskReferences(tx *gorm.DB, task *domain.Task, assigneeIDs, tagIDs []uint) error {
 	var statusCount int64
-	if err := tx.Model(&domain.TaskStatus{}).
+	if err := tx.Model(&persistence.TaskStatus{}).
 		Where("id = ? AND list_id = ?", task.StatusID, task.ListID).
 		Count(&statusCount).Error; err != nil {
 		return err
@@ -213,7 +225,7 @@ func validateTaskReferences(tx *gorm.DB, task *domain.Task, assigneeIDs, tagIDs 
 
 	if task.ParentID != nil {
 		var parentCount int64
-		if err := tx.Model(&domain.Task{}).
+		if err := tx.Model(&persistence.Task{}).
 			Where("id = ? AND list_id = ?", *task.ParentID, task.ListID).
 			Count(&parentCount).Error; err != nil {
 			return err
@@ -252,7 +264,7 @@ func validateTagReferences(tx *gorm.DB, spaceID uint, tagIDs []uint) error {
 	}
 
 	var tagCount int64
-	if err := tx.Model(&domain.Tag{}).
+	if err := tx.Model(&persistence.Tag{}).
 		Where("space_id = ? AND id IN ?", spaceID, tagIDs).
 		Count(&tagCount).Error; err != nil {
 		return err

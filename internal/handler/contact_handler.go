@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -37,7 +38,7 @@ func (h *ContactHandler) List(c *gin.Context) {
 		return
 	}
 
-	contacts, total, err := h.service.GetContactsPage(uid, params.Limit, params.Offset)
+	contacts, total, err := h.service.GetContactsPage(c.Request.Context(), uid, params.Limit, params.Offset)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("CONTACTS_FETCH_FAILED", "internal server error", err))
 		return
@@ -62,7 +63,7 @@ func (h *ContactHandler) Add(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.AddContact(uid, req.ContactID); err != nil {
+	if err := h.service.AddContact(c.Request.Context(), uid, req.ContactID); err != nil {
 		if errors.Is(err, domain.ErrContactAlreadyAdded) {
 			response.HandleError(c, httperrors.Conflict("CONTACT_ALREADY_ADDED", "contact already added", err))
 			return
@@ -89,7 +90,7 @@ func (h *ContactHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteContact(uid, uint(contactID)); err != nil {
+	if err := h.service.DeleteContact(c.Request.Context(), uid, uint(contactID)); err != nil {
 		response.HandleError(c, httperrors.Internal("CONTACT_DELETE_FAILED", "internal server error", err))
 		return
 	}
@@ -99,6 +100,8 @@ func (h *ContactHandler) Delete(c *gin.Context) {
 	})
 }
 
+const minSearchQueryLen = 3
+
 func (h *ContactHandler) Search(c *gin.Context) {
 	uid, err := contextutil.GetUserID(c)
 	if err != nil {
@@ -106,17 +109,24 @@ func (h *ContactHandler) Search(c *gin.Context) {
 		return
 	}
 
-	query := c.Query("q")
-	if len([]rune(query)) < 2 {
-		response.HandleError(c, httperrors.BadRequest("QUERY_TOO_SHORT", "query param 'q' must contain at least 2 characters", nil))
+	query := strings.TrimSpace(c.Query("q"))
+	if len([]rune(query)) < minSearchQueryLen {
+		response.HandleError(c, httperrors.BadRequest("QUERY_TOO_SHORT", "query param 'q' must contain at least 3 characters", nil))
 		return
 	}
 
-	users, err := h.service.SearchUsers(uid, query)
+	users, err := h.service.SearchUsers(c.Request.Context(), uid, query)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("USER_SEARCH_FAILED", "internal server error", err))
 		return
 	}
 
-	response.Success(c, http.StatusOK, users)
+	result := make([]dto.PublicUser, 0, len(users))
+	for _, u := range users {
+		result = append(result, dto.PublicUser{
+			ID: u.ID, Username: u.Username, FirstName: u.FirstName, LastName: u.LastName, AvatarURL: u.AvatarURL,
+		})
+	}
+
+	response.Success(c, http.StatusOK, result)
 }

@@ -10,7 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 func responseID(t *testing.T, rec *httptest.ResponseRecorder) uint {
@@ -41,7 +41,7 @@ func TestAPI_ProfileSearchAndContactsLifecycle(t *testing.T) {
 		t.Fatalf("register contact target: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var otherUser domain.User
+	var otherUser persistence.User
 	if err := tc.DB.Where("email = ?", otherEmail).First(&otherUser).Error; err != nil {
 		t.Fatalf("find contact target: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 		t.Fatalf("create space: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 	space := dataObject(t, rec)
-	spaceID := uint(space["ID"].(float64))
+	spaceID := uint(space["id"].(float64))
 
 	rec = request(t, tc.Router, http.MethodGet, "/api/v1/workspaces/"+itoa(workspaceID)+"/spaces?page=1&limit=10", tc.Token, nil)
 	if rec.Code != http.StatusOK {
@@ -162,7 +162,7 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create folder: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
-	folderID := uint(dataObject(t, rec)["ID"].(float64))
+	folderID := uint(dataObject(t, rec)["id"].(float64))
 
 	rec = request(t, tc.Router, http.MethodGet, "/api/v1/spaces/"+itoa(spaceID)+"/folders", tc.Token, nil)
 	if rec.Code != http.StatusOK || len(decodeJSON(t, rec)["data"].([]any)) != 1 {
@@ -171,7 +171,7 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 
 	updatedFolder := "Updated Folder"
 	rec = request(t, tc.Router, http.MethodPatch, "/api/v1/folders/"+itoa(folderID), tc.Token, map[string]any{"name": updatedFolder})
-	if rec.Code != http.StatusOK || dataObject(t, rec)["Name"] != updatedFolder {
+	if rec.Code != http.StatusOK || dataObject(t, rec)["name"] != updatedFolder {
 		t.Fatalf("update folder: %d %s", rec.Code, rec.Body.String())
 	}
 
@@ -179,7 +179,7 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create space list: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
-	listID := uint(dataObject(t, rec)["ID"].(float64))
+	listID := uint(dataObject(t, rec)["id"].(float64))
 
 	rec = request(t, tc.Router, http.MethodGet, "/api/v1/spaces/"+itoa(spaceID)+"/lists", tc.Token, nil)
 	if rec.Code != http.StatusOK || len(decodeJSON(t, rec)["data"].([]any)) != 2 {
@@ -195,7 +195,7 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create folder list: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
-	folderListID := uint(dataObject(t, rec)["ID"].(float64))
+	folderListID := uint(dataObject(t, rec)["id"].(float64))
 
 	updatedList := "Updated List"
 	rec = request(t, tc.Router, http.MethodPatch, "/api/v1/lists/"+itoa(listID), tc.Token, map[string]any{"name": updatedList})
@@ -214,7 +214,7 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
-	statusID := uint(dataObject(t, rec)["ID"].(float64))
+	statusID := uint(dataObject(t, rec)["id"].(float64))
 
 	rec = request(t, tc.Router, http.MethodPut, "/api/v1/lists/"+itoa(listID)+"/statuses/"+itoa(statusID), tc.Token, map[string]any{"name": "Renamed Status", "position": 1})
 	if rec.Code != http.StatusOK || dataObject(t, rec)["name"] != "Renamed Status" {
@@ -257,11 +257,11 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 		t.Fatalf("delete folder list: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var folder domain.Folder
+	var folder persistence.Folder
 	if err := tc.DB.First(&folder, folderID).Error; !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("folder lookup after delete error = %v, want record not found", err)
 	}
-	var tag domain.Tag
+	var tag persistence.Tag
 	if err := tc.DB.First(&tag, tagID).Error; !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("tag lookup after delete error = %v, want record not found", err)
 	}
@@ -279,9 +279,9 @@ func TestAPI_TaskLifecycleAndDatabaseRelations(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create task status: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
-	statusID := uint(dataObject(t, rec)["ID"].(float64))
+	statusID := uint(dataObject(t, rec)["id"].(float64))
 
-	var status domain.TaskStatus
+	var status persistence.TaskStatus
 	if err := tc.DB.First(&status, statusID).Error; err != nil {
 		t.Fatalf("find task status: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestAPI_TaskLifecycleAndDatabaseRelations(t *testing.T) {
 	}
 	taskID := responseID(t, rec)
 
-	var task domain.Task
+	var task persistence.Task
 	if err := tc.DB.Preload("Tags").First(&task, taskID).Error; err != nil {
 		t.Fatalf("find task: %v", err)
 	}
@@ -355,11 +355,11 @@ func TestAPI_TaskCursorPagination(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
-	statusID := uint(dataObject(t, rec)["ID"].(float64))
+	statusID := uint(dataObject(t, rec)["id"].(float64))
 
 	createdAt := time.Now().UTC().Truncate(time.Microsecond)
 	for i := 0; i < 3; i++ {
-		task := domain.Task{
+		task := persistence.Task{
 			SpaceID:  spaceID,
 			ListID:   listID,
 			StatusID: statusID,
@@ -427,7 +427,7 @@ func TestAPI_TaskRejectsCrossSpaceTagsAndAssignees(t *testing.T) {
 	foreignTagID := responseID(t, rec)
 
 	_, outsiderToken := newUser(t, tc, fmt.Sprintf("foreign-assignee-%d@example.test", time.Now().UnixNano()))
-	var outsider domain.User
+	var outsider persistence.User
 	if err := tc.DB.Where("email LIKE ?", "foreign-assignee-%@example.test").Order("id DESC").First(&outsider).Error; err != nil {
 		t.Fatalf("find foreign assignee: %v", err)
 	}

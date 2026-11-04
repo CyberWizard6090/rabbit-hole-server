@@ -1,60 +1,84 @@
 package domain
 
 import (
-	"gorm.io/gorm"
+	"context"
+	"errors"
+	"time"
 )
 
 type Workspace struct {
-	gorm.Model
-	Name        string `gorm:"size:255;not null"`
-	OwnerID     uint   `gorm:"not null"`
-	Description string `gorm:"type:text"`
+	Model
+	Name        string `json:"name"`
+	OwnerID     uint   `json:"owner_id"`
+	Description string `json:"description"`
 
-	Members []Member `gorm:"foreignKey:WorkspaceID;constraint:OnDelete:CASCADE;"`
-	Spaces  []Space  `gorm:"foreignKey:WorkspaceID;constraint:OnDelete:CASCADE;"`
-	Roles   []Role   `gorm:"foreignKey:WorkspaceID;constraint:OnDelete:CASCADE;"`
+	Members []Member `json:"-"`
+	Spaces  []Space  `json:"-"`
+	Roles   []Role   `json:"-"`
 }
 
 type Member struct {
-	gorm.Model
+	Model
 
-	WorkspaceID uint `gorm:"not null;index;uniqueIndex:idx_workspace_user,where:deleted_at IS NULL"`
-	UserID      uint `gorm:"not null;index;uniqueIndex:idx_workspace_user,where:deleted_at IS NULL"`
-	RoleID      uint `gorm:"not null;index"`
+	WorkspaceID uint
+	UserID      uint
+	RoleID      uint
 
-	Role Role `gorm:"foreignKey:RoleID;constraint:OnDelete:RESTRICT;"`
+	Role Role
 }
-
-func (Member) TableName() string { return "workspace_members" }
 
 type Role struct {
-	gorm.Model
+	Model
 
-	WorkspaceID uint   `gorm:"not null;index;uniqueIndex:idx_roles_workspace_name,where:deleted_at IS NULL"`
-	Name        string `gorm:"size:100;not null;uniqueIndex:idx_roles_workspace_name,where:deleted_at IS NULL"`
+	WorkspaceID uint
+	Name        string
 
-	Permissions []RolePermission `gorm:"foreignKey:RoleID;constraint:OnDelete:CASCADE;"`
+	Permissions []RolePermission
 }
 type RolePermission struct {
-	gorm.Model
+	Model
 
-	RoleID       uint `gorm:"not null;index;uniqueIndex:idx_role_permission,where:deleted_at IS NULL"`
-	PermissionID uint `gorm:"not null;index;uniqueIndex:idx_role_permission,where:deleted_at IS NULL"`
+	RoleID       uint
+	PermissionID uint
 
-	Permission Permission `gorm:"foreignKey:PermissionID;constraint:OnDelete:RESTRICT;"`
+	Permission Permission
 }
 
-func (RolePermission) TableName() string { return "role_permissions" }
-
 type Permission struct {
-	gorm.Model
+	Model
 
-	Code        string `gorm:"size:100;not null;uniqueIndex:idx_permissions_code,where:deleted_at IS NULL"`
-	Description string `gorm:"size:255"`
+	Code        string
+	Description string
+}
+
+var (
+	ErrAlreadyMember  = errors.New("user is already a member of this workspace")
+	ErrMemberNotFound = errors.New("member not found")
+)
+
+type MemberDetail struct {
+	UserID    uint
+	Username  string
+	FirstName string
+	LastName  string
+	AvatarURL string
+	RoleID    uint
+	Role      string
+	JoinedAt  time.Time
 }
 
 type WorkspaceRepository interface {
-	Create(workspace *Workspace, ownerID uint) error
-	GetByID(id uint) (*Workspace, error)
-	GetAllForUser(userID uint) ([]Workspace, error)
+	Create(ctx context.Context, workspace *Workspace, ownerID uint) error
+	GetByID(ctx context.Context, id uint) (*Workspace, error)
+	GetAllForUser(ctx context.Context, userID uint) ([]Workspace, error)
+
+	ListMembers(ctx context.Context, workspaceID uint) ([]MemberDetail, error)
+	GetMember(ctx context.Context, workspaceID, userID uint) (*Member, error)
+	GetRoleByName(ctx context.Context, workspaceID uint, name string) (*Role, error)
+	AddMember(ctx context.Context, member *Member) error
+	UpdateMemberRole(ctx context.Context, workspaceID, userID, roleID uint) error
+	RemoveMember(ctx context.Context, workspaceID, userID uint) error
+	IsContact(ctx context.Context, userID, otherID uint) (bool, error)
+	Update(ctx context.Context, workspace *Workspace) error
+	Delete(ctx context.Context, id uint) error
 }

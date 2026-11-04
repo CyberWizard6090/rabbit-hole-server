@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -20,11 +21,11 @@ func randomTagColor() string {
 }
 
 type TaskService interface {
-	CreateTask(userID uint, input CreateTaskParams) (*domain.Task, error)
-	ListTasks(listID uint, params pagination.Params) (pagination.Response[domain.Task], error)
-	GetTaskByID(taskID uint) (*domain.Task, error)
-	UpdateTask(id uint, params UpdateTaskParams) (*domain.Task, error)
-	DeleteTask(taskID uint) error
+	CreateTask(ctx context.Context, userID uint, input CreateTaskParams) (*domain.Task, error)
+	ListTasks(ctx context.Context, listID uint, params pagination.Params) (pagination.Response[domain.Task], error)
+	GetTaskByID(ctx context.Context, taskID uint) (*domain.Task, error)
+	UpdateTask(ctx context.Context, id uint, params UpdateTaskParams) (*domain.Task, error)
+	DeleteTask(ctx context.Context, taskID uint) error
 }
 
 type CreateTaskParams struct {
@@ -71,14 +72,14 @@ func NewTaskService(
 	}
 }
 
-func (s *taskService) resolveNewTags(spaceID uint, names []string) ([]uint, error) {
+func (s *taskService) resolveNewTags(ctx context.Context, spaceID uint, names []string) ([]uint, error) {
 	ids := make([]uint, 0, len(names))
 	for _, raw := range names {
 		name := strings.TrimSpace(raw)
 		if name == "" {
 			continue
 		}
-		tag, err := s.tagService.GetOrCreateByName(spaceID, name, randomTagColor())
+		tag, err := s.tagService.GetOrCreateByName(ctx, spaceID, name, randomTagColor())
 		if err != nil {
 			return nil, fmt.Errorf("get or create tag %q: %w", name, err)
 		}
@@ -87,8 +88,8 @@ func (s *taskService) resolveNewTags(spaceID uint, names []string) ([]uint, erro
 	return ids, nil
 }
 
-func (s *taskService) CreateTask(userID uint, input CreateTaskParams) (*domain.Task, error) {
-	list, err := s.spaceRepo.GetListByID(input.ListID)
+func (s *taskService) CreateTask(ctx context.Context, userID uint, input CreateTaskParams) (*domain.Task, error) {
+	list, err := s.spaceRepo.GetListByID(ctx, input.ListID)
 	if err != nil {
 		return nil, fmt.Errorf("get list by id: %w", err)
 	}
@@ -97,7 +98,7 @@ func (s *taskService) CreateTask(userID uint, input CreateTaskParams) (*domain.T
 		input.Priority = 2
 	}
 
-	newTagIDs, err := s.resolveNewTags(list.SpaceID, input.NewTagNames)
+	newTagIDs, err := s.resolveNewTags(ctx, list.SpaceID, input.NewTagNames)
 	if err != nil {
 		return nil, err
 	}
@@ -121,15 +122,15 @@ func (s *taskService) CreateTask(userID uint, input CreateTaskParams) (*domain.T
 		Tags:         taskTags,
 	}
 
-	if err := s.repo.Create(task, input.AssigneeIDs, allTagIDs); err != nil {
+	if err := s.repo.Create(ctx, task, input.AssigneeIDs, allTagIDs); err != nil {
 		return nil, err
 	}
 	return task, nil
 }
 
-func (s *taskService) ListTasks(listID uint, params pagination.Params) (pagination.Response[domain.Task], error) {
+func (s *taskService) ListTasks(ctx context.Context, listID uint, params pagination.Params) (pagination.Response[domain.Task], error) {
 	context := pagination.TaskCursorContext(listID)
-	items, hasNext, hasPrev, err := s.repo.List(listID, params)
+	items, hasNext, hasPrev, err := s.repo.List(ctx, listID, params)
 	if err != nil {
 		return pagination.Response[domain.Task]{}, err
 	}
@@ -163,15 +164,21 @@ func (s *taskService) ListTasks(listID uint, params pagination.Params) (paginati
 	return pagination.NewResponse(items, hasNext, hasPrev, nextCursor, prevCursor), nil
 }
 
-func (s *taskService) GetTaskByID(taskID uint) (*domain.Task, error) {
-	return s.repo.GetByID(taskID)
+func (s *taskService) GetTaskByID(ctx context.Context, taskID uint) (*domain.Task, error) {
+	return s.repo.GetByID(ctx, taskID)
 }
 
-func (s *taskService) UpdateTask(id uint, params UpdateTaskParams) (*domain.Task, error) {
-	task, err := s.repo.GetByID(id)
+func (s *taskService) UpdateTask(ctx context.Context, id uint, params UpdateTaskParams) (*domain.Task, error) {
+	task, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+
+	newTagIDs, err := s.resolveNewTags(ctx, task.SpaceID, params.AddTagNames)
+	if err != nil {
+		return nil, err
+	}
+	tagIDsToAdd := append(append([]uint{}, params.AddTagIDs...), newTagIDs...)
 
 	if params.Title != nil {
 		task.Title = *params.Title
@@ -189,24 +196,13 @@ func (s *taskService) UpdateTask(id uint, params UpdateTaskParams) (*domain.Task
 		task.TimeEstimate = *params.TimeEstimate
 	}
 
-	if err := s.repo.Update(task); err != nil {
+	if err := s.repo.Update(ctx, task, tagIDsToAdd); err != nil {
 		return nil, err
 	}
 
-	newTagIDs, err := s.resolveNewTags(task.SpaceID, params.AddTagNames)
-	if err != nil {
-		return nil, err
-	}
-	tagIDsToAdd := append(append([]uint{}, params.AddTagIDs...), newTagIDs...)
-	if len(tagIDsToAdd) > 0 {
-		if err := s.repo.AddTags(task.ID, tagIDsToAdd); err != nil {
-			return nil, fmt.Errorf("add tags to task: %w", err)
-		}
-	}
-
-	return s.repo.GetByID(task.ID)
+	return s.repo.GetByID(ctx, task.ID)
 }
 
-func (s *taskService) DeleteTask(taskID uint) error {
-	return s.repo.Delete(taskID)
+func (s *taskService) DeleteTask(ctx context.Context, taskID uint) error {
+	return s.repo.Delete(ctx, taskID)
 }

@@ -1,15 +1,17 @@
 package response
 
 import (
+	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
-	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/domain"
+	contextutil "rabbit-hole-server/internal/http/context"
 	httperrors "rabbit-hole-server/internal/http/errors"
 )
 
@@ -51,20 +53,45 @@ func Error(c *gin.Context, status int, message string) {
 }
 
 func HandleError(c *gin.Context, err error) {
-	if err != nil {
-		log.Println(err)
-	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		ErrorWithCode(c, http.StatusNotFound, "NOT_FOUND", "resource not found", nil)
-		return
-	}
+	status, code, message, fields := classify(err)
+	logHandled(c, status, code, err)
+	ErrorWithCode(c, status, code, message, fields)
+}
 
+func classify(err error) (status int, code, message string, fields map[string]string) {
+	if errors.Is(err, domain.ErrNotFound) {
+		return http.StatusNotFound, "NOT_FOUND", "resource not found", nil
+	}
 	var appErr *httperrors.AppError
 	if errors.As(err, &appErr) {
-		ErrorWithCode(c, appErr.Status, appErr.Code, appErr.Message, appErr.Fields)
+		return appErr.Status, appErr.Code, appErr.Message, appErr.Fields
+	}
+	return http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error", nil
+}
+
+func logHandled(c *gin.Context, status int, code string, err error) {
+	if err == nil {
 		return
 	}
-	ErrorWithCode(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error", nil)
+	level := slog.LevelDebug
+	if status >= http.StatusInternalServerError {
+		level = slog.LevelError
+	}
+	logger := slog.Default()
+	ctx := context.Background()
+	if c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	if !logger.Enabled(ctx, level) {
+		return
+	}
+	logger.Log(ctx, level, "request failed",
+		"request_id", contextutil.GetRequestID(c),
+		"route", c.FullPath(),
+		"status", status,
+		"code", code,
+		"error", err.Error(),
+	)
 }
 
 func ValidationError(c *gin.Context, err error) {

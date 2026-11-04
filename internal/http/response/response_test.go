@@ -1,8 +1,10 @@
 package response
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,8 +12,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
-	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/domain"
 	httperrors "rabbit-hole-server/internal/http/errors"
 )
 
@@ -107,7 +109,7 @@ func TestHandleErrorClassifiesRecordNotFound(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
 
-	HandleError(context, httperrors.Internal("FETCH_FAILED", "fetch failed", gorm.ErrRecordNotFound))
+	HandleError(context, httperrors.Internal("FETCH_FAILED", "fetch failed", domain.ErrNotFound))
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
@@ -118,5 +120,56 @@ func TestHandleErrorClassifiesRecordNotFound(t *testing.T) {
 	}
 	if body.Error == nil || body.Error.Code != "NOT_FOUND" {
 		t.Fatalf("unexpected error payload: %+v", body.Error)
+	}
+}
+
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return &buf
+}
+
+func TestHandleErrorLogsServerErrorsAtErrorAndClientErrorsAtDebug(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	cases := []struct {
+		name      string
+		err       error
+		wantLevel string
+	}{
+		{"unknown error is a 500", errors.New("db exploded"), "ERROR"},
+		{"internal app error is a 500", httperrors.Internal("X", "x", errors.New("cause")), "ERROR"},
+		{"validation-style 400", httperrors.BadRequest("BAD", "bad", errors.New("cause")), "DEBUG"},
+		{"missing row is a 404", domain.ErrNotFound, "DEBUG"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			buf := captureLogs(t)
+			ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ginCtx.Set("request_id", "req-1234567")
+
+			HandleError(ginCtx, tc.err)
+
+			var line map[string]any
+			if err := json.Unmarshal(buf.Bytes(), &line); err != nil {
+				t.Fatalf("no JSON log line: %q", buf.String())
+			}
+			if line["level"] != tc.wantLevel || line["request_id"] != "req-1234567" {
+				t.Fatalf("log = %v, want level %s with the request ID", line, tc.wantLevel)
+			}
+		})
+	}
+}
+
+func TestHandleErrorWithNilErrorLogsNothing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	buf := captureLogs(t)
+	ginCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	HandleError(ginCtx, nil)
+	if buf.Len() != 0 {
+		t.Fatalf("unexpected log output: %s", buf.String())
 	}
 }

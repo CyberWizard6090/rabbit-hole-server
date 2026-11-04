@@ -1,11 +1,13 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -25,27 +27,27 @@ type permissionCheckerStub struct {
 	calledCode     string
 }
 
-func (s *permissionCheckerStub) HasWorkspacePermission(userID, resourceID uint, code string) (bool, error) {
+func (s *permissionCheckerStub) HasWorkspacePermission(_ context.Context, userID, resourceID uint, code string) (bool, error) {
 	s.record(ResourceWorkspace, userID, resourceID, code)
 	return s.allowed, s.err
 }
 
-func (s *permissionCheckerStub) HasSpacePermission(userID, resourceID uint, code string) (bool, error) {
+func (s *permissionCheckerStub) HasSpacePermission(_ context.Context, userID, resourceID uint, code string) (bool, error) {
 	s.record(ResourceSpace, userID, resourceID, code)
 	return s.allowed, s.err
 }
 
-func (s *permissionCheckerStub) HasFolderPermission(userID, resourceID uint, code string) (bool, error) {
+func (s *permissionCheckerStub) HasFolderPermission(_ context.Context, userID, resourceID uint, code string) (bool, error) {
 	s.record(ResourceFolder, userID, resourceID, code)
 	return s.allowed, s.err
 }
 
-func (s *permissionCheckerStub) HasListPermission(userID, resourceID uint, code string) (bool, error) {
+func (s *permissionCheckerStub) HasListPermission(_ context.Context, userID, resourceID uint, code string) (bool, error) {
 	s.record(ResourceList, userID, resourceID, code)
 	return s.allowed, s.err
 }
 
-func (s *permissionCheckerStub) HasTaskPermission(userID, resourceID uint, code string) (bool, error) {
+func (s *permissionCheckerStub) HasTaskPermission(_ context.Context, userID, resourceID uint, code string) (bool, error) {
 	s.record(ResourceTask, userID, resourceID, code)
 	return s.allowed, s.err
 }
@@ -196,6 +198,9 @@ func TestRequirePermissionRejectsDeniedAccess(t *testing.T) {
 		t.Fatalf("checker calls=%d want 1", checker.calls)
 	}
 	assertMiddlewareErrorCode(t, rec, "FORBIDDEN")
+	if strings.Contains(rec.Body.String(), "space.update") {
+		t.Fatalf("403 body leaks the permission code: %s", rec.Body.String())
+	}
 	if handlerCalled {
 		t.Fatal("downstream handler was called after permission denial")
 	}

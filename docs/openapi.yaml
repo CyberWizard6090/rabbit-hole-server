@@ -10,6 +10,10 @@ info:
     without it, or who do not belong to the workspace, get 403/404.
     Task lists use keyset pagination (`cursor`, `limit`); contact and space lists use `page`/`limit`.
     Request bodies are capped at 1 MiB (413 `PAYLOAD_TOO_LARGE`).
+    Task changes can be followed over WebSocket: request a single-use ticket, then connect with it
+    (see `docs/realtime.md`).
+    Access tokens carry the user's token version: a password change, `logout-all` or account
+    deletion invalidates every token issued before it.
     Auth endpoints are rate limited per client IP (register 5/min, login 10/min, refresh 30/min,
     logout 30/min) and answer 429 `RATE_LIMIT_EXCEEDED`.
 servers:
@@ -19,17 +23,19 @@ tags:
   - name: profile
   - name: contacts
   - name: workspaces
+  - name: members
   - name: spaces
   - name: tags
   - name: folders
   - name: lists
   - name: statuses
   - name: tasks
+  - name: realtime
 paths:
   /auth/register:
     post:
       tags: [auth]
-      summary: Register a user
+      summary: "Register a user"
       security: []
       requestBody:
         required: true
@@ -43,7 +49,7 @@ paths:
   /auth/login:
     post:
       tags: [auth]
-      summary: Log in; sets the refresh_token cookie
+      summary: "Log in; sets the refresh_token cookie"
       security: []
       requestBody:
         required: true
@@ -57,7 +63,7 @@ paths:
   /auth/refresh:
     post:
       tags: [auth]
-      summary: Rotate the refresh cookie and issue a new access token
+      summary: "Rotate the refresh cookie and issue a new access token"
       security: []
       responses:
         '200': {$ref: '#/components/responses/Ok'}
@@ -65,15 +71,39 @@ paths:
   /auth/logout:
     post:
       tags: [auth]
-      summary: Revoke the refresh session (cookie auth, no access token needed)
+      summary: "Revoke the refresh session (cookie auth, no access token needed)"
       security: []
       responses:
         '200': {$ref: '#/components/responses/Ok'}
         '404': {$ref: '#/components/responses/Error'}
+  /auth/logout-all:
+    post:
+      tags: [auth]
+      summary: "Sign out everywhere: revokes all refresh sessions and every issued access token"
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+  /profile/password:
+    post:
+      tags: [profile]
+      summary: "Change password. Revokes all existing tokens and returns a fresh access token (and refresh cookie). 401 if current_password is wrong, 400 if the new one violates the 8-128 character policy."
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ChangePasswordRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
   /profile:
     get:
       tags: [profile]
-      summary: Current user
+      summary: "Current user"
       security:
         - bearerAuth: []
       responses:
@@ -82,7 +112,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     patch:
       tags: [profile]
-      summary: Update profile
+      summary: "Update profile"
       security:
         - bearerAuth: []
       requestBody:
@@ -95,10 +125,25 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [profile]
+      summary: "Delete the account (anonymises it and revokes all tokens). 409 OWNS_WORKSPACES while the caller still owns a workspace; 401 if the password is wrong."
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DeleteAccountRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /users/search:
     get:
       tags: [contacts]
-      summary: Search users by username/email (max 20)
+      summary: "Search users by username prefix or exact e-mail (min 3 chars, max 20). Returns public fields only (no e-mail)."
       security:
         - bearerAuth: []
       parameters:
@@ -110,7 +155,7 @@ paths:
   /contacts:
     get:
       tags: [contacts]
-      summary: List contacts
+      summary: "List contacts"
       security:
         - bearerAuth: []
       responses:
@@ -119,7 +164,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     post:
       tags: [contacts]
-      summary: Add a contact
+      summary: "Add a contact"
       security:
         - bearerAuth: []
       requestBody:
@@ -135,7 +180,7 @@ paths:
   /contacts/{contact_id}:
     delete:
       tags: [contacts]
-      summary: Remove a contact
+      summary: "Remove a contact"
       security:
         - bearerAuth: []
       parameters:
@@ -148,7 +193,7 @@ paths:
   /workspaces:
     post:
       tags: [workspaces]
-      summary: Create a workspace
+      summary: "Create a workspace"
       security:
         - bearerAuth: []
       requestBody:
@@ -163,17 +208,150 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     get:
       tags: [workspaces]
-      summary: List workspaces
+      summary: "List workspaces"
       security:
         - bearerAuth: []
       responses:
         '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}:
+    get:
+      tags: [workspaces]
+      summary: "Get a workspace"
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [workspaces]
+      summary: "Update a workspace"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateWorkspaceRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [workspaces]
+      summary: "Delete a workspace (soft delete; removes memberships and spaces)"
+      x-permission: workspace.delete
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/members:
+    get:
+      tags: [members]
+      summary: "List members (public fields and role)"
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [members]
+      summary: "Add an existing user. The target must be one of the caller's contacts (422 NOT_A_CONTACT). Role is Admin, Member or Guest; 409 if already a member."
+      x-permission: member.manage
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AddMemberRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/members/me:
+    delete:
+      tags: [members]
+      summary: "Leave the workspace (403 for the owner)"
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/members/{user_id}:
+    patch:
+      tags: [members]
+      summary: "Change a member's role. The owner's role cannot be changed (403) and Owner cannot be assigned (400)."
+      x-permission: member.manage
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: user_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateMemberRoleRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [members]
+      summary: "Remove a member (the owner cannot be removed)"
+      x-permission: member.manage
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: user_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
   /workspaces/{workspace_id}/spaces:
     post:
       tags: [spaces]
-      summary: Create a space
+      summary: "Create a space"
       x-permission: space.create
       security:
         - bearerAuth: []
@@ -192,7 +370,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     get:
       tags: [spaces]
-      summary: List spaces (paginated)
+      summary: "List spaces (paginated)"
       x-permission: space.read
       security:
         - bearerAuth: []
@@ -206,10 +384,58 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /spaces/{space_id}:
+    get:
+      tags: [spaces]
+      summary: "Get a space"
+      x-permission: space.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [spaces]
+      summary: "Update a space (name, 3-letter currency)"
+      x-permission: space.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateSpaceRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [spaces]
+      summary: "Delete a space (soft delete; nested resources become unreachable)"
+      x-permission: space.delete
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
   /spaces/{space_id}/dashboard:
     get:
       tags: [spaces]
-      summary: Space dashboard
+      summary: "Space dashboard"
       x-permission: space.read
       security:
         - bearerAuth: []
@@ -224,7 +450,7 @@ paths:
   /spaces/{space_id}/tags:
     get:
       tags: [tags]
-      summary: List tags with usage counts
+      summary: "List tags with usage counts"
       x-permission: space.read
       security:
         - bearerAuth: []
@@ -238,7 +464,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     post:
       tags: [tags]
-      summary: Create a tag
+      summary: "Create a tag"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -256,9 +482,24 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
   /spaces/{space_id}/tags/{tag_id}:
+    get:
+      tags: [tags]
+      summary: "Get a tag with its usage count"
+      x-permission: space.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+        - {name: tag_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
     put:
       tags: [tags]
-      summary: Update a tag
+      summary: "Update a tag"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -278,7 +519,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     delete:
       tags: [tags]
-      summary: Delete a tag
+      summary: "Delete a tag"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -294,7 +535,7 @@ paths:
   /spaces/{space_id}/tags/merge:
     post:
       tags: [tags]
-      summary: Merge one tag into another
+      summary: "Merge one tag into another"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -314,7 +555,7 @@ paths:
   /spaces/{space_id}/folders:
     get:
       tags: [folders]
-      summary: List folders
+      summary: "List folders"
       x-permission: space.read
       security:
         - bearerAuth: []
@@ -328,7 +569,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     post:
       tags: [folders]
-      summary: Create a folder
+      summary: "Create a folder"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -348,7 +589,7 @@ paths:
   /spaces/{space_id}/lists:
     get:
       tags: [lists]
-      summary: List lists in a space
+      summary: "List lists in a space"
       x-permission: space.read
       security:
         - bearerAuth: []
@@ -362,7 +603,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     post:
       tags: [lists]
-      summary: Create a list in a space
+      summary: "Create a list in a space"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -382,7 +623,7 @@ paths:
   /folders/{folder_id}/lists:
     get:
       tags: [lists]
-      summary: List lists in a folder
+      summary: "List lists in a folder"
       x-permission: space.read
       security:
         - bearerAuth: []
@@ -396,7 +637,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     post:
       tags: [lists]
-      summary: Create a list in a folder
+      summary: "Create a list in a folder"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -416,7 +657,7 @@ paths:
   /folders/{folder_id}:
     patch:
       tags: [folders]
-      summary: Rename a folder
+      summary: "Rename a folder"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -435,7 +676,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     delete:
       tags: [folders]
-      summary: Delete a folder
+      summary: "Delete a folder"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -450,7 +691,7 @@ paths:
   /lists/{list_id}:
     patch:
       tags: [lists]
-      summary: Update a list
+      summary: "Update a list"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -469,7 +710,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     delete:
       tags: [lists]
-      summary: Delete a list
+      summary: "Delete a list"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -484,7 +725,7 @@ paths:
   /lists/{list_id}/statuses:
     get:
       tags: [statuses]
-      summary: List statuses
+      summary: "List statuses"
       x-permission: space.read
       security:
         - bearerAuth: []
@@ -498,7 +739,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     post:
       tags: [statuses]
-      summary: Create a status
+      summary: "Create a status"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -518,7 +759,7 @@ paths:
   /lists/{list_id}/statuses/{status_id}:
     put:
       tags: [statuses]
-      summary: Update a status
+      summary: "Update a status"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -538,7 +779,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     delete:
       tags: [statuses]
-      summary: Delete a status
+      summary: "Delete a status"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -570,7 +811,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     post:
       tags: [tasks]
-      summary: Create a task
+      summary: "Create a task"
       x-permission: task.create
       security:
         - bearerAuth: []
@@ -590,7 +831,7 @@ paths:
   /tasks/{task_id}:
     get:
       tags: [tasks]
-      summary: Get a task
+      summary: "Get a task"
       x-permission: task.read
       security:
         - bearerAuth: []
@@ -604,7 +845,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     patch:
       tags: [tasks]
-      summary: Update a task
+      summary: "Update a task"
       x-permission: task.update
       security:
         - bearerAuth: []
@@ -623,7 +864,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     delete:
       tags: [tasks]
-      summary: Delete a task
+      summary: "Delete a task"
       x-permission: task.delete
       security:
         - bearerAuth: []
@@ -635,13 +876,73 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /lists/{list_id}/events/ticket:
+    post:
+      tags: [realtime]
+      summary: "Issue a single-use WebSocket ticket for a list"
+      description: Valid for about 30 seconds, for this list only. Rate limited to 60 requests per minute.
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: list_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /lists/{list_id}/events:
+    get:
+      tags: [realtime]
+      summary: "Follow task changes of a list over WebSocket"
+      description: Upgrades to a WebSocket. Authenticated by the single-use ticket instead of a bearer token. The feed carries events of this list.
+      security: []
+      parameters:
+        - {name: list_id, in: path, required: true, schema: {type: integer}}
+        - {name: ticket, in: query, required: true, schema: {type: string}}
+      responses:
+        '101': {description: Switching Protocols}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /spaces/{space_id}/events/ticket:
+    post:
+      tags: [realtime]
+      summary: "Issue a single-use WebSocket ticket for a space"
+      description: Valid for about 30 seconds, for this space only. Rate limited to 60 requests per minute.
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /spaces/{space_id}/events:
+    get:
+      tags: [realtime]
+      summary: "Follow task changes of a space over WebSocket"
+      description: Upgrades to a WebSocket. Authenticated by the single-use ticket instead of a bearer token. The feed carries events of every list in the space.
+      security: []
+      parameters:
+        - {name: space_id, in: path, required: true, schema: {type: integer}}
+        - {name: ticket, in: query, required: true, schema: {type: string}}
+      responses:
+        '101': {description: Switching Protocols}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT}
   parameters:
     Page: {name: page, in: query, schema: {type: integer, minimum: 1, maximum: 10000, default: 1}}
-    Cursor: {name: cursor, in: query, description: Opaque keyset cursor from next_cursor/prev_cursor of a previous response. Bound to the list; tampered or foreign cursors are rejected with 400., schema: {type: string}}
-    Limit: {name: limit, in: query, description: Must be 1-100; out-of-range values are rejected with 400 INVALID_PAGINATION., schema: {type: integer, minimum: 1, maximum: 100, default: 10}}
+    Cursor: {name: cursor, in: query, description: Opaque keyset cursor from next_cursor/prev_cursor of a previous response. Bound to the list and sort order; tampered or foreign cursors are rejected with 400., schema: {type: string}}
+    Limit: {name: limit, in: query, description: Must be 1-100; invalid values are rejected with 400 INVALID_PAGINATION., schema: {type: integer, minimum: 1, maximum: 100, default: 10}}
   responses:
     Ok:
       description: Success envelope
@@ -676,7 +977,7 @@ components:
       required: [email, password]
       properties:
         email: {type: string, format: email}
-        password: {type: string, minLength: 6}
+        password: {type: string, minLength: 8, maxLength: 128}
         username: {type: string, minLength: 3}
     LoginRequest:
       type: object
@@ -780,3 +1081,35 @@ components:
         time_estimate: {type: integer, minimum: 0}
         add_tag_ids: {type: array, items: {type: integer}}
         add_tag_names: {type: array, items: {type: string}}
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password: {type: string}
+        new_password: {type: string, minLength: 8, maxLength: 128}
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      properties:
+        password: {type: string}
+    UpdateWorkspaceRequest:
+      type: object
+      properties:
+        name: {type: string, minLength: 1, maxLength: 255}
+        description: {type: string}
+    UpdateSpaceRequest:
+      type: object
+      properties:
+        name: {type: string, minLength: 1, maxLength: 255}
+        currency: {type: string, minLength: 3, maxLength: 3, example: EUR}
+    AddMemberRequest:
+      type: object
+      required: [user_id, role]
+      properties:
+        user_id: {type: integer}
+        role: {type: string, enum: [Admin, Member, Guest]}
+    UpdateMemberRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role: {type: string, enum: [Admin, Member, Guest]}

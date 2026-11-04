@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,28 +20,31 @@ type taskHandlerServiceStub struct {
 	params pagination.Params
 	listID uint
 	called bool
+
+	getTask *domain.Task
+	getErr  error
 }
 
-func (s *taskHandlerServiceStub) CreateTask(uint, service.CreateTaskParams) (*domain.Task, error) {
+func (s *taskHandlerServiceStub) CreateTask(context.Context, uint, service.CreateTaskParams) (*domain.Task, error) {
 	return nil, nil
 }
 
-func (s *taskHandlerServiceStub) ListTasks(listID uint, params pagination.Params) (pagination.Response[domain.Task], error) {
+func (s *taskHandlerServiceStub) ListTasks(_ context.Context, listID uint, params pagination.Params) (pagination.Response[domain.Task], error) {
 	s.called = true
 	s.listID = listID
 	s.params = params
 	return pagination.Response[domain.Task]{Items: []domain.Task{}}, nil
 }
 
-func (s *taskHandlerServiceStub) GetTaskByID(uint) (*domain.Task, error) {
+func (s *taskHandlerServiceStub) GetTaskByID(context.Context, uint) (*domain.Task, error) {
+	return s.getTask, s.getErr
+}
+
+func (s *taskHandlerServiceStub) UpdateTask(context.Context, uint, service.UpdateTaskParams) (*domain.Task, error) {
 	return nil, nil
 }
 
-func (s *taskHandlerServiceStub) UpdateTask(uint, service.UpdateTaskParams) (*domain.Task, error) {
-	return nil, nil
-}
-
-func (s *taskHandlerServiceStub) DeleteTask(uint) error {
+func (s *taskHandlerServiceStub) DeleteTask(context.Context, uint) error {
 	return nil
 }
 
@@ -60,12 +66,12 @@ func TestTaskHandlerListParsesCursorParams(t *testing.T) {
 	handler := NewTaskHandler(svc, codec)
 	request := httptest.NewRequest(http.MethodGet, "/lists/7/tasks?limit=25&cursor="+token, nil)
 	recorder := httptest.NewRecorder()
-	context, _ := gin.CreateTestContext(recorder)
-	context.Request = request
-	context.Params = gin.Params{{Key: "list_id", Value: "7"}}
-	context.Set("userID", uint(1))
+	ginCtx, _ := gin.CreateTestContext(recorder)
+	ginCtx.Request = request
+	ginCtx.Params = gin.Params{{Key: "list_id", Value: "7"}}
+	ginCtx.Set("userID", uint(1))
 
-	handler.List(context)
+	handler.List(ginCtx)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status=%d, body=%s", recorder.Code, recorder.Body.String())
@@ -88,12 +94,12 @@ func TestTaskHandlerListRejectsInvalidCursor(t *testing.T) {
 	handler := NewTaskHandler(svc, codec)
 	request := httptest.NewRequest(http.MethodGet, "/lists/7/tasks?cursor=invalid", nil)
 	recorder := httptest.NewRecorder()
-	context, _ := gin.CreateTestContext(recorder)
-	context.Request = request
-	context.Params = gin.Params{{Key: "list_id", Value: "7"}}
-	context.Set("userID", uint(1))
+	ginCtx, _ := gin.CreateTestContext(recorder)
+	ginCtx.Request = request
+	ginCtx.Params = gin.Params{{Key: "list_id", Value: "7"}}
+	ginCtx.Set("userID", uint(1))
 
-	handler.List(context)
+	handler.List(ginCtx)
 
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d, body=%s", recorder.Code, recorder.Body.String())
@@ -120,16 +126,54 @@ func TestTaskHandlerListRejectsCursorFromAnotherList(t *testing.T) {
 	handler := NewTaskHandler(svc, codec)
 	request := httptest.NewRequest(http.MethodGet, "/lists/7/tasks?cursor="+token, nil)
 	recorder := httptest.NewRecorder()
-	context, _ := gin.CreateTestContext(recorder)
-	context.Request = request
-	context.Params = gin.Params{{Key: "list_id", Value: "7"}}
-	context.Set("userID", uint(1))
+	ginCtx, _ := gin.CreateTestContext(recorder)
+	ginCtx.Request = request
+	ginCtx.Params = gin.Params{{Key: "list_id", Value: "7"}}
+	ginCtx.Set("userID", uint(1))
 
-	handler.List(context)
+	handler.List(ginCtx)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	if svc.called {
 		t.Fatal("service must not be called for cursor from another list")
+	}
+}
+
+func getTaskStatus(t *testing.T, svc *taskHandlerServiceStub) (int, string) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	codec, err := pagination.NewCodec([]byte("handler-cursor-secret-at-least-32-bytes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	ginCtx, _ := gin.CreateTestContext(recorder)
+	ginCtx.Request = httptest.NewRequest(http.MethodGet, "/tasks/5", nil)
+	ginCtx.Params = gin.Params{{Key: "task_id", Value: "5"}}
+	ginCtx.Set("userID", uint(1))
+
+	NewTaskHandler(svc, codec).Get(ginCtx)
+	return recorder.Code, recorder.Body.String()
+}
+
+func TestTaskHandlerGetMapsMissingRowTo404(t *testing.T) {
+	code, body := getTaskStatus(t, &taskHandlerServiceStub{getErr: domain.ErrNotFound})
+	if code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s, want 404", code, body)
+	}
+}
+
+func TestTaskHandlerGetDoesNotReportDatabaseFailureAs404(t *testing.T) {
+	code, body := getTaskStatus(t, &taskHandlerServiceStub{getErr: errors.New("connection refused")})
+	if code != http.StatusInternalServerError || strings.Contains(body, "connection refused") {
+		t.Fatalf("status=%d body=%s, want 500 without leaking the cause", code, body)
+	}
+}
+
+func TestTaskHandlerGetReturnsTask(t *testing.T) {
+	code, _ := getTaskStatus(t, &taskHandlerServiceStub{getTask: &domain.Task{Title: "x"}})
+	if code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", code)
 	}
 }

@@ -13,12 +13,18 @@ import (
 	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/http/response"
+	"rabbit-hole-server/internal/realtime"
 	"rabbit-hole-server/internal/service"
 )
+
+type TaskEventPublisher interface {
+	Publish(event realtime.Event)
+}
 
 type TaskHandler struct {
 	service     service.TaskService
 	cursorCodec *pagination.Codec
+	publisher   TaskEventPublisher
 }
 
 const invalidTaskIDMessage = "invalid task id"
@@ -31,6 +37,25 @@ func NewTaskHandler(
 		service:     service,
 		cursorCodec: cursorCodec,
 	}
+}
+
+func (h *TaskHandler) WithPublisher(publisher TaskEventPublisher) *TaskHandler {
+	h.publisher = publisher
+	return h
+}
+
+func (h *TaskHandler) publishTask(eventType string, actorID uint, task *domain.Task) {
+	if h.publisher == nil || task == nil {
+		return
+	}
+	h.publisher.Publish(realtime.Event{
+		Type:    eventType,
+		SpaceID: task.SpaceID,
+		ListID:  task.ListID,
+		TaskID:  task.ID,
+		Task:    task,
+		ActorID: actorID,
+	})
 }
 
 func (h *TaskHandler) Create(c *gin.Context) {
@@ -52,7 +77,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.CreateTask(uid, service.CreateTaskParams{
+	task, err := h.service.CreateTask(c.Request.Context(), uid, service.CreateTaskParams{
 		Title:        req.Title,
 		Description:  req.Description,
 		ListID:       uint(listID),
@@ -73,11 +98,12 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		return
 	}
 
+	h.publishTask(realtime.EventTaskCreated, uid, task)
 	response.Success(c, http.StatusCreated, task)
 }
 
 func (h *TaskHandler) Update(c *gin.Context) {
-	_, err := contextutil.GetUserID(c)
+	uid, err := contextutil.GetUserID(c)
 	if err != nil {
 		response.Unauthorized(c)
 		return
@@ -95,7 +121,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.UpdateTask(uint(taskID), service.UpdateTaskParams{
+	task, err := h.service.UpdateTask(c.Request.Context(), uint(taskID), service.UpdateTaskParams{
 		Title:        req.Title,
 		Description:  req.Description,
 		StatusID:     req.StatusID,
@@ -113,6 +139,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		return
 	}
 
+	h.publishTask(realtime.EventTaskUpdated, uid, task)
 	response.Success(c, http.StatusOK, task)
 }
 
@@ -135,7 +162,7 @@ func (h *TaskHandler) List(c *gin.Context) {
 		return
 	}
 
-	tasks, err := h.service.ListTasks(uint(listID), params)
+	tasks, err := h.service.ListTasks(c.Request.Context(), uint(listID), params)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("TASKS_FETCH_FAILED", "internal server error", err))
 		return
@@ -156,9 +183,13 @@ func (h *TaskHandler) Get(c *gin.Context) {
 		return
 	}
 
-	task, err := h.service.GetTaskByID(uint(taskID))
+	task, err := h.service.GetTaskByID(c.Request.Context(), uint(taskID))
 	if err != nil {
-		response.HandleError(c, httperrors.NotFound("TASK_NOT_FOUND", "task not found", err))
+		if errors.Is(err, domain.ErrNotFound) {
+			response.HandleError(c, httperrors.NotFound("TASK_NOT_FOUND", "task not found", err))
+			return
+		}
+		response.HandleError(c, httperrors.Internal("TASK_FETCH_FAILED", "internal server error", err))
 		return
 	}
 
@@ -166,7 +197,7 @@ func (h *TaskHandler) Get(c *gin.Context) {
 }
 
 func (h *TaskHandler) Delete(c *gin.Context) {
-	_, err := contextutil.GetUserID(c)
+	uid, err := contextutil.GetUserID(c)
 	if err != nil {
 		response.Unauthorized(c)
 		return
@@ -178,11 +209,25 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteTask(uint(taskID)); err != nil {
+	var existing *domain.Task
+	if h.publisher != nil {
+		existing, _ = h.service.GetTaskByID(c.Request.Context(), uint(taskID))
+	}
+
+	if err := h.service.DeleteTask(c.Request.Context(), uint(taskID)); err != nil {
 		response.HandleError(c, httperrors.Internal("TASK_DELETE_FAILED", "internal server error", err))
 		return
 	}
 
+	if existing != nil && h.publisher != nil {
+		h.publisher.Publish(realtime.Event{
+			Type:    realtime.EventTaskDeleted,
+			SpaceID: existing.SpaceID,
+			ListID:  existing.ListID,
+			TaskID:  existing.ID,
+			ActorID: uid,
+		})
+	}
 	response.Success(c, http.StatusOK, gin.H{"message": "task deleted"})
 }
 

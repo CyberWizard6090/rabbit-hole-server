@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -47,7 +49,7 @@ func (h *SpaceHandler) Create(c *gin.Context) {
 		req.Currency = "USD"
 	}
 
-	space, err := h.service.CreateSpace(
+	space, err := h.service.CreateSpace(c.Request.Context(),
 		uint(workspaceID),
 		req.Name,
 		req.Currency,
@@ -62,8 +64,26 @@ func (h *SpaceHandler) Create(c *gin.Context) {
 	response.Success(c, http.StatusCreated, space)
 }
 
+func spaceIDParam(c *gin.Context) (uint, bool) {
+	id, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
+	if err != nil || id == 0 {
+		response.HandleError(c, httperrors.BadRequest("INVALID_SPACE_ID", "invalid space id", err))
+		return 0, false
+	}
+	return uint(id), true
+}
+
 func (h *SpaceHandler) Get(c *gin.Context) {
-	// TODO:  Добавить функцию получения пространства по ID
+	id, ok := spaceIDParam(c)
+	if !ok {
+		return
+	}
+	space, err := h.service.GetSpaceByID(c.Request.Context(), id)
+	if err != nil {
+		response.HandleError(c, httperrors.NotFound("SPACE_NOT_FOUND", "space not found", err))
+		return
+	}
+	response.Success(c, http.StatusOK, space)
 }
 
 func (h *SpaceHandler) List(c *gin.Context) {
@@ -79,7 +99,7 @@ func (h *SpaceHandler) List(c *gin.Context) {
 		return
 	}
 
-	spaces, total, err := h.service.GetAllSpaces(uint(workspaceID), p.Limit, p.Offset)
+	spaces, total, err := h.service.GetAllSpaces(c.Request.Context(), uint(workspaceID), p.Limit, p.Offset)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("SPACES_FETCH_FAILED", "internal server error", err))
 		return
@@ -93,12 +113,45 @@ func (h *SpaceHandler) List(c *gin.Context) {
 }
 
 func (h *SpaceHandler) Update(c *gin.Context) {
-	// TODO:  Добавить функцию обновления пространства
+	id, ok := spaceIDParam(c)
+	if !ok {
+		return
+	}
+
+	var req dto.UpdateSpaceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ValidationError(c, err)
+		return
+	}
+
+	space, err := h.service.UpdateSpace(c.Request.Context(), id, req.Name, req.Currency)
+	if err != nil {
+		if errors.Is(err, service.ErrSpaceNameRequired) {
+			response.HandleError(c, httperrors.BadRequest("SPACE_NAME_REQUIRED", err.Error(), err))
+			return
+		}
+		response.HandleError(c, httperrors.Internal("SPACE_UPDATE_FAILED", "internal server error", err))
+		return
+	}
+	response.Success(c, http.StatusOK, space)
 }
 
 func (h *SpaceHandler) Delete(c *gin.Context) {
-	// TODO: добавить функцию удаления пространства
+	id, ok := spaceIDParam(c)
+	if !ok {
+		return
+	}
+	if err := h.service.DeleteSpace(c.Request.Context(), id); err != nil {
+		response.HandleError(c, httperrors.Internal("SPACE_DELETE_FAILED", "internal server error", err))
+		return
+	}
+	response.Success(c, http.StatusOK, gin.H{"message": "space deleted"})
 }
+
+const (
+	defaultDashboardTasksPerList = 50
+	maxDashboardTasksPerList     = 200
+)
 
 func (h *SpaceHandler) GetDashboard(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
@@ -107,7 +160,18 @@ func (h *SpaceHandler) GetDashboard(c *gin.Context) {
 		return
 	}
 
-	dashboard, err := h.service.GetDashboard(uint(spaceID))
+	tasksPerList := defaultDashboardTasksPerList
+	if raw := c.Query("tasks_per_list"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > maxDashboardTasksPerList {
+			response.HandleError(c, httperrors.BadRequest("INVALID_TASKS_PER_LIST",
+				fmt.Sprintf("tasks_per_list must be an integer between 1 and %d", maxDashboardTasksPerList), err))
+			return
+		}
+		tasksPerList = n
+	}
+
+	dashboard, err := h.service.GetDashboard(c.Request.Context(), uint(spaceID), tasksPerList)
 	if err != nil {
 		response.HandleError(c, httperrors.NotFound("SPACE_NOT_FOUND", "space not found", err))
 		return

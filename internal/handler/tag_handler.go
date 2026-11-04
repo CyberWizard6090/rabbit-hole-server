@@ -33,11 +33,11 @@ func (h *TagHandler) Create(c *gin.Context) {
 
 	var req dto.CreateTagRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		response.ValidationError(c, err)
 		return
 	}
 
-	tag, err := h.service.CreateTag(uint(spaceID), service.CreateTagParams{Name: req.Name, Color: req.Color})
+	tag, err := h.service.CreateTag(c.Request.Context(), uint(spaceID), service.CreateTagParams{Name: req.Name, Color: req.Color})
 	if err != nil {
 		if errors.Is(err, domain.ErrTagNameTaken) {
 			response.HandleError(c, httperrors.Conflict("TAG_NAME_TAKEN", "tag with this name already exists", err))
@@ -51,7 +51,28 @@ func (h *TagHandler) Create(c *gin.Context) {
 }
 
 func (h *TagHandler) Get(c *gin.Context) {
-	//TODO: Создать метод получения тега по ID
+	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, invalidSpaceIDMessage)
+		return
+	}
+	tagID, err := strconv.ParseUint(c.Param("tag_id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid tag id")
+		return
+	}
+
+	tag, err := h.service.GetTag(c.Request.Context(), uint(spaceID), uint(tagID))
+	if err != nil {
+		if errors.Is(err, service.ErrTagNotFound) || errors.Is(err, service.ErrTagSpaceMismatch) {
+			response.HandleError(c, httperrors.NotFound("TAG_NOT_FOUND", "tag not found", err))
+			return
+		}
+		response.HandleError(c, httperrors.Internal("TAG_FETCH_FAILED", "internal server error", err))
+		return
+	}
+
+	response.Success(c, http.StatusOK, tag)
 }
 
 func (h *TagHandler) List(c *gin.Context) {
@@ -61,7 +82,7 @@ func (h *TagHandler) List(c *gin.Context) {
 		return
 	}
 
-	tags, err := h.service.GetAllBySpace(uint(spaceID))
+	tags, err := h.service.GetAllBySpace(c.Request.Context(), uint(spaceID))
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("TAGS_FETCH_FAILED", "internal server error", err))
 		return
@@ -84,11 +105,11 @@ func (h *TagHandler) Update(c *gin.Context) {
 
 	var req dto.UpdateTagRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		response.ValidationError(c, err)
 		return
 	}
 
-	tag, err := h.service.UpdateTag(uint(spaceID), uint(tagID), service.UpdateTagParams{Name: req.Name, Color: req.Color})
+	tag, err := h.service.UpdateTag(c.Request.Context(), uint(spaceID), uint(tagID), service.UpdateTagParams{Name: req.Name, Color: req.Color})
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("TAG_UPDATE_FAILED", "internal server error", err))
 		return
@@ -109,7 +130,7 @@ func (h *TagHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.DeleteTag(uint(spaceID), uint(tagID)); err != nil {
+	if err := h.service.DeleteTag(c.Request.Context(), uint(spaceID), uint(tagID)); err != nil {
 		response.HandleError(c, httperrors.Internal("TAG_DELETE_FAILED", "internal server error", err))
 		return
 	}
@@ -126,11 +147,11 @@ func (h *TagHandler) Merge(c *gin.Context) {
 
 	var req dto.MergeTagsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		response.ValidationError(c, err)
 		return
 	}
 
-	if err := h.service.MergeTags(uint(spaceID), req.SourceTagID, req.TargetTagID); err != nil {
+	if err := h.service.MergeTags(c.Request.Context(), uint(spaceID), req.SourceTagID, req.TargetTagID); err != nil {
 		if errors.Is(err, service.ErrCannotMergeSame) {
 			response.HandleError(c, httperrors.BadRequest("TAG_MERGE_SELF", err.Error(), err))
 			return

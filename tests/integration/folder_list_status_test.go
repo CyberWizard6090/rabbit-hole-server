@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 func createSpace(t *testing.T, tc *TestContext) uint {
@@ -19,7 +19,7 @@ func createSpace(t *testing.T, tc *TestContext) uint {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create space: %d: %s", rec.Code, rec.Body.String())
 	}
-	return uint(dataObject(t, rec)["ID"].(float64))
+	return uint(dataObject(t, rec)["id"].(float64))
 }
 
 func createList(t *testing.T, tc *TestContext, spaceID uint) uint {
@@ -33,7 +33,7 @@ func createList(t *testing.T, tc *TestContext, spaceID uint) uint {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create list: %d: %s", rec.Code, rec.Body.String())
 	}
-	return uint(dataObject(t, rec)["ID"].(float64))
+	return uint(dataObject(t, rec)["id"].(float64))
 }
 
 func TestFolder_CreateListInFolderAndUpdate(t *testing.T) {
@@ -49,7 +49,7 @@ func TestFolder_CreateListInFolderAndUpdate(t *testing.T) {
 	if rec.Code != http.StatusOK && rec.Code != http.StatusCreated {
 		t.Fatalf("create folder: expected 200/201, got %d: %s", rec.Code, rec.Body.String())
 	}
-	folderID := uint(dataObject(t, rec)["ID"].(float64))
+	folderID := uint(dataObject(t, rec)["id"].(float64))
 
 	rec = request(t, tc.Router, http.MethodPost,
 		"/api/v1/folders/"+itoa(folderID)+"/lists",
@@ -61,8 +61,8 @@ func TestFolder_CreateListInFolderAndUpdate(t *testing.T) {
 	}
 
 	list := dataObject(t, rec)
-	if uint(list["FolderID"].(float64)) != folderID {
-		t.Fatalf("folder_id = %v, want %d", list["FolderID"], folderID)
+	if uint(list["folder_id"].(float64)) != folderID {
+		t.Fatalf("folder_id = %v, want %d", list["folder_id"], folderID)
 	}
 }
 
@@ -81,7 +81,7 @@ func TestStatus_PositionShiftAndDelete(t *testing.T) {
 		t.Fatalf("create status: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var statuses []domain.TaskStatus
+	var statuses []persistence.TaskStatus
 	if err := tc.DB.Where("list_id = ?", listID).Order("position ASC").Find(&statuses).Error; err != nil {
 		t.Fatalf("query statuses: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestStatus_PositionShiftAndDelete(t *testing.T) {
 		}
 	}
 
-	insertedID := uint(dataObject(t, rec)["ID"].(float64))
+	insertedID := uint(dataObject(t, rec)["id"].(float64))
 	rec = request(t, tc.Router, http.MethodDelete,
 		"/api/v1/lists/"+itoa(listID)+"/statuses/"+itoa(insertedID),
 		tc.Token, nil,

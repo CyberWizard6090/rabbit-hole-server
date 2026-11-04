@@ -1,12 +1,15 @@
 package repository
 
 import (
+	"context"
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/persistence"
 )
 
 type ContactRepository struct {
@@ -17,12 +20,12 @@ func NewContactRepository(db *gorm.DB) *ContactRepository {
 	return &ContactRepository{db: db}
 }
 
-func (r *ContactRepository) AddContact(userID, contactID uint) error {
-	err := r.db.Exec("INSERT INTO user_contacts (user_id, contact_id) VALUES (?, ?)", userID, contactID).Error
+func (r *ContactRepository) AddContact(ctx context.Context, userID, contactID uint) error {
+	err := r.db.WithContext(ctx).Exec("INSERT INTO user_contacts (user_id, contact_id) VALUES (?, ?)", userID, contactID).Error
 	if err != nil && isContactDuplicate(err) {
 		return domain.ErrContactAlreadyAdded
 	}
-	return err
+	return mapErr(err)
 }
 
 func isContactDuplicate(err error) bool {
@@ -30,48 +33,61 @@ func isContactDuplicate(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
-func (r *ContactRepository) GetContacts(userID uint) ([]domain.User, error) {
-	contacts, _, err := r.GetContactsPage(userID, 1000, 0)
+func (r *ContactRepository) GetContacts(ctx context.Context, userID uint) ([]domain.User, error) {
+	contacts, _, err := r.GetContactsPage(ctx, userID, 1000, 0)
 	return contacts, err
 }
 
-func (r *ContactRepository) GetContactsPage(userID uint, limit, offset int) ([]domain.User, int64, error) {
-	var contacts []domain.User
+func (r *ContactRepository) GetContactsPage(ctx context.Context, userID uint, limit, offset int) ([]domain.User, int64, error) {
+	var rows []persistence.User
 	var total int64
 
-	baseQuery := r.db.Table("users").
+	baseQuery := r.db.WithContext(ctx).Table("users").
 		Joins("JOIN user_contacts ON user_contacts.contact_id = users.id").
 		Where("user_contacts.user_id = ?", userID)
 
 	if err := baseQuery.Count(&total).Error; err != nil {
-		return nil, 0, err
+		return nil, 0, mapErr(err)
 	}
 
 	err := baseQuery.
 		Order("users.id ASC").
 		Limit(limit).
 		Offset(offset).
-		Find(&contacts).Error
-	return contacts, total, err
+		Find(&rows).Error
+	if err != nil {
+		return nil, 0, mapErr(err)
+	}
+	return mapSlice(rows, userToDomain), total, nil
 }
 
-func (r *ContactRepository) DeleteContact(userID, contactID uint) error {
-	res := r.db.Exec("DELETE FROM user_contacts WHERE user_id = ? AND contact_id = ?", userID, contactID)
+func (r *ContactRepository) DeleteContact(ctx context.Context, userID, contactID uint) error {
+	res := r.db.WithContext(ctx).Exec("DELETE FROM user_contacts WHERE user_id = ? AND contact_id = ?", userID, contactID)
 	if res.Error != nil {
-		return res.Error
+		return mapErr(res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
+		return domain.ErrNotFound
 	}
 	return nil
 }
 
-func (r *ContactRepository) SearchUsers(query string, excludeID uint) ([]domain.User, error) {
-	var users []domain.User
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
 
-	err := r.db.Where("(username ILIKE ? OR email ILIKE ?) AND id != ?",
-		"%"+query+"%", "%"+query+"%", excludeID).
+func (r *ContactRepository) SearchUsers(ctx context.Context, query string, excludeID uint) ([]domain.User, error) {
+	var rows []persistence.User
+
+	query = strings.ToLower(strings.TrimSpace(query))
+	err := r.db.WithContext(ctx).
+		Where(`(LOWER(username) LIKE ? ESCAPE '\' OR LOWER(email) = ?) AND id != ?`,
+			escapeLike(query)+"%", query, excludeID).
+		Order("username ASC, id ASC").
 		Limit(20).
-		Find(&users).Error
-	return users, err
+		Find(&rows).Error
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return mapSlice(rows, userToDomain), nil
 }

@@ -10,10 +10,12 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"rabbit-hole-server/internal/config"
+	"rabbit-hole-server/internal/realtime"
 )
 
 type App struct {
-	router *gin.Engine
+	router   *gin.Engine
+	realtime *realtime.Hub
 }
 
 func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
@@ -22,7 +24,7 @@ func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("create app dependencies: %w", err)
 	}
 	r := SetupRouter(container, cfg)
-	return &App{router: r}, nil
+	return &App{router: r, realtime: container.Realtime}, nil
 }
 
 func (a *App) Run(addr string) error {
@@ -34,5 +36,8 @@ func (a *App) Handler() http.Handler {
 }
 
 func (a *App) Close(ctx context.Context) error {
+	if a.realtime != nil {
+		a.realtime.Close()
+	}
 	return nil
 }
