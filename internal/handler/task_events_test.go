@@ -24,6 +24,9 @@ type eventsServiceStub struct {
 	created, updated, existing *domain.Task
 	createErr, updateErr       error
 	getErr, deleteErr          error
+	moved                      *domain.Task
+	moveErr                    error
+	movedWith                  service.MoveTaskParams
 	calls                      []string
 }
 
@@ -40,6 +43,10 @@ func (s *eventsServiceStub) GetTaskByID(context.Context, uint) (*domain.Task, er
 func (s *eventsServiceStub) DeleteTask(context.Context, uint) error {
 	s.calls = append(s.calls, "delete")
 	return s.deleteErr
+}
+func (s *eventsServiceStub) MoveTask(_ context.Context, _ uint, params service.MoveTaskParams) (*domain.Task, error) {
+	s.movedWith = params
+	return s.moved, s.moveErr
 }
 func (s *eventsServiceStub) ListTasks(context.Context, uint, pagination.Params, domain.TaskQuery) (pagination.Response[domain.Task], error) {
 	return pagination.Response[domain.Task]{}, nil
@@ -67,6 +74,7 @@ func eventsRouter(t *testing.T, svc service.TaskService, publisher TaskEventPubl
 	r.POST("/lists/:list_id/tasks", h.Create)
 	r.PATCH("/tasks/:task_id", h.Update)
 	r.DELETE("/tasks/:task_id", h.Delete)
+	r.POST("/tasks/:task_id/move", h.Move)
 	return r
 }
 

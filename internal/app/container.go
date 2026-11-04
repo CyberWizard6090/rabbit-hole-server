@@ -78,7 +78,7 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 	return &Container{
 		AuthService: authServ,
 		AuthHandler: handler.NewAuthHandler(authServ, cfg.SecureCookies()),
-		TaskHandler: handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub),
+		TaskHandler: handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
 		UserHandler: handler.NewUserHandler(userService),
 
 		ContactHandler:    handler.NewContactHandler(contactService),

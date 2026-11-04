@@ -242,6 +242,7 @@ CREATE TABLE tasks (
     due_date TIMESTAMPTZ,
     time_estimate INTEGER NOT NULL DEFAULT 0,
     time_spent INTEGER NOT NULL DEFAULT 0,
+    position BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT chk_tasks_title_not_blank CHECK (btrim(title) <> ''),
     CONSTRAINT fk_spaces_tasks FOREIGN KEY (space_id) REFERENCES spaces (id) ON DELETE CASCADE,
     CONSTRAINT fk_lists_tasks FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE NO ACTION,
@@ -259,6 +260,7 @@ CREATE INDEX idx_tasks_list_keyset ON tasks (list_id, created_at DESC, id DESC) 
 CREATE INDEX idx_tasks_list_id_id ON tasks (list_id, id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_tasks_list_priority_id ON tasks (list_id, priority, id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_tasks_list_due_date_id ON tasks (list_id, due_date, id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_tasks_list_position_id ON tasks (list_id, position, id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_tasks_parent_id ON tasks (parent_id);
 CREATE INDEX idx_tasks_space_id ON tasks (space_id);
 CREATE INDEX idx_tasks_status_id ON tasks (status_id);

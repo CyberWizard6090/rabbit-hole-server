@@ -51,6 +51,9 @@ relies on:
   `INVALID_PAGINATION`. See `docs/openapi.yaml`. Contact and space lists use `page`
   (1-10000) and `limit` (1-100, default 10). Out-of-range values are rejected with 400
   `INVALID_PAGINATION`.
+- **Task order**: every task has an integer `position` within its list; new tasks go to the end and
+  `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
+  same workspace. Read the order with `sort=position`.
 - **Limits**: request body max 1 MiB (413). Auth rate limits per IP: register 5/min, login 10/min,
   refresh 30/min, logout 30/min (429).
 - **Real-time**: task changes can be followed over WebSocket. Request a single-use ticket

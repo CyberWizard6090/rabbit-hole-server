@@ -267,6 +267,9 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					tasks.DELETE("",
 						inTask(domain.PermTaskDelete),
 						deps.TaskHandler.Delete)
+					tasks.POST("/move",
+						inTask(domain.PermTaskUpdate),
+						deps.TaskHandler.Move)
 				}
 			}
 		}

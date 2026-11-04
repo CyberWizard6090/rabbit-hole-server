@@ -27,6 +27,7 @@ const (
 	TaskSortCreatedAt    TaskSortField = "created_at"
 	TaskSortUpdatedAt    TaskSortField = "updated_at"
 	TaskSortAssignee     TaskSortField = "assignee"
+	TaskSortPosition     TaskSortField = "position"
 )
 
 const MaxTaskSortKeys = 3
@@ -37,6 +38,7 @@ var taskSortFields = map[TaskSortField]struct{}{
 	TaskSortID: {}, TaskSortTitle: {}, TaskSortStatus: {}, TaskSortPriority: {},
 	TaskSortTimeEstimate: {}, TaskSortTimeSpent: {}, TaskSortStartDate: {},
 	TaskSortDueDate: {}, TaskSortCreatedAt: {}, TaskSortUpdatedAt: {}, TaskSortAssignee: {},
+	TaskSortPosition: {},
 }
 
 func IsValidTaskSortField(field TaskSortField) bool {
@@ -184,6 +186,8 @@ func (t Task) SortValue(field TaskSortField) any {
 		return int64(t.TimeEstimate)
 	case TaskSortTimeSpent:
 		return int64(t.TimeSpent)
+	case TaskSortPosition:
+		return t.Position
 	case TaskSortStartDate:
 		return timeOrNil(t.StartDate)
 	case TaskSortDueDate:

@@ -147,7 +147,7 @@ func taskToDomain(t persistence.Task) domain.Task {
 		Model: modelToDomain(t.Model), SpaceID: t.SpaceID, ListID: t.ListID, StatusID: t.StatusID,
 		ParentID: t.ParentID, Title: t.Title, Description: t.Description, Priority: t.Priority,
 		UserID: t.UserID, StartDate: t.StartDate, DueDate: t.DueDate,
-		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent,
+		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent, Position: t.Position,
 		SortStatusPosition: t.SortStatusPosition, SortAssignee: t.SortAssignee,
 		Assignees: mapSlice(t.Assignees, userToDomain),
 		Tags:      mapSlice(t.Tags, tagToDomain),
@@ -159,7 +159,7 @@ func taskFromDomain(t domain.Task) persistence.Task {
 		Model: modelFromDomain(t.Model), SpaceID: t.SpaceID, ListID: t.ListID, StatusID: t.StatusID,
 		ParentID: t.ParentID, Title: t.Title, Description: t.Description, Priority: t.Priority,
 		UserID: t.UserID, StartDate: t.StartDate, DueDate: t.DueDate,
-		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent,
+		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent, Position: t.Position,
 		Assignees: mapSlice(t.Assignees, userFromDomain),
 		Tags:      mapSlice(t.Tags, tagFromDomain),
 	}
