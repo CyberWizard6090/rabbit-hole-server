@@ -58,6 +58,16 @@ relies on:
   The body is stored as the client sends it; @mentions are sent as `mention_user_ids` (workspace
   members only). Creating needs `task.update`, only the author edits, and the author or anyone
   with `task.delete` deletes. Comment changes are pushed over the realtime feed.
+- **Files**: task attachments (`/tasks/{id}/attachments`), editor images
+  (`POST /workspaces/{id}/images`, the upload hook for Inkbrick) and avatars (`POST /profile/avatar`).
+  Uploads are `multipart/form-data` with a `file` field. Editor images and avatars are public and
+  immutable at `/api/v1/images/{id}`, so their URLs can stay in documents; attachments are private and
+  downloaded with the bearer token. Types are detected from the content, SVG is refused, avatars are
+  re-encoded to 256x256. Storage is `STORAGE_DRIVER=local` (a directory) or `s3` (MinIO or any
+  S3-compatible bucket, see `.env.example`); `docker compose --profile s3 up` starts a local MinIO and
+  creates the bucket (inside Compose use `S3_ENDPOINT=minio:9000`).
+  Set `PUBLIC_BASE_URL` to the public address of this API so image URLs are absolute, and let the
+  reverse proxy pass bodies of at least `MAX_ATTACHMENT_BYTES` (nginx `client_max_body_size`).
 - **Task order**: every task has an integer `position` within its list; new tasks go to the end and
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.

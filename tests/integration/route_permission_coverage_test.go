@@ -19,12 +19,15 @@ var (
 		"POST /api/v1/auth/logout":            "authenticated by refresh cookie",
 		"GET /api/v1/lists/:list_id/events":   "authenticated by a single-use ticket issued after a permission check",
 		"GET /api/v1/spaces/:space_id/events": "authenticated by a single-use ticket issued after a permission check",
+		"GET /api/v1/images/:public_id":       "editor images and avatars are public by design; the id is a random 128-bit value",
 	}
 	selfScopedRoutes = map[string]string{
 		"GET /api/v1/profile":                 "caller's own profile",
 		"PATCH /api/v1/profile":               "caller's own profile",
 		"DELETE /api/v1/profile":              "deletes the caller's own account",
 		"POST /api/v1/profile/password":       "changes the caller's own password",
+		"POST /api/v1/profile/avatar":         "replaces the caller's own avatar",
+		"DELETE /api/v1/profile/avatar":       "removes the caller's own avatar",
 		"POST /api/v1/auth/logout-all":        "revokes the caller's own sessions",
 		"GET /api/v1/users/search":            "public projection only",
 		"GET /api/v1/contacts":                "caller's own contacts",
@@ -57,10 +60,11 @@ func buildRouteFixture(t *testing.T, tc *TestContext, token string, userID uint)
 	tg := create("/api/v1/spaces/"+itoa(sp)+"/tags", map[string]any{"name": "fixture", "color": "#654321"})
 	tk := create("/api/v1/lists/"+itoa(li)+"/tasks", map[string]any{"title": "fixture", "status_id": st})
 	cm := create("/api/v1/tasks/"+itoa(tk)+"/comments", map[string]any{"body": "fixture"})
+	att := uploadFixtureFile(t, tc, token, tk)
 
 	return routeFixture{params: map[string]string{
 		"workspace_id": itoa(ws), "space_id": itoa(sp), "folder_id": itoa(fo), "list_id": itoa(li),
-		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "user_id": itoa(userID), "contact_id": itoa(userID),
+		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "attachment_id": itoa(att), "user_id": itoa(userID), "contact_id": itoa(userID),
 	}}
 }
 

@@ -54,12 +54,18 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		AllowOrigins:     cfg.AllowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
+		ExposeHeaders:    []string{"Content-Length", "Content-Disposition"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
 
-	r.Use(middleware.BodyLimit(middleware.DefaultMaxBodyBytes))
+	const multipartOverhead int64 = 1 << 20
+	r.MaxMultipartMemory = 8 << 20
+	r.Use(middleware.BodyLimitByRoute(middleware.DefaultMaxBodyBytes, map[string]int64{
+		"POST /api/v1/tasks/:task_id/attachments":      cfg.Storage.MaxAttachmentBytes + multipartOverhead,
+		"POST /api/v1/workspaces/:workspace_id/images": cfg.Storage.MaxImageBytes + multipartOverhead,
+		"POST /api/v1/profile/avatar":                  cfg.Storage.MaxAvatarBytes + multipartOverhead,
+	}))
 
 	require := func(resource middleware.Resource) func(code string) gin.HandlerFunc {
 		return func(code string) gin.HandlerFunc {
@@ -74,6 +80,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		inTask      = require(middleware.ResourceTask)
 	)
 	ticketLimiter := middleware.RateLimiter(60, time.Minute)
+	uploadLimiter := middleware.RateLimiter(60, time.Minute)
 
 	api := r.Group("/api")
 	{
@@ -91,6 +98,8 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				auth.POST("/logout", middleware.RateLimiter(30, time.Minute), deps.AuthHandler.Logout)
 			}
 
+			v1.GET("/images/:public_id", deps.FileHandler.ServeImage)
+
 			v1.GET("/lists/:list_id/events", deps.RealtimeHandler.ConnectList)
 			v1.GET("/spaces/:space_id/events", deps.RealtimeHandler.ConnectSpace)
 
@@ -106,6 +115,8 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					profile.POST("/password", middleware.RateLimiter(5, time.Minute), deps.AuthHandler.ChangePassword)
 					profile.DELETE("", middleware.RateLimiter(5, time.Minute), deps.AuthHandler.DeleteAccount)
 				}
+				profile.POST("/avatar", uploadLimiter, deps.FileHandler.SetAvatar)
+				profile.DELETE("/avatar", deps.FileHandler.RemoveAvatar)
 				protected.GET("/users/search", deps.ContactHandler.Search)
 
 				contacts := protected.Group("/contacts")
@@ -144,6 +155,10 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					workspaces.DELETE("/:workspace_id",
 						inWorkspace(domain.PermWorkspaceDelete),
 						deps.WorkspaceHandler.Delete)
+
+					workspaces.POST("/:workspace_id/images",
+						inWorkspace(domain.PermTaskUpdate),
+						uploadLimiter, deps.FileHandler.UploadImage)
 
 					workspaces.POST("/:workspace_id/spaces",
 						inWorkspace(domain.PermSpaceCreate),
@@ -270,6 +285,18 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					tasks.GET("/activity",
 						inTask(domain.PermTaskRead),
 						deps.ActivityHandler.List)
+					tasks.POST("/attachments",
+						inTask(domain.PermTaskUpdate),
+						uploadLimiter, deps.FileHandler.UploadAttachment)
+					tasks.GET("/attachments",
+						inTask(domain.PermTaskRead),
+						deps.FileHandler.ListAttachments)
+					tasks.GET("/attachments/:attachment_id/download",
+						inTask(domain.PermTaskRead),
+						deps.FileHandler.DownloadAttachment)
+					tasks.DELETE("/attachments/:attachment_id",
+						inTask(domain.PermTaskRead),
+						deps.FileHandler.DeleteAttachment)
 					tasks.POST("/comments",
 						inTask(domain.PermTaskUpdate),
 						deps.CommentHandler.Create)

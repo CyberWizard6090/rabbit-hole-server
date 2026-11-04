@@ -15,6 +15,7 @@ import (
 	"rabbit-hole-server/internal/realtime"
 	"rabbit-hole-server/internal/repository"
 	"rabbit-hole-server/internal/service"
+	"rabbit-hole-server/internal/storage"
 )
 
 type Container struct {
@@ -23,6 +24,7 @@ type Container struct {
 	TaskHandler     *handler.TaskHandler
 	CommentHandler  *handler.CommentHandler
 	ActivityHandler *handler.ActivityHandler
+	FileHandler     *handler.FileHandler
 	UserHandler     *handler.UserHandler
 
 	WorkspaceHandler *handler.WorkspaceHandler
@@ -71,6 +73,19 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 	permissionChecker := repository.NewPermissionChecker(db)
 	commentService := service.NewCommentService(repository.NewCommentRepository(db), permissionChecker, activityService)
 
+	store, err := storage.New(context.Background(), cfg.Storage)
+	if err != nil {
+		return nil, fmt.Errorf("open file storage: %w", err)
+	}
+	fileService := service.NewFileService(
+		repository.NewFileRepository(db), store, permissionChecker,
+		service.FileLimits{
+			Attachment: cfg.Storage.MaxAttachmentBytes, Image: cfg.Storage.MaxImageBytes, Avatar: cfg.Storage.MaxAvatarBytes,
+		},
+		cfg.Storage.PublicBaseURL,
+	)
+	authServ.WithAvatarRemover(fileService)
+
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("get database handle for readiness checks: %w", err)
@@ -83,6 +98,7 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 		AuthService:     authServ,
 		AuthHandler:     handler.NewAuthHandler(authServ, cfg.SecureCookies()),
 		ActivityHandler: handler.NewActivityHandler(activityService),
+		FileHandler:     handler.NewFileHandler(fileService),
 		CommentHandler:  handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
 		TaskHandler:     handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
 		UserHandler:     handler.NewUserHandler(userService),

@@ -328,3 +328,27 @@ CREATE TABLE task_activities (
     CONSTRAINT fk_task_activities_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT
 );
 CREATE INDEX idx_task_activities_task_id_id ON task_activities (task_id, id DESC);
+
+CREATE TABLE files (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    kind TEXT NOT NULL,
+    public_id TEXT NOT NULL,
+    storage_key TEXT NOT NULL,
+    user_id BIGINT NOT NULL,
+    workspace_id BIGINT,
+    task_id BIGINT,
+    name TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    size BIGINT NOT NULL,
+    CONSTRAINT chk_files_kind CHECK (kind IN ('attachment', 'image', 'avatar')),
+    CONSTRAINT chk_files_size CHECK (size > 0),
+    CONSTRAINT chk_files_attachment_task CHECK (kind <> 'attachment' OR task_id IS NOT NULL),
+    CONSTRAINT fk_files_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT,
+    CONSTRAINT fk_files_workspace FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE,
+    CONSTRAINT fk_files_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX uq_files_public_id ON files (public_id);
+CREATE UNIQUE INDEX uq_files_storage_key ON files (storage_key);
+CREATE INDEX idx_files_task_id_id ON files (task_id, id) WHERE kind = 'attachment';
+CREATE INDEX idx_files_user_avatar ON files (user_id) WHERE kind = 'avatar';
