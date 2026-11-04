@@ -352,3 +352,39 @@ CREATE UNIQUE INDEX uq_files_public_id ON files (public_id);
 CREATE UNIQUE INDEX uq_files_storage_key ON files (storage_key);
 CREATE INDEX idx_files_task_id_id ON files (task_id, id) WHERE kind = 'attachment';
 CREATE INDEX idx_files_user_avatar ON files (user_id) WHERE kind = 'avatar';
+
+CREATE TABLE task_checklists (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    task_id BIGINT NOT NULL,
+    name TEXT NOT NULL,
+    position BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT chk_task_checklists_name_not_blank CHECK (btrim(name) <> ''),
+    CONSTRAINT fk_task_checklists_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+);
+CREATE INDEX idx_task_checklists_task_position ON task_checklists (task_id, position, id);
+CREATE TRIGGER trg_task_checklists_updated_at BEFORE UPDATE ON task_checklists
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TABLE task_checklist_items (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    checklist_id BIGINT NOT NULL,
+    text TEXT NOT NULL,
+    resolved BOOLEAN NOT NULL DEFAULT false,
+    resolved_at TIMESTAMPTZ,
+    resolved_by BIGINT,
+    assignee_id BIGINT,
+    position BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT chk_task_checklist_items_text_not_blank CHECK (btrim(text) <> ''),
+    CONSTRAINT chk_task_checklist_items_resolution CHECK (resolved OR (resolved_at IS NULL AND resolved_by IS NULL)),
+    CONSTRAINT fk_task_checklist_items_checklist FOREIGN KEY (checklist_id) REFERENCES task_checklists (id) ON DELETE CASCADE,
+    CONSTRAINT fk_task_checklist_items_resolved_by FOREIGN KEY (resolved_by) REFERENCES users (id) ON DELETE SET NULL,
+    CONSTRAINT fk_task_checklist_items_assignee FOREIGN KEY (assignee_id) REFERENCES users (id) ON DELETE SET NULL
+);
+CREATE INDEX idx_task_checklist_items_checklist_position ON task_checklist_items (checklist_id, position, id);
+CREATE INDEX idx_task_checklist_items_assignee ON task_checklist_items (assignee_id);
+CREATE TRIGGER trg_task_checklist_items_updated_at BEFORE UPDATE ON task_checklist_items
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

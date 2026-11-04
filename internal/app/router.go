@@ -297,6 +297,33 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					tasks.DELETE("/attachments/:attachment_id",
 						inTask(domain.PermTaskRead),
 						deps.FileHandler.DeleteAttachment)
+					tasks.GET("/checklists",
+						inTask(domain.PermTaskRead),
+						deps.ChecklistHandler.List)
+					tasks.POST("/checklists",
+						inTask(domain.PermTaskUpdate),
+						deps.ChecklistHandler.Create)
+					tasks.PUT("/checklists/order",
+						inTask(domain.PermTaskUpdate),
+						deps.ChecklistHandler.Reorder)
+					tasks.PATCH("/checklists/:checklist_id",
+						inTask(domain.PermTaskUpdate),
+						deps.ChecklistHandler.Rename)
+					tasks.DELETE("/checklists/:checklist_id",
+						inTask(domain.PermTaskUpdate),
+						deps.ChecklistHandler.Delete)
+					tasks.POST("/checklists/:checklist_id/items",
+						inTask(domain.PermTaskUpdate),
+						deps.ChecklistHandler.CreateItem)
+					tasks.PUT("/checklists/:checklist_id/items/order",
+						inTask(domain.PermTaskUpdate),
+						deps.ChecklistHandler.ReorderItems)
+					tasks.PATCH("/checklists/:checklist_id/items/:item_id",
+						inTask(domain.PermTaskUpdate),
+						deps.ChecklistHandler.UpdateItem)
+					tasks.DELETE("/checklists/:checklist_id/items/:item_id",
+						inTask(domain.PermTaskUpdate),
+						deps.ChecklistHandler.DeleteItem)
 					tasks.POST("/comments",
 						inTask(domain.PermTaskUpdate),
 						deps.CommentHandler.Create)

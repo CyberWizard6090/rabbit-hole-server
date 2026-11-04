@@ -228,6 +228,9 @@ func (r *UserRepository) Anonymize(ctx context.Context, userID uint) error {
 		if err := tx.Exec("DELETE FROM task_comment_mentions WHERE user_id = ?", userID).Error; err != nil {
 			return err
 		}
+		if err := tx.Exec("UPDATE task_checklist_items SET assignee_id = NULL WHERE assignee_id = ?", userID).Error; err != nil {
+			return err
+		}
 		return tx.Where("user_id = ?", userID).Delete(&persistence.Member{}).Error
 	}))
 }
