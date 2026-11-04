@@ -121,6 +121,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender)
 			Attachment: cfg.Storage.MaxAttachmentBytes, Image: cfg.Storage.MaxImageBytes, Avatar: cfg.Storage.MaxAvatarBytes,
 		},
 		cfg.Storage.PublicBaseURL,
+		activityService,
 	)
 	authServ.WithAvatarRemover(fileService)
 

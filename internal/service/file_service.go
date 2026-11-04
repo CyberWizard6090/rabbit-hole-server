@@ -58,6 +58,7 @@ type fileService struct {
 	permissions   PermissionChecker
 	limits        FileLimits
 	publicBaseURL string
+	activity      ActivityRecorder
 }
 
 func NewFileService(
@@ -66,11 +67,25 @@ func NewFileService(
 	permissions PermissionChecker,
 	limits FileLimits,
 	publicBaseURL string,
+	activity ActivityRecorder,
 ) FileService {
 	return &fileService{
 		repo: repo, store: store, permissions: permissions, limits: limits,
 		publicBaseURL: strings.TrimRight(publicBaseURL, "/"),
+		activity:      activity,
 	}
+}
+
+func (s *fileService) recordAttachment(ctx context.Context, action string, userID, taskID uint, file *domain.File) {
+	entry := domain.ActivityEntry{TaskID: taskID, ActorID: userID, Action: action}
+	value := map[string]any{"id": file.ID, "name": file.Name, "size": file.Size}
+	if action == domain.ActivityAttachmentDeleted {
+		value["deleted_by"] = userID
+		entry.OldValue = mustJSON(value)
+	} else {
+		entry.NewValue = mustJSON(value)
+	}
+	recordActivity(ctx, s.activity, entry)
 }
 
 func randomHex() (string, error) {
@@ -194,6 +209,7 @@ func (s *fileService) UploadAttachment(ctx context.Context, userID, taskID uint,
 		s.discard(key)
 		return nil, err
 	}
+	s.recordAttachment(ctx, domain.ActivityAttachmentCreated, userID, taskID, file)
 	return file, nil
 }
 
@@ -251,6 +267,7 @@ func (s *fileService) DeleteAttachment(ctx context.Context, userID, taskID, id u
 		return err
 	}
 	s.discard(file.StorageKey)
+	s.recordAttachment(ctx, domain.ActivityAttachmentDeleted, userID, taskID, file)
 	return nil
 }
 
