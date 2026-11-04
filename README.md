@@ -77,6 +77,10 @@ relies on:
   re-encoded to 256x256. Storage is `STORAGE_DRIVER=local` (a directory) or `s3` (MinIO or any
   S3-compatible bucket, see `.env.example`); `docker compose --profile s3 up` starts a local MinIO and
   creates the bucket (inside Compose use `S3_ENDPOINT=minio:9000`).
+  `POST /workspaces/{id}/images/rehost` (`{url}`) is the `images.rehost` hook: the server downloads a
+  remote image through the SSRF-safe client in `internal/safehttp` (public addresses only, DNS pinned
+  per connection, at most 3 re-validated redirects, 10 s, `REHOST_MAX_BYTES`) and stores it like an
+  upload; anything unsafe or not an image answers 422 `REHOST_REFUSED`.
   Set `PUBLIC_BASE_URL` to the public address of this API so image URLs are absolute, and let the
   reverse proxy pass bodies of at least `MAX_ATTACHMENT_BYTES` (nginx `client_max_body_size`).
 - **Checklists**: `/tasks/{id}/checklists` holds named checklists with items (text, resolved by whom and

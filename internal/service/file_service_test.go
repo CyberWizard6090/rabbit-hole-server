@@ -65,7 +65,7 @@ func (r *recorderFake) Record(_ context.Context, entries ...domain.ActivityEntry
 }
 
 func newTestFileService(repo *fileRepositoryMock, store *storeStub, perms PermissionChecker, rec ActivityRecorder) FileService {
-	return NewFileService(repo, store, perms, FileLimits{Attachment: 1 << 20}, "http://localhost", rec)
+	return NewFileService(repo, store, perms, FileLimits{Attachment: 1 << 20}, "http://localhost", rec, RehostConfig{})
 }
 
 func attachmentBy(uploader uint) *domain.File {

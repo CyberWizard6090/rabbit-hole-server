@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
+	"net/url"
 	"path"
 	"regexp"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/safehttp"
 	"rabbit-hole-server/internal/storage"
 )
 
@@ -41,12 +44,22 @@ type ImageResult struct {
 	Size        int64
 }
 
+type RemoteFetcher interface {
+	Fetch(ctx context.Context, rawURL string, maxBytes int64, accept string) (*safehttp.Result, error)
+}
+
+type RehostConfig struct {
+	Fetcher  RemoteFetcher
+	MaxBytes int64
+}
+
 type FileService interface {
 	UploadAttachment(ctx context.Context, userID, taskID uint, upload Upload) (*domain.File, error)
 	ListAttachments(ctx context.Context, taskID uint) ([]domain.File, error)
 	OpenAttachment(ctx context.Context, taskID, id uint) (*domain.File, io.ReadCloser, error)
 	DeleteAttachment(ctx context.Context, userID, taskID, id uint) error
 	UploadImage(ctx context.Context, userID, workspaceID uint, upload Upload) (*ImageResult, error)
+	RehostImage(ctx context.Context, userID, workspaceID uint, rawURL string) (*ImageResult, error)
 	OpenPublic(ctx context.Context, publicID string) (*domain.File, io.ReadCloser, error)
 	SetAvatar(ctx context.Context, userID uint, upload Upload) (string, error)
 	RemoveAvatar(ctx context.Context, userID uint) error
@@ -59,6 +72,7 @@ type fileService struct {
 	limits        FileLimits
 	publicBaseURL string
 	activity      ActivityRecorder
+	rehost        RehostConfig
 }
 
 func NewFileService(
@@ -68,11 +82,13 @@ func NewFileService(
 	limits FileLimits,
 	publicBaseURL string,
 	activity ActivityRecorder,
+	rehost RehostConfig,
 ) FileService {
 	return &fileService{
 		repo: repo, store: store, permissions: permissions, limits: limits,
 		publicBaseURL: strings.TrimRight(publicBaseURL, "/"),
 		activity:      activity,
+		rehost:        rehost,
 	}
 }
 
@@ -308,6 +324,54 @@ func (s *fileService) UploadImage(ctx context.Context, userID, workspaceID uint,
 		return nil, err
 	}
 	return &ImageResult{URL: s.publicURL(publicID), ContentType: contentType, Size: int64(len(data))}, nil
+}
+
+func rehostFilename(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Path == "" {
+		return "remote-image"
+	}
+	return sanitizeFilename(path.Base(u.Path))
+}
+
+func declaredImageType(header string) bool {
+	if strings.TrimSpace(header) == "" {
+		return true
+	}
+	mediaType, _, err := mime.ParseMediaType(header)
+	if err != nil {
+		return false
+	}
+	switch mediaType {
+	case "application/octet-stream", "binary/octet-stream":
+		return true
+	case "image/svg+xml":
+		return false
+	}
+	return strings.HasPrefix(mediaType, "image/")
+}
+
+func (s *fileService) RehostImage(ctx context.Context, userID, workspaceID uint, rawURL string) (*ImageResult, error) {
+	if s.rehost.Fetcher == nil {
+		return nil, domain.ErrRehostRefused
+	}
+	limit := min(s.rehost.MaxBytes, s.limits.Image)
+	result, err := s.rehost.Fetcher.Fetch(ctx, rawURL, limit, "image/*")
+	if err != nil {
+		slog.Info("files: a remote image was refused", "reason", err.Error())
+		return nil, domain.ErrRehostRefused
+	}
+	if !declaredImageType(result.ContentType) {
+		return nil, domain.ErrRehostRefused
+	}
+	image, err := s.UploadImage(ctx, userID, workspaceID, Upload{
+		Name: rehostFilename(rawURL), Size: int64(len(result.Body)), Reader: bytes.NewReader(result.Body),
+	})
+	if errors.Is(err, domain.ErrFileTooLarge) || errors.Is(err, domain.ErrEmptyFile) ||
+		errors.Is(err, domain.ErrUnsupportedFileType) || errors.Is(err, domain.ErrInvalidImage) {
+		return nil, domain.ErrRehostRefused
+	}
+	return image, err
 }
 
 func (s *fileService) OpenPublic(ctx context.Context, publicID string) (*domain.File, io.ReadCloser, error) {

@@ -482,6 +482,48 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '413': {$ref: '#/components/responses/Error'}
         '415': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/images/rehost:
+    post:
+      tags: [files]
+      summary: "Re-host a remote image for the editor"
+      description: |
+        For Inkbrick's `images.rehost` hook: send `{"url": "https://..."}`; the server downloads the image and stores
+        it like an upload, so readers' browsers never contact foreign servers. The answer has the same shape as the
+        image upload (`url`, `content_type`, `size`, status 201) and the same type, signature and size checks apply
+        (at most `REHOST_MAX_BYTES`, `MAX_IMAGE_BYTES` by default). Any failure answers 422 with the code
+        `REHOST_REFUSED` and never includes the remote's text or addresses; the editor maps every non-2xx to `null`.
+        Needs `task.update` in the workspace and is rate limited.
+
+        Threat model (SSRF): only `http` and `https` URLs of at most 2048 characters without credentials, on
+        ports 80 and 443. Names are resolved by the server and the connection goes to the validated IP itself, so
+        DNS rebinding cannot swap the address; a name that resolves to even one non-public address is refused.
+        Loopback, private, link-local (cloud metadata), CGNAT, multicast, reserved, documentation and benchmarking
+        ranges, and IPv6 loopback, unique-local, link-local, mapped and embedded IPv4 forms are refused, as are
+        `localhost`-style names and numeric host spellings such as `2130706433` or `0x7f.1`. At most 3 redirects are
+        followed, each validated again, and a downgrade from https to http is refused. The whole download is limited
+        to about 10 seconds and the size cap is enforced while streaming; compressed responses are refused rather
+        than decompressed, cookies and environment proxies are ignored.
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: {type: string, maxLength: 2048}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
   /images/{public_id}:
     get:
       tags: [files]

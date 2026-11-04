@@ -81,6 +81,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	)
 	ticketLimiter := middleware.RateLimiter(60, time.Minute)
 	uploadLimiter := middleware.RateLimiter(60, time.Minute)
+	rehostLimiter := middleware.RateLimiter(30, time.Minute)
 
 	api := r.Group("/api")
 	{
@@ -163,6 +164,10 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					workspaces.POST("/:workspace_id/images",
 						inWorkspace(domain.PermTaskUpdate),
 						uploadLimiter, deps.FileHandler.UploadImage)
+
+					workspaces.POST("/:workspace_id/images/rehost",
+						inWorkspace(domain.PermTaskUpdate),
+						rehostLimiter, deps.FileHandler.RehostImage)
 
 					workspaces.POST("/:workspace_id/spaces",
 						inWorkspace(domain.PermSpaceCreate),
