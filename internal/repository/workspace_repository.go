@@ -70,7 +70,7 @@ func (r *workspaceRepository) GetByID(ctx context.Context, id uint) (*domain.Wor
 func (r *workspaceRepository) GetAllForUser(ctx context.Context, userID uint) ([]domain.Workspace, error) {
 	var rows []persistence.Workspace
 	err := r.db.WithContext(ctx).
-		Joins("JOIN workspace_members ON workspace_members.workspace_id = workspaces.id").
+		Joins("JOIN workspace_members ON workspace_members.workspace_id = workspaces.id AND workspace_members.deleted_at IS NULL").
 		Where("workspace_members.user_id = ?", userID).
 		Find(&rows).Error
 	if err != nil {

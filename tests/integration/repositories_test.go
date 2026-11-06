@@ -63,14 +63,17 @@ func TestWorkspaceRepository_CreateSeedsRolesPermissionsAndOwner(t *testing.T) {
 func TestWorkspaceRepository_GetAllForUserOnlyReturnsMemberships(t *testing.T) {
 	tc := newTestContext(t)
 	alice, bob := repoUser(t, tc, "alice"), repoUser(t, tc, "bob")
-	repoWorkspace(t, tc, alice, "Alice A")
+	aliceA := repoWorkspace(t, tc, alice, "Alice A")
 	repoWorkspace(t, tc, alice, "Alice B")
 	repoWorkspace(t, tc, bob, "Bob")
 
 	repo := repository.NewWorkspaceRepository(tc.DB)
+	if err := repo.RemoveMember(context.Background(), aliceA.ID, alice); err != nil {
+		t.Fatalf("remove alice membership: %v", err)
+	}
 	got, err := repo.GetAllForUser(context.Background(), alice)
-	if err != nil || len(got) != 2 {
-		t.Fatalf("alice workspaces = %d err=%v, want 2", len(got), err)
+	if err != nil || len(got) != 1 || got[0].Name != "Alice B" {
+		t.Fatalf("alice workspaces = %+v err=%v, want only Alice B", got, err)
 	}
 	got, err = repo.GetAllForUser(context.Background(), bob)
 	if err != nil || len(got) != 1 || got[0].Name != "Bob" {
