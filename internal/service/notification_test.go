@@ -565,6 +565,29 @@ func TestDispatcherSurvivesPanicsAndDrainsOnClose(t *testing.T) {
 	rig.dispatcher.Wait()
 }
 
+func TestDispatcherShutdownHonorsContextAndCancelsCurrentBatch(t *testing.T) {
+	rig := newNotifyRig(t, allowPerms{}, 30)
+	started := make(chan struct{})
+	rig.dispatcher.mappers["block"] = func(ctx context.Context, _ *NotificationDispatcher, _ domain.ActivityEntry) (*notificationPlan, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	rig.dispatcher.Enqueue([]domain.ActivityEntry{{Action: "block"}})
+	<-started
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := rig.dispatcher.Shutdown(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown error = %v, want deadline exceeded", err)
+	}
+	select {
+	case <-rig.dispatcher.done:
+	case <-time.After(time.Second):
+		t.Fatal("notification worker did not stop after cancellation")
+	}
+}
+
 func TestDispatcherQueueIsRaceFree(t *testing.T) {
 	rig := newNotifyRig(t, allowPerms{}, 1000)
 	rig.watchers.active = []uint{2, 4}

@@ -26,11 +26,13 @@ type NotificationDispatcher struct {
 	mappers  map[string]eventMapper
 	logger   *slog.Logger
 
-	queue chan []domain.ActivityEntry
+	queue  chan []domain.ActivityEntry
+	ctx    context.Context
+	cancel context.CancelFunc
+	done   chan struct{}
 
 	mu      sync.RWMutex
 	closed  bool
-	wg      sync.WaitGroup
 	pending sync.WaitGroup
 }
 
@@ -49,21 +51,33 @@ func NewNotificationDispatcher(deps NotificationDispatcherDeps) *NotificationDis
 	if logger == nil {
 		logger = slog.Default()
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	d := &NotificationDispatcher{
 		source: deps.Source, watchers: deps.Watchers, settings: deps.Settings, comments: deps.Comments,
 		perms: deps.Perms, channels: deps.Channels, mappers: defaultEventMappers(), logger: logger,
 		queue: make(chan []domain.ActivityEntry, notificationQueueSize),
+		ctx:   ctx, cancel: cancel, done: make(chan struct{}),
 	}
-	d.wg.Add(1)
 	go d.run()
 	return d
 }
 
 func (d *NotificationDispatcher) run() {
-	defer d.wg.Done()
-	for batch := range d.queue {
-		d.handleBatch(batch)
-		d.pending.Done()
+	defer close(d.done)
+	for {
+		select {
+		case <-d.ctx.Done():
+			for range d.queue {
+				d.pending.Done()
+			}
+			return
+		case batch, ok := <-d.queue:
+			if !ok {
+				return
+			}
+			d.handleBatch(batch)
+			d.pending.Done()
+		}
 	}
 }
 
@@ -73,7 +87,7 @@ func (d *NotificationDispatcher) handleBatch(batch []domain.ActivityEntry) {
 			d.logger.Error("notifications: recovered from a panic", "panic", fmt.Sprint(r))
 		}
 	}()
-	ctx, cancel := context.WithTimeout(context.Background(), notificationWorkLimit)
+	ctx, cancel := context.WithTimeout(d.ctx, notificationWorkLimit)
 	defer cancel()
 	for _, entry := range batch {
 		d.handleEntry(ctx, entry)
@@ -125,15 +139,27 @@ func (d *NotificationDispatcher) Enqueue(entries []domain.ActivityEntry) {
 func (d *NotificationDispatcher) Wait() { d.pending.Wait() }
 
 func (d *NotificationDispatcher) Close() {
-	d.mu.Lock()
-	if d.closed {
-		d.mu.Unlock()
-		return
+	if err := d.Shutdown(context.Background()); err != nil {
+		d.logger.Error("notifications: cannot shut down dispatcher", "error", err)
 	}
-	d.closed = true
-	close(d.queue)
+}
+
+func (d *NotificationDispatcher) Shutdown(ctx context.Context) error {
+	d.mu.Lock()
+	if !d.closed {
+		d.closed = true
+		close(d.queue)
+	}
 	d.mu.Unlock()
-	d.wg.Wait()
+
+	select {
+	case <-d.done:
+		d.cancel()
+		return nil
+	case <-ctx.Done():
+		d.cancel()
+		return ctx.Err()
+	}
 }
 
 func stronger(current string, candidate string) bool {

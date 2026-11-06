@@ -17,6 +17,9 @@ type Async struct {
 	inner  Sender
 	logger *slog.Logger
 	queue  chan Message
+	ctx    context.Context
+	cancel context.CancelFunc
+	done   chan struct{}
 
 	mu     sync.RWMutex
 	closed bool
@@ -27,22 +30,43 @@ func NewAsync(inner Sender, logger *slog.Logger) *Async {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	a := &Async{inner: inner, logger: logger, queue: make(chan Message, asyncQueueSize)}
+	ctx, cancel := context.WithCancel(context.Background())
+	a := &Async{
+		inner: inner, logger: logger, queue: make(chan Message, asyncQueueSize),
+		ctx: ctx, cancel: cancel, done: make(chan struct{}),
+	}
 	for i := 0; i < asyncWorkers; i++ {
 		a.wg.Add(1)
 		go a.run()
 	}
+	go func() {
+		a.wg.Wait()
+		close(a.done)
+	}()
 	return a
 }
 
 func (a *Async) run() {
 	defer a.wg.Done()
-	for msg := range a.queue {
-		ctx, cancel := context.WithTimeout(context.Background(), asyncSendLimit)
-		if err := a.inner.Send(ctx, msg); err != nil {
-			a.logger.Error("mail: cannot send a message", "subject", msg.Subject, "error", err)
+	for {
+		select {
+		case <-a.ctx.Done():
+			for range a.queue {
+			}
+			return
+		case msg, ok := <-a.queue:
+			if !ok {
+				return
+			}
+			if a.ctx.Err() != nil {
+				continue
+			}
+			ctx, cancel := context.WithTimeout(a.ctx, asyncSendLimit)
+			if err := a.inner.Send(ctx, msg); err != nil {
+				a.logger.Error("mail: cannot send a message", "subject", msg.Subject, "error", err)
+			}
+			cancel()
 		}
-		cancel()
 	}
 }
 
@@ -64,13 +88,25 @@ func (a *Async) Send(_ context.Context, msg Message) error {
 }
 
 func (a *Async) Close() {
-	a.mu.Lock()
-	if a.closed {
-		a.mu.Unlock()
-		return
+	if err := a.Shutdown(context.Background()); err != nil {
+		a.logger.Error("mail: cannot shut down sender", "error", err)
 	}
-	a.closed = true
-	close(a.queue)
+}
+
+func (a *Async) Shutdown(ctx context.Context) error {
+	a.mu.Lock()
+	if !a.closed {
+		a.closed = true
+		close(a.queue)
+	}
 	a.mu.Unlock()
-	a.wg.Wait()
+
+	select {
+	case <-a.done:
+		a.cancel()
+		return nil
+	case <-ctx.Done():
+		a.cancel()
+		return ctx.Err()
+	}
 }

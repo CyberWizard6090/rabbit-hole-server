@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -17,7 +18,7 @@ import (
 type App struct {
 	router    *gin.Engine
 	realtime  *realtime.Hub
-	closeMail func()
+	closeMail func(context.Context) error
 	notifier  *service.NotificationDispatcher
 }
 
@@ -42,11 +43,16 @@ func (a *App) Close(ctx context.Context) error {
 	if a.realtime != nil {
 		a.realtime.Close()
 	}
+	var closeErr error
 	if a.notifier != nil {
-		a.notifier.Close()
+		if err := a.notifier.Shutdown(ctx); err != nil {
+			closeErr = errors.Join(closeErr, fmt.Errorf("close notification dispatcher: %w", err))
+		}
 	}
 	if a.closeMail != nil {
-		a.closeMail()
+		if err := a.closeMail(ctx); err != nil {
+			closeErr = errors.Join(closeErr, fmt.Errorf("close mail sender: %w", err))
+		}
 	}
-	return nil
+	return closeErr
 }

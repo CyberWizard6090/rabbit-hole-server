@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -26,7 +27,7 @@ type Container struct {
 	AuthHandler         *handler.AuthHandler
 	AccountEmailHandler *handler.AccountEmailHandler
 	EmailChangeHandler  *handler.EmailChangeHandler
-	CloseMail           func()
+	CloseMail           func(context.Context) error
 	TaskHandler         *handler.TaskHandler
 	CommentHandler      *handler.CommentHandler
 	ActivityHandler     *handler.ActivityHandler
@@ -60,16 +61,18 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 	}
 	container, err := NewContainerWithMailer(db, cfg, sender)
 	if err != nil {
-		closeMail()
+		if closeErr := closeMail(context.Background()); closeErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("close mail sender: %w", closeErr))
+		}
 		return nil, err
 	}
 	container.CloseMail = closeMail
 	return container, nil
 }
 
-func newMailSender(cfg config.MailConfig) (mail.Sender, func(), error) {
+func newMailSender(cfg config.MailConfig) (mail.Sender, func(context.Context) error, error) {
 	if cfg.Driver != "smtp" {
-		return mail.NewLog(slog.Default()), func() {}, nil
+		return mail.NewLog(slog.Default()), func(context.Context) error { return nil }, nil
 	}
 	smtp, err := mail.NewSMTP(mail.SMTPOptions{
 		Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword,
@@ -79,7 +82,7 @@ func newMailSender(cfg config.MailConfig) (mail.Sender, func(), error) {
 		return nil, nil, fmt.Errorf("configure the mail sender: %w", err)
 	}
 	async := mail.NewAsync(smtp, slog.Default())
-	return async, async.Close, nil
+	return async, async.Shutdown, nil
 }
 
 type ContainerOption func(*containerOptions)
