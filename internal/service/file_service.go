@@ -185,14 +185,6 @@ func (s *fileService) UploadAttachment(ctx context.Context, userID, taskID uint,
 	if upload.Size > s.limits.Attachment {
 		return nil, domain.ErrFileTooLarge
 	}
-	count, err := s.repo.CountAttachments(ctx, taskID)
-	if err != nil {
-		return nil, err
-	}
-	if count >= domain.MaxAttachmentsPerTask {
-		return nil, domain.ErrTooManyAttachments
-	}
-
 	head := make([]byte, sniffLength)
 	n, err := io.ReadFull(upload.Reader, head)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
@@ -217,7 +209,7 @@ func (s *fileService) UploadAttachment(ctx context.Context, userID, taskID uint,
 		return nil, fmt.Errorf("store attachment: %w", err)
 	}
 
-	file, err := s.repo.Create(ctx, domain.NewFile{
+	file, err := s.repo.CreateAttachment(ctx, domain.NewFile{
 		Kind: domain.FileKindAttachment, PublicID: publicID, StorageKey: key, UserID: userID, TaskID: &taskID,
 		Name: sanitizeFilename(upload.Name), ContentType: contentType, Size: counter.n,
 	})

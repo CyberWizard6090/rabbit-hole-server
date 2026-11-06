@@ -17,6 +17,7 @@ func TestTaskFields_DatesParentAndAssigneesViaAPI(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status: %d: %s", rec.Code, rec.Body.String())
 	}
+
 	statusID := responseID(t, rec)
 	tasksURL := "/api/v1/lists/" + itoa(listID) + "/tasks"
 
@@ -85,5 +86,47 @@ func TestTaskFields_DatesParentAndAssigneesViaAPI(t *testing.T) {
 	}
 	if n := count(); n != 0 {
 		t.Fatalf("assignees = %d, want 0", n)
+	}
+}
+
+func TestTaskAssigneeMustHaveActiveWorkspaceMembership(t *testing.T) {
+	tc := newTestContext(t)
+	registerAndLogin(t, tc)
+	spaceID := createSpace(t, tc)
+	listID := createList(t, tc, spaceID)
+	var workspaceID uint
+	if err := tc.DB.Table("spaces").Select("workspace_id").Where("id = ?", spaceID).Scan(&workspaceID).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rec := request(t, tc.Router, http.MethodPost, "/api/v1/lists/"+itoa(listID)+"/statuses", tc.Token,
+		map[string]any{"name": "Todo", "color": "#112233", "type": 1, "list_id": listID})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status: %d: %s", rec.Code, rec.Body.String())
+	}
+	statusID := responseID(t, rec)
+	rec = request(t, tc.Router, http.MethodPost, "/api/v1/lists/"+itoa(listID)+"/tasks", tc.Token,
+		map[string]any{"title": "assignee membership", "status_id": statusID})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create task: %d: %s", rec.Code, rec.Body.String())
+	}
+	taskID := responseID(t, rec)
+
+	memberID, _ := newUser(t, tc, "removed-assignee@example.test")
+	if rec := request(t, tc.Router, http.MethodPost, "/api/v1/contacts", tc.Token, map[string]any{"contact_id": memberID}); rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("add contact: %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces/"+itoa(workspaceID)+"/members", tc.Token,
+		map[string]any{"user_id": memberID, "role": "Member"}); rec.Code != http.StatusCreated {
+		t.Fatalf("add workspace member: %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec := request(t, tc.Router, http.MethodDelete, "/api/v1/workspaces/"+itoa(workspaceID)+"/members/"+itoa(memberID), tc.Token, nil); rec.Code != http.StatusOK {
+		t.Fatalf("remove workspace member: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = request(t, tc.Router, http.MethodPatch, "/api/v1/tasks/"+itoa(taskID), tc.Token,
+		map[string]any{"assignee_ids": []uint{memberID}})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("assign removed member: expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

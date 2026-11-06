@@ -27,7 +27,7 @@ var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrWeakPassword       = errors.New("password must be between 8 and 128 characters")
 	ErrTokenRevoked       = errors.New("token has been revoked")
-	ErrOwnsWorkspaces     = errors.New("transfer or delete your workspaces before deleting the account")
+	ErrOwnsWorkspaces     = domain.ErrOwnsWorkspaces
 )
 
 const (
@@ -46,8 +46,7 @@ type AuthUserStore interface {
 	RevokeAll(ctx context.Context, userID uint) (int, error)
 	HasSessionCreatedSince(ctx context.Context, userID uint, since time.Time) (bool, error)
 	UpdatePasswordAndRevoke(ctx context.Context, userID uint, passwordHash string) (int, error)
-	CountOwnedWorkspaces(ctx context.Context, userID uint) (int64, error)
-	Anonymize(ctx context.Context, userID uint) error
+	AnonymizeIfNoOwnedWorkspaces(ctx context.Context, userID uint) error
 }
 
 func validatePassword(password string) error {
@@ -436,14 +435,10 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID uint, password s
 	if err != nil || !verifyPassword(password, user.PasswordHash) {
 		return ErrInvalidCredentials
 	}
-	owned, err := s.repo.CountOwnedWorkspaces(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if owned > 0 {
-		return ErrOwnsWorkspaces
-	}
-	if err := s.repo.Anonymize(ctx, userID); err != nil {
+	if err := s.repo.AnonymizeIfNoOwnedWorkspaces(ctx, userID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return ErrInvalidCredentials
+		}
 		return err
 	}
 	if s.avatars != nil {

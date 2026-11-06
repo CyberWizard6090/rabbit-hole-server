@@ -198,14 +198,26 @@ func (r *UserRepository) UpdatePasswordAndRevoke(ctx context.Context, userID uin
 	return version, mapErr(err)
 }
 
-func (r *UserRepository) CountOwnedWorkspaces(ctx context.Context, userID uint) (int64, error) {
-	var count int64
-	err := r.db.WithContext(ctx).Model(&persistence.Workspace{}).Where("owner_id = ?", userID).Count(&count).Error
-	return count, mapErr(err)
-}
-
-func (r *UserRepository) Anonymize(ctx context.Context, userID uint) error {
+func (r *UserRepository) AnonymizeIfNoOwnedWorkspaces(ctx context.Context, userID uint) error {
 	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var users []struct {
+			ID           uint
+			PasswordHash string
+		}
+		if err := tx.Raw("SELECT id, password_hash FROM users WHERE id = ? FOR UPDATE", userID).Scan(&users).Error; err != nil {
+			return err
+		}
+		if len(users) == 0 || users[0].PasswordHash == "!" {
+			return domain.ErrNotFound
+		}
+		var owned int64
+		if err := tx.Model(&persistence.Workspace{}).Where("owner_id = ?", userID).Count(&owned).Error; err != nil {
+			return err
+		}
+		if owned > 0 {
+			return domain.ErrOwnsWorkspaces
+		}
+
 		var version int
 		if err := revokeAll(tx, userID, &version); err != nil {
 			return err

@@ -522,8 +522,9 @@ func validateTaskReferences(tx *gorm.DB, task *domain.Task, assigneeIDs, tagIDs 
 
 	var assigneeCount int64
 	if err := tx.Table("users").
-		Joins("JOIN workspace_members ON workspace_members.user_id = users.id").
-		Joins("JOIN spaces ON spaces.workspace_id = workspace_members.workspace_id").
+		Joins("JOIN workspace_members ON workspace_members.user_id = users.id AND workspace_members.deleted_at IS NULL").
+		Joins("JOIN workspaces ON workspaces.id = workspace_members.workspace_id AND workspaces.deleted_at IS NULL").
+		Joins("JOIN spaces ON spaces.workspace_id = workspace_members.workspace_id AND spaces.deleted_at IS NULL").
 		Where("spaces.id = ? AND users.id IN ?", task.SpaceID, assigneeIDs).
 		Distinct("users.id").Count(&assigneeCount).Error; err != nil {
 		return err

@@ -52,7 +52,7 @@ type NewFile struct {
 
 type FileRepository interface {
 	Create(ctx context.Context, file NewFile) (*File, error)
-	CountAttachments(ctx context.Context, taskID uint) (int64, error)
+	CreateAttachment(ctx context.Context, file NewFile) (*File, error)
 	ListAttachments(ctx context.Context, taskID uint) ([]File, error)
 	GetAttachment(ctx context.Context, taskID, id uint) (*File, error)
 	GetPublic(ctx context.Context, publicID string) (*File, error)

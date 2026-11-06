@@ -21,6 +21,15 @@ func NewWorkspaceRepository(db *gorm.DB) domain.WorkspaceRepository {
 func (r *workspaceRepository) Create(ctx context.Context, workspace *domain.Workspace, ownerID uint) error {
 	m := workspaceFromDomain(*workspace)
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var activeUsers []uint
+		if err := tx.Raw(
+			"SELECT id FROM users WHERE id = ? AND password_hash <> '!' FOR UPDATE", ownerID,
+		).Scan(&activeUsers).Error; err != nil {
+			return err
+		}
+		if len(activeUsers) == 0 {
+			return domain.ErrNotFound
+		}
 		if err := tx.Create(&m).Error; err != nil {
 			return err
 		}

@@ -36,6 +36,14 @@ func newRealtimeEnv(t *testing.T, opts realtime.Options) *rtEnv {
 	t.Cleanup(func() {
 		container.Realtime.Close()
 		server.Close()
+		container.Notifications.Close()
+		if container.CloseMail != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := container.CloseMail(ctx); err != nil {
+				t.Errorf("close integration mail sender: %v", err)
+			}
+		}
 	})
 	return &rtEnv{tc: tc, container: container, router: router, server: server}
 }
@@ -382,7 +390,18 @@ func TestRealtime_ConnectionOutlivesTheServersWriteTimeout(t *testing.T) {
 	server.Config.ReadTimeout = 400 * time.Millisecond
 	server.Config.WriteTimeout = 400 * time.Millisecond
 	server.Start()
-	t.Cleanup(func() { container.Realtime.Close(); server.Close() })
+	t.Cleanup(func() {
+		container.Realtime.Close()
+		server.Close()
+		container.Notifications.Close()
+		if container.CloseMail != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := container.CloseMail(ctx); err != nil {
+				t.Errorf("close integration mail sender: %v", err)
+			}
+		}
+	})
 	e := &rtEnv{tc: tc, container: container, router: router, server: server}
 
 	b := e.newBoard(t, "rt-timeout@example.test")

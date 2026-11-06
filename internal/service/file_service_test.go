@@ -19,15 +19,19 @@ type fileRepositoryMock struct {
 	deleteErr error
 }
 
-func (m *fileRepositoryMock) Create(_ context.Context, f domain.NewFile) (*domain.File, error) {
+func (m *fileRepositoryMock) create(_ context.Context, f domain.NewFile) (*domain.File, error) {
 	if m.createErr != nil {
 		return nil, m.createErr
 	}
 	return &domain.File{ID: 31, TaskID: f.TaskID, Name: f.Name, Size: f.Size, Uploader: domain.CommentUser{ID: f.UserID}}, nil
 }
 
-func (m *fileRepositoryMock) CountAttachments(context.Context, uint) (int64, error) {
-	return 0, nil
+func (m *fileRepositoryMock) Create(ctx context.Context, f domain.NewFile) (*domain.File, error) {
+	return m.create(ctx, f)
+}
+
+func (m *fileRepositoryMock) CreateAttachment(ctx context.Context, f domain.NewFile) (*domain.File, error) {
+	return m.create(ctx, f)
 }
 
 func (m *fileRepositoryMock) GetAttachment(context.Context, uint, uint) (*domain.File, error) {

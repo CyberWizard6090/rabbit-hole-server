@@ -97,11 +97,47 @@ func (r *fileRepository) Create(ctx context.Context, file domain.NewFile) (*doma
 	return &files[0], nil
 }
 
-func (r *fileRepository) CountAttachments(ctx context.Context, taskID uint) (int64, error) {
-	var count int64
-	err := r.db.WithContext(ctx).
-		Raw("SELECT count(*) FROM files WHERE kind = 'attachment' AND task_id = ?", taskID).Scan(&count).Error
-	return count, mapErr(err)
+func (r *fileRepository) CreateAttachment(ctx context.Context, file domain.NewFile) (*domain.File, error) {
+	if file.TaskID == nil {
+		return nil, domain.ErrNotFound
+	}
+	var created *domain.File
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var taskIDs []uint
+		if err := tx.Raw(
+			"SELECT id FROM tasks WHERE id = ? AND deleted_at IS NULL FOR UPDATE", *file.TaskID,
+		).Scan(&taskIDs).Error; err != nil {
+			return err
+		}
+		if len(taskIDs) == 0 {
+			return domain.ErrNotFound
+		}
+
+		var count int64
+		if err := tx.Raw(
+			"SELECT count(*) FROM files WHERE kind = 'attachment' AND task_id = ?", *file.TaskID,
+		).Scan(&count).Error; err != nil {
+			return err
+		}
+		if count >= domain.MaxAttachmentsPerTask {
+			return domain.ErrTooManyAttachments
+		}
+
+		row, err := insertFile(tx, file)
+		if err != nil {
+			return err
+		}
+		files, err := hydrateFiles(tx, []fileRow{row})
+		if err != nil {
+			return err
+		}
+		created = &files[0]
+		return nil
+	})
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return created, nil
 }
 
 func (r *fileRepository) ListAttachments(ctx context.Context, taskID uint) ([]domain.File, error) {
