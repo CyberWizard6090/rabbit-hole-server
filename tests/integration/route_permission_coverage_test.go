@@ -26,6 +26,8 @@ var (
 		"GET /api/v1/lists/:list_id/events":           "authenticated by a single-use ticket issued after a permission check",
 		"GET /api/v1/spaces/:space_id/events":         "authenticated by a single-use ticket issued after a permission check",
 		"GET /api/v1/images/:public_id":               "editor images and avatars are public by design; the id is a random 128-bit value",
+		"GET /api/v1/public/forms/:slug":              "published form schema is public",
+		"POST /api/v1/public/forms/:slug/submissions": "published form submission is public and rate limited",
 	}
 	selfScopedRoutes = map[string]string{
 		"GET /api/v1/profile":                 "caller's own profile",
@@ -80,6 +82,46 @@ func buildRouteFixture(t *testing.T, tc *TestContext, token string, userID uint)
 	st := create("/api/v1/lists/"+itoa(li)+"/statuses", map[string]any{"name": "Todo", "color": "#123456", "type": 1, "list_id": li})
 	tg := create("/api/v1/spaces/"+itoa(sp)+"/tags", map[string]any{"name": "fixture", "color": "#654321"})
 	tk := create("/api/v1/lists/"+itoa(li)+"/tasks", map[string]any{"title": "fixture", "status_id": st})
+	cf := create("/api/v1/workspaces/"+itoa(ws)+"/custom-fields", map[string]any{
+		"name": "fixture", "type": "text",
+	})
+	formSlug := fmt.Sprintf("route-fixture-%d", time.Now().UnixNano())
+	form := create("/api/v1/workspaces/"+itoa(ws)+"/forms", map[string]any{
+		"name": "fixture", "slug": formSlug,
+	})
+	question := create("/api/v1/workspaces/"+itoa(ws)+"/forms/"+itoa(form)+"/questions", map[string]any{
+		"type": "short_text", "title": "fixture", "position": 0,
+	})
+	if rec := request(t, tc.Router, http.MethodPost,
+		"/api/v1/workspaces/"+itoa(ws)+"/forms/"+itoa(form)+"/publish", token, nil); rec.Code != http.StatusOK {
+		t.Fatalf("publish route fixture form: %d: %s", rec.Code, rec.Body.String())
+	}
+	submissionRec := requestWithHeader(t, tc, http.MethodPost,
+		"/api/v1/public/forms/"+formSlug+"/submissions", "",
+		"Idempotency-Key", fmt.Sprintf("route-fixture-%d", time.Now().UnixNano()),
+		map[string]any{"answers": map[string]any{}})
+	if submissionRec.Code != http.StatusCreated {
+		t.Fatalf("create route fixture submission: %d: %s", submissionRec.Code, submissionRec.Body.String())
+	}
+	submission := responseID(t, submissionRec)
+	template := create("/api/v1/workspaces/"+itoa(ws)+"/task-templates", map[string]any{
+		"name": "fixture",
+		"configuration": map[string]any{
+			"task":          map[string]any{"priority": "normal"},
+			"custom_fields": []any{}, "tags": []uint{}, "subtasks": []any{},
+		},
+	})
+	templateVersionRec := request(t, tc.Router, http.MethodPost,
+		"/api/v1/task-templates/"+itoa(template)+"/versions", token, map[string]any{
+			"configuration": map[string]any{
+				"task":          map[string]any{"priority": "normal"},
+				"custom_fields": []any{}, "tags": []uint{}, "subtasks": []any{},
+			},
+		})
+	if templateVersionRec.Code != http.StatusCreated {
+		t.Fatalf("create route fixture template version: %d: %s", templateVersionRec.Code, templateVersionRec.Body.String())
+	}
+	templateVersion := responseID(t, templateVersionRec)
 	cm := create("/api/v1/tasks/"+itoa(tk)+"/comments", map[string]any{"body": "fixture"})
 	att := uploadFixtureFile(t, tc, token, tk)
 	cl := create("/api/v1/tasks/"+itoa(tk)+"/checklists", map[string]any{"name": "fixture"})
@@ -88,6 +130,10 @@ func buildRouteFixture(t *testing.T, tc *TestContext, token string, userID uint)
 	return routeFixture{params: map[string]string{
 		"workspace_id": itoa(ws), "space_id": itoa(sp), "folder_id": itoa(fo), "list_id": itoa(li),
 		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "attachment_id": itoa(att), "checklist_id": itoa(cl), "item_id": itoa(it), "user_id": itoa(userID), "contact_id": itoa(userID), "notification_id": "1", "channel_id": "1",
+		"field_id": itoa(cf),
+		"form_id":  itoa(form), "question_id": itoa(question), "submission_id": itoa(submission),
+		"slug":        formSlug,
+		"template_id": itoa(template), "version_id": itoa(templateVersion),
 	}}
 }
 

@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/txhook"
 )
 
 type ActivityRecorder interface {
@@ -41,9 +42,10 @@ func (s *activityService) ListActivity(ctx context.Context, taskID uint, limit, 
 }
 
 func recordActivity(ctx context.Context, recorder ActivityRecorder, entries ...domain.ActivityEntry) {
-	if recorder != nil {
-		recorder.Record(ctx, entries...)
+	if recorder == nil {
+		return
 	}
+	txhook.AfterCommit(ctx, func() { recorder.Record(ctx, entries...) })
 }
 
 func mustJSON(value any) json.RawMessage {

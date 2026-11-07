@@ -71,6 +71,7 @@ relies on:
   may search). `q` has 2-100 characters; 3+ characters also match typos (pg_trgm, GIN indexes).
   Results carry a score, task context and a plain-text snippet with rune offsets of the matches;
   `pagination.total` is the match count. E-mail addresses are never searched. See `docs/openapi.yaml`.
+- **Forms**: custom fields, task templates and forms with immutable published versions. A public submission (`POST /public/forms/{slug}/submissions`, idempotent, rate limited per IP and per form) can create a task in one transaction; the task is logged in the activity feed and notifications only after the commit. Failed task creation keeps the submission and can be retried.
 - **Activity**: `GET /tasks/{id}/activity` returns who changed what on a task, newest first (field
   changes with old and new values, moves between lists, comment and attachment events). Entries are written after
   the change succeeds; a failed write is logged and does not fail the request.

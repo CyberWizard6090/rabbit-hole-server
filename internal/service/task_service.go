@@ -31,6 +31,21 @@ type TaskService interface {
 	MoveTask(ctx context.Context, userID, taskID uint, params MoveTaskParams) (*domain.Task, error)
 }
 
+type FormTaskCreator interface {
+	CreateTaskFromSubmission(ctx context.Context, userID uint, input CreateTaskFromSubmissionParams) (*domain.Task, error)
+}
+
+type TaskModule interface {
+	TaskService
+	FormTaskCreator
+}
+
+type CreateTaskFromSubmissionParams struct {
+	WorkspaceID  uint
+	SubmissionID uint
+	Task         CreateTaskParams
+}
+
 type MoveTaskParams struct {
 	ListID   *uint
 	StatusID *uint
@@ -88,7 +103,7 @@ func NewTaskService(
 	tagService TagService,
 	cursorCodec *pagination.Codec,
 	activity ActivityRecorder,
-) TaskService {
+) TaskModule {
 	return &taskService{
 		repo:        repo,
 		spaceRepo:   spaceRepo,
@@ -115,6 +130,44 @@ func (s *taskService) resolveNewTags(ctx context.Context, spaceID uint, names []
 }
 
 func (s *taskService) CreateTask(ctx context.Context, userID uint, input CreateTaskParams) (*domain.Task, error) {
+	return s.createTask(ctx, userID, input, domain.TaskSourceManual, nil)
+}
+
+func (s *taskService) CreateTaskFromSubmission(
+	ctx context.Context,
+	userID uint,
+	input CreateTaskFromSubmissionParams,
+) (*domain.Task, error) {
+	if input.WorkspaceID == 0 || input.SubmissionID == 0 {
+		return nil, domain.ErrInvalidTaskSource
+	}
+	list, err := s.spaceRepo.GetListByID(ctx, input.Task.ListID)
+	if err != nil {
+		return nil, fmt.Errorf("get target list: %w", err)
+	}
+	if list == nil {
+		return nil, domain.ErrNotFound
+	}
+	space, err := s.spaceRepo.GetByID(ctx, list.SpaceID)
+	if err != nil {
+		return nil, fmt.Errorf("get target workspace: %w", err)
+	}
+	if space == nil {
+		return nil, domain.ErrNotFound
+	}
+	if space.WorkspaceID != input.WorkspaceID {
+		return nil, domain.ErrInvalidListReference
+	}
+	return s.createTask(ctx, userID, input.Task, domain.TaskSourceForm, &input.SubmissionID)
+}
+
+func (s *taskService) createTask(
+	ctx context.Context,
+	userID uint,
+	input CreateTaskParams,
+	source domain.TaskSource,
+	sourceReferenceID *uint,
+) (*domain.Task, error) {
 	if err := checkDateRange(input.StartDate, input.DueDate); err != nil {
 		return nil, err
 	}
@@ -139,18 +192,20 @@ func (s *taskService) CreateTask(ctx context.Context, userID uint, input CreateT
 	}
 
 	task := &domain.Task{
-		UserID:       userID,
-		SpaceID:      list.SpaceID,
-		ListID:       input.ListID,
-		StatusID:     input.StatusID,
-		ParentID:     input.ParentID,
-		Title:        input.Title,
-		Description:  input.Description,
-		Priority:     input.Priority,
-		StartDate:    input.StartDate,
-		DueDate:      input.DueDate,
-		TimeEstimate: input.TimeEstimate,
-		Tags:         taskTags,
+		UserID:            userID,
+		SpaceID:           list.SpaceID,
+		ListID:            input.ListID,
+		StatusID:          input.StatusID,
+		ParentID:          input.ParentID,
+		Title:             input.Title,
+		Description:       input.Description,
+		Priority:          input.Priority,
+		StartDate:         input.StartDate,
+		DueDate:           input.DueDate,
+		TimeEstimate:      input.TimeEstimate,
+		Tags:              taskTags,
+		Source:            source,
+		SourceReferenceID: sourceReferenceID,
 	}
 
 	if err := s.repo.Create(ctx, task, input.AssigneeIDs, allTagIDs); err != nil {
