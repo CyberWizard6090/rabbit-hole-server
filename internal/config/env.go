@@ -1,16 +1,12 @@
 package config
 
 import (
-	"fmt"
 	"log/slog"
-	"net/mail"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v10"
-	"github.com/go-playground/validator/v10"
 	"github.com/joho/godotenv"
 )
 
@@ -23,17 +19,17 @@ type Config struct {
 	Mail           MailConfig
 	Notifications  NotificationConfig
 	Forms          FormsConfig
-	AllowedOrigins []string `env:"ALLOWED_ORIGINS" envDefault:"http://127.0.0.1:3000" envSeparator:"," validate:"required,min=1,dive,url"`
+	AllowedOrigins []string `env:"ALLOWED_ORIGINS" envDefault:"http://127.0.0.1:3000" envSeparator:"," validate:"required,min=1"`
 }
 
 type ServerConfig struct {
 	Port           int      `env:"PORT" envDefault:"8080" validate:"required,min=1,max=65535"`
 	Host           string   `env:"HOST" envDefault:"0.0.0.0" validate:"required,hostname|ip"`
-	TrustedProxies []string `env:"TRUSTED_PROXIES" envDefault:"127.0.0.1,::1" envSeparator:"," validate:"required,min=1,dive"`
+	TrustedProxies []string `env:"TRUSTED_PROXIES" envDefault:"127.0.0.1,::1" envSeparator:"," validate:"required,min=1"`
 }
 
 type DBConfig struct {
-	URL                string        `env:"DB_URL,required" validate:"required,min=1"`
+	URL                string        `env:"DB_URL" validate:"required"`
 	MaxIdleConnections int           `env:"DB_MAX_IDLE_CONNS" envDefault:"5" validate:"gte=0"`
 	MaxOpenConnections int           `env:"DB_MAX_OPEN_CONNS" envDefault:"25" validate:"gt=0"`
 	ConnMaxLifetime    time.Duration `env:"DB_CONN_MAX_LIFETIME" envDefault:"1h" validate:"gt=0"`
@@ -42,7 +38,7 @@ type DBConfig struct {
 type StorageConfig struct {
 	Driver             string `env:"STORAGE_DRIVER" envDefault:"local" validate:"oneof=local s3"`
 	LocalDir           string `env:"STORAGE_LOCAL_DIR" envDefault:"./data/uploads"`
-	PublicBaseURL      string `env:"PUBLIC_BASE_URL" validate:"omitempty,url"`
+	PublicBaseURL      string `env:"PUBLIC_BASE_URL"`
 	MaxAttachmentBytes int64  `env:"MAX_ATTACHMENT_BYTES" envDefault:"26214400" validate:"gt=0"`
 	MaxImageBytes      int64  `env:"MAX_IMAGE_BYTES" envDefault:"10485760" validate:"gt=0"`
 	MaxAvatarBytes     int64  `env:"MAX_AVATAR_BYTES" envDefault:"5242880" validate:"gt=0"`
@@ -65,7 +61,7 @@ type MailConfig struct {
 	SMTPUsername         string        `env:"SMTP_USERNAME"`
 	SMTPPassword         string        `env:"SMTP_PASSWORD"`
 	SMTPSecurity         string        `env:"SMTP_SECURITY" envDefault:"starttls" validate:"oneof=none starttls tls"`
-	FrontendURL          string        `env:"FRONTEND_URL" envDefault:"http://localhost:3000" validate:"url"`
+	FrontendURL          string        `env:"FRONTEND_URL" envDefault:"http://localhost:3000"`
 	VerificationTTL      time.Duration `env:"EMAIL_VERIFICATION_TTL" envDefault:"48h" validate:"gt=0"`
 	ResetTTL             time.Duration `env:"PASSWORD_RESET_TTL" envDefault:"1h" validate:"gt=0"`
 	RequireVerifiedEmail bool          `env:"REQUIRE_VERIFIED_EMAIL" envDefault:"false"`
@@ -92,7 +88,7 @@ type S3Config struct {
 }
 
 type JWTConfig struct {
-	Secret     string        `env:"SECRET,required" validate:"required,min=32"`
+	Secret     string        `env:"SECRET" validate:"required,min=32"`
 	AccessTTL  time.Duration `env:"ACCESS_TTL" envDefault:"1h" validate:"gt=0"`
 	RefreshTTL time.Duration `env:"REFRESH_TTL" envDefault:"168h" validate:"gt=0"`
 }
@@ -104,77 +100,73 @@ func Load() (*Config, error) {
 		}
 	}
 
-	cfg, err := Parse()
-	if err != nil {
+	cfg, set := parse()
+	validate(cfg, set)
+	if err := set.err(); err != nil {
 		return nil, err
 	}
-	if err := Validate(cfg); err != nil {
-		return nil, fmt.Errorf("validating config: %w", err)
-	}
-
 	return cfg, nil
 }
 
-func Parse() (*Config, error) {
+func parse() (*Config, *problemSet) {
 	cfg := &Config{}
-	if err := env.Parse(cfg); err != nil {
-		return nil, fmt.Errorf("parsing env config: %w", err)
+	set := newProblemSet()
+	checkEnvTypes(cfg, "", set)
+	if err := env.Parse(cfg); err != nil && len(set.items) == 0 {
+		set.add("configuration", "%v", err)
+	}
+	return cfg, set
+}
+
+func Parse() (*Config, error) {
+	cfg, set := parse()
+	if err := set.err(); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }
 
 func ParseDB() (*DBConfig, error) {
 	cfg := &DBConfig{}
-	if err := env.Parse(cfg); err != nil {
-		return nil, fmt.Errorf("parsing db env config: %w", err)
+	set := newProblemSet()
+	checkEnvTypes(cfg, "", set)
+	if err := env.Parse(cfg); err != nil && len(set.items) == 0 {
+		set.add("configuration", "%v", err)
 	}
-	if err := validator.New().Struct(cfg); err != nil {
-		return nil, fmt.Errorf("validating db config: %w", err)
+	checkStruct(cfg, set)
+	if err := set.err(); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }
 
 func Validate(cfg *Config) error {
-	if err := validator.New().Struct(cfg); err != nil {
-		return err
-	}
-	if err := validateStorage(cfg); err != nil {
-		return err
-	}
-	if err := validateMail(cfg); err != nil {
-		return err
-	}
-	return validateDeployment(cfg)
+	set := newProblemSet()
+	validate(cfg, set)
+	return set.err()
 }
 
-func validateMail(cfg *Config) error {
-	if _, err := mail.ParseAddress(cfg.Mail.From); err != nil || strings.ContainsAny(cfg.Mail.From, "\r\n") {
-		return fmt.Errorf("MAIL_FROM must be an address such as \"Name <user@example.com>\"")
+func validate(cfg *Config, set *problemSet) {
+	checkStruct(cfg, set)
+	checkDeployment(cfg, set)
+	if cfg.DB.URL != "" && cfg.IsDeployed() && strings.Contains(cfg.DB.URL, "sslmode=disable") {
+		slog.Warn("DB_URL uses sslmode=disable; acceptable only when the database is reachable solely over a private network")
 	}
-	if cfg.Mail.Driver == "smtp" && cfg.Mail.SMTPHost == "" {
-		return fmt.Errorf("MAIL_DRIVER=smtp needs SMTP_HOST")
-	}
-	return nil
 }
 
-func validateStorage(cfg *Config) error {
-	if cfg.Storage.Driver != "s3" {
-		return nil
+func LogStartup(cfg *Config) {
+	slog.Info("configuration loaded",
+		"environment", cfg.Environment,
+		"mail_driver", cfg.Mail.Driver,
+		"storage_driver", cfg.Storage.Driver,
+		"require_verified_email", cfg.Mail.RequireVerifiedEmail,
+	)
+	if cfg.Mail.Driver == "log" && cfg.Environment != "development" {
+		slog.Warn("MAIL_DRIVER=log only writes mail to the server log; users will not receive verification or reset links", "environment", cfg.Environment)
 	}
-	var missing []string
-	for name, value := range map[string]string{
-		"S3_ENDPOINT": cfg.Storage.S3.Endpoint, "S3_BUCKET": cfg.Storage.S3.Bucket,
-		"S3_ACCESS_KEY": cfg.Storage.S3.AccessKey, "S3_SECRET_KEY": cfg.Storage.S3.SecretKey,
-	} {
-		if value == "" {
-			missing = append(missing, name)
-		}
+	if cfg.Storage.PublicBaseURL == "" && cfg.IsDeployed() {
+		slog.Warn("PUBLIC_BASE_URL is empty; image links are returned as relative paths")
 	}
-	if len(missing) > 0 {
-		sort.Strings(missing)
-		return fmt.Errorf("STORAGE_DRIVER=s3 needs %s", strings.Join(missing, ", "))
-	}
-	return nil
 }
 
 func (c *Config) IsDeployed() bool {
@@ -189,51 +181,3 @@ var knownWeakSecretMarkers = []string{
 }
 
 const minDistinctSecretChars = 12
-
-func validateDeployment(cfg *Config) error {
-	if !cfg.IsDeployed() {
-		return nil
-	}
-
-	var problems []string
-
-	secret := strings.ToLower(cfg.JWT.Secret)
-	for _, marker := range knownWeakSecretMarkers {
-		if strings.Contains(secret, marker) {
-			problems = append(problems, fmt.Sprintf("JWT_SECRET contains the placeholder fragment %q; generate a random secret (for example `openssl rand -base64 48`)", marker))
-			break
-		}
-	}
-	distinct := map[rune]struct{}{}
-	for _, r := range cfg.JWT.Secret {
-		distinct[r] = struct{}{}
-	}
-	if len(distinct) < minDistinctSecretChars {
-		problems = append(problems, fmt.Sprintf("JWT_SECRET uses only %d distinct characters (need at least %d); it does not look random", len(distinct), minDistinctSecretChars))
-	}
-
-	if cfg.Mail.Driver == "log" {
-		problems = append(problems, fmt.Sprintf("MAIL_DRIVER=log only writes mail to the log, so users would never get verification or reset links; set MAIL_DRIVER=smtp in %s", cfg.Environment))
-	}
-	if !strings.HasPrefix(cfg.Mail.FrontendURL, "https://") {
-		problems = append(problems, fmt.Sprintf("FRONTEND_URL %q must use https:// in %s because mail links point to it", cfg.Mail.FrontendURL, cfg.Environment))
-	}
-	if cfg.Mail.SMTPSecurity == "none" && cfg.Mail.SMTPHost != "" && cfg.Mail.SMTPHost != "localhost" && cfg.Mail.SMTPHost != "127.0.0.1" {
-		problems = append(problems, "SMTP_SECURITY=none sends mail and the SMTP password in clear text; use starttls or tls")
-	}
-
-	for _, origin := range cfg.AllowedOrigins {
-		if !strings.HasPrefix(origin, "https://") {
-			problems = append(problems, fmt.Sprintf("ALLOWED_ORIGINS entry %q must use https:// in %s", origin, cfg.Environment))
-		}
-	}
-
-	if len(problems) > 0 {
-		return fmt.Errorf("unsafe %s configuration:\n  - %s", cfg.Environment, strings.Join(problems, "\n  - "))
-	}
-
-	if strings.Contains(cfg.DB.URL, "sslmode=disable") {
-		slog.Warn("DB_URL uses sslmode=disable; acceptable only when the database is reachable solely over a private network")
-	}
-	return nil
-}

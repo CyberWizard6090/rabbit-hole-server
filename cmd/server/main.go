@@ -26,9 +26,11 @@ func main() {
 
 	env, err := config.Load()
 	if err != nil {
-		fatal("failed to load environment", err)
+		fmt.Fprintf(os.Stderr, "refusing to start: %v\n", err)
+		os.Exit(1)
 	}
 	logging.Setup(env.Environment, os.Stdout)
+	config.LogStartup(env)
 
 	if env.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
