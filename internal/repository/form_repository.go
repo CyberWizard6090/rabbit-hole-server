@@ -26,7 +26,7 @@ func NewFormRepository(db *gorm.DB) domain.FormRepository {
 
 func (r *formRepository) Create(ctx context.Context, form *domain.Form) error {
 	model := formToPersistence(*form)
-	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Create(&model).Error; err != nil {
 		if isUniqueViolation(err) {
 			return domain.ErrFormSlugTaken
 		}
@@ -47,7 +47,7 @@ func (r *formRepository) ListByWorkspace(ctx context.Context, workspaceID uint) 
 
 func (r *formRepository) GetByID(ctx context.Context, formID uint) (*domain.Form, error) {
 	var row persistence.Form
-	if err := r.db.WithContext(ctx).First(&row, "id = ?", formID).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).First(&row, "id = ?", formID).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	form := formToDomain(row)
@@ -64,7 +64,7 @@ func (r *formRepository) loadFormChildren(
 	form persistence.Form,
 ) ([]domain.FormQuestion, *domain.FormVersion, error) {
 	var questionRows []persistence.FormQuestion
-	if err := r.db.WithContext(ctx).
+	if err := database.DBFromContext(ctx, r.db).
 		Preload("Options", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC, id ASC") }).
 		Where("form_id = ?", form.ID).
 		Order("position ASC, id ASC").Find(&questionRows).Error; err != nil {
@@ -75,7 +75,7 @@ func (r *formRepository) loadFormChildren(
 		return questions, nil, nil
 	}
 	var version persistence.FormVersion
-	if err := r.db.WithContext(ctx).First(&version, "id = ?", *form.CurrentVersionID).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).First(&version, "id = ?", *form.CurrentVersionID).Error; err != nil {
 		return nil, nil, mapErr(err)
 	}
 	return questions, &domain.FormVersion{
@@ -134,13 +134,18 @@ func (r *formRepository) Archive(ctx context.Context, workspaceID, formID uint) 
 
 func (r *formRepository) CreateQuestion(ctx context.Context, question *domain.FormQuestion) error {
 	model := questionToPersistence(*question)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.WithTransaction(ctx, r.db, func(txCtx context.Context) error {
+		tx := database.DBFromContext(txCtx, r.db)
 		var form persistence.Form
-		if err := tx.First(&form, "id = ?", question.FormID).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&form, "id = ?", question.FormID).Error; err != nil {
 			return mapErr(err)
 		}
 		if form.Status == string(domain.FormArchived) {
 			return domain.ErrInvalidForm
+		}
+		if err := placeQuestion(tx, question.FormID, &model); err != nil {
+			return err
 		}
 		if err := tx.Omit("Options").Create(&model).Error; err != nil {
 			return err
@@ -162,6 +167,29 @@ func (r *formRepository) CreateQuestion(ctx context.Context, question *domain.Fo
 	return nil
 }
 
+func placeQuestion(tx *gorm.DB, formID uint, model *persistence.FormQuestion) error {
+	if model.Position == domain.AppendQuestionPosition {
+		var next int
+		if err := tx.Model(&persistence.FormQuestion{}).Where("form_id = ?", formID).
+			Select("COALESCE(MAX(position) + 1, 0)").Scan(&next).Error; err != nil {
+			return err
+		}
+		model.Position = next
+		return nil
+	}
+	var taken int64
+	if err := tx.Model(&persistence.FormQuestion{}).
+		Where("form_id = ? AND position = ?", formID, model.Position).Count(&taken).Error; err != nil {
+		return err
+	}
+	if taken == 0 {
+		return nil
+	}
+	return tx.Model(&persistence.FormQuestion{}).
+		Where("form_id = ? AND position >= ?", formID, model.Position).
+		UpdateColumn("position", gorm.Expr("position + 1")).Error
+}
+
 func (r *formRepository) UpdateQuestion(ctx context.Context, question *domain.FormQuestion) error {
 	model := questionToPersistence(*question)
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -172,12 +200,16 @@ func (r *formRepository) UpdateQuestion(ctx context.Context, question *domain.Fo
 		if form.Status == string(domain.FormArchived) {
 			return domain.ErrInvalidForm
 		}
+		changes := map[string]any{
+			"type": question.Type, "title": question.Title, "description": question.Description,
+			"required": question.Required, "settings": question.Settings,
+		}
+		if question.Position != domain.AppendQuestionPosition {
+			changes["position"] = question.Position
+		}
 		result := tx.Model(&persistence.FormQuestion{}).
 			Where("id = ? AND form_id = ?", question.ID, question.FormID).
-			Updates(map[string]any{
-				"type": question.Type, "title": question.Title, "description": question.Description,
-				"required": question.Required, "position": question.Position, "settings": question.Settings,
-			})
+			Updates(changes)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -191,7 +223,13 @@ func (r *formRepository) UpdateQuestion(ctx context.Context, question *domain.Fo
 			model.Options[i].QuestionID = question.ID
 		}
 		if len(model.Options) > 0 {
-			return tx.Create(&model.Options).Error
+			if err := tx.Create(&model.Options).Error; err != nil {
+				return err
+			}
+		}
+		if question.Position == domain.AppendQuestionPosition {
+			return tx.Model(&persistence.FormQuestion{}).Where("id = ?", question.ID).
+				Select("position").Scan(&question.Position).Error
 		}
 		return nil
 	})
@@ -610,14 +648,30 @@ func (r *formRepository) CreateSubmission(
 	return &created, replay, nil
 }
 
-func (r *formRepository) ListSubmissions(ctx context.Context, formID uint) ([]domain.FormSubmission, error) {
-	var rows []persistence.FormSubmission
-	if err := r.db.WithContext(ctx).Preload("Answers", func(db *gorm.DB) *gorm.DB {
-		return db.Order("id ASC")
-	}).Where("form_id = ?", formID).Order("submitted_at DESC, id DESC").Find(&rows).Error; err != nil {
-		return nil, mapErr(err)
+func (r *formRepository) ListSubmissions(
+	ctx context.Context,
+	formID uint,
+	filter domain.SubmissionFilter,
+	limit, offset int,
+) ([]domain.FormSubmission, int64, error) {
+	query := r.db.WithContext(ctx).Model(&persistence.FormSubmission{}).Where("form_id = ?", formID)
+	if filter.Status != "" {
+		query = query.Where("status = ?", filter.Status)
 	}
-	return mapSlice(rows, submissionToDomain), nil
+	if filter.TaskCreationStatus != "" {
+		query = query.Where("task_creation_status = ?", string(filter.TaskCreationStatus))
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, mapErr(err)
+	}
+	var rows []persistence.FormSubmission
+	if err := query.Preload("Answers", func(db *gorm.DB) *gorm.DB {
+		return db.Order("id ASC")
+	}).Order("submitted_at DESC, id DESC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		return nil, 0, mapErr(err)
+	}
+	return mapSlice(rows, submissionToDomain), total, nil
 }
 
 func (r *formRepository) GetSubmission(ctx context.Context, submissionID uint) (*domain.FormSubmission, error) {

@@ -233,7 +233,7 @@ func decodeFormTaskConfiguration(req dto.FormTaskConfigurationRequest) domain.Fo
 	}
 	for i, mapping := range req.Mappings {
 		config.Mappings[i] = domain.FormTaskMapping{
-			QuestionID: mapping.QuestionID,
+			QuestionID: mapping.QuestionID, QuestionIndex: mapping.QuestionIndex,
 			Target: domain.FormMappingTarget{
 				Type: mapping.Target.Type, Field: mapping.Target.Field, FieldID: mapping.Target.FieldID,
 			},

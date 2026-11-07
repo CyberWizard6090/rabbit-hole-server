@@ -657,6 +657,26 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /form-templates:
+    get:
+      tags: [forms]
+      summary: "List the built-in form presets"
+      description: |
+        A static catalog of ready-made forms: `feedback`, `project_request`, `order`, `application` and `it_request`.
+        Any signed-in user may call it; it contains no workspace data. Names, descriptions, question titles and option
+        labels are localized from `Accept-Language` (`ru`, `ru-RU`, ... give Russian, everything else English).
+        Each item has the shape of `POST /workspaces/{workspace_id}/forms` without `slug` (and without `task_config`):
+        send `name`, `description` and `questions` back unchanged together with a `slug` of your choice to create the form.
+        `key` is a stable identifier that does not change with the language.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: "`data` is an array of FormPreset."
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Envelope'}
+        '401': {$ref: '#/components/responses/Error'}
   /public/forms/{slug}:
     get:
       tags: [forms]
@@ -761,7 +781,47 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
     post:
       tags: [forms]
-      summary: "Create a form"
+      summary: "Create a form, optionally with its questions and task configuration"
+      description: |
+        Creates the form in status `draft`. `questions` and `task_config` are optional; when either is sent, the form,
+        every question (with options and settings) and the task configuration are created in ONE database transaction:
+        any validation error rolls everything back and nothing is stored. The `fields` map of the 400 response names the
+        failing item with its path, for example `questions[2].type`, `questions[0].settings.max`,
+        `questions[1].options[0].value`, `task_config.mappings[1].question_index` or `task_config.task_defaults.status_id`.
+        The response is the created form including `questions` (with ids) and `task_config`.
+
+        Rules of the atomic variant:
+        - at most 100 questions (`questions` field in the error);
+        - the order of the array is the final order: positions are assigned 0, 1, 2, ...; a `position` inside an item is ignored;
+        - `task_config` has the shape of `PUT .../task-config` (same validation, same precedence rules), except that
+          mappings reference questions by `question_index` (the zero-based index in the `questions` array of this request)
+          because question ids do not exist yet. Exactly one of `question_id` and `question_index` is accepted per mapping;
+          in this endpoint only `question_index` can be used. `question_index` is resolved to the new question id before the
+          configuration is stored, so `GET .../task-config` returns `question_id`;
+        - `task_config.target.workspace_id` must be the workspace of the path, like in the PUT endpoint;
+        - the form is not published; call `POST .../publish` when it is ready.
+
+        Example:
+        ```json
+        {
+          "name": "IT request", "slug": "it-request",
+          "questions": [
+            {"type": "short_text", "title": "Summary", "required": true},
+            {"type": "single_choice", "title": "Urgency", "required": true,
+             "options": [{"label": "Whenever", "value": "later"}, {"label": "Now", "value": "now"}]}
+          ],
+          "task_config": {
+            "enabled": true,
+            "target": {"workspace_id": 1, "list_id": 5},
+            "task_defaults": {"priority": "normal", "status_id": 12},
+            "mappings": [
+              {"question_index": 0, "target": {"type": "task_field", "field": "title"}},
+              {"question_index": 1, "target": {"type": "task_field", "field": "priority"},
+               "transform": {"type": "enum", "values": {"later": "low", "now": "critical"}}}
+            ]
+          }
+        }
+        ```
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -771,7 +831,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/FormRequest'}
+            schema: {$ref: '#/components/schemas/FormCreateRequest'}
       responses:
         '201': {$ref: '#/components/responses/Ok'}
         '400': {$ref: '#/components/responses/Error'}
@@ -865,6 +925,16 @@ paths:
     post:
       tags: [forms]
       summary: "Add a question to a form"
+      description: |
+        Position rules (all inside one transaction that locks the form row, so concurrent requests never produce duplicate positions):
+        - `position` omitted: the question is appended with `max(position) + 1` over the non-deleted questions of the form (`0` for the first one);
+        - `position` set and free: the question gets exactly that position (gaps are allowed);
+        - `position` set and already taken: the question is inserted there and every question with a position greater than or equal to it is shifted by +1, keeping their order;
+        - a negative `position` is a 400 (`fields.position`).
+        The response contains the stored `position`. `PUT .../questions/reorder` still renumbers all questions to 0..n-1.
+        `PATCH .../questions/{question_id}` without `position` keeps the current position; with `position` it sets that value without shifting the others (use reorder to move a question).
+        Validation errors name the failing key in `fields`, for example `type`, `title`, `options[1].value`, `settings.max`.
+        Allowed `settings` per question type are listed in the FormQuestionRequest schema.
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -945,15 +1015,27 @@ paths:
   /workspaces/{workspace_id}/forms/{form_id}/submissions:
     get:
       tags: [forms]
-      summary: "List submissions to a form"
+      summary: "List submissions to a form, newest first, with pagination and filters"
+      description: |
+        Offset pagination like the other page lists: `data` is an array of FormSubmission, `pagination` is
+        `{total, page, limit, pages}`; `total` counts all submissions that match the filters. Default `limit` is 20
+        (maximum 100), default `page` is 1. Ordering is newest first (`submitted_at` descending, then `id` descending).
+        A page past the end returns an empty array. Invalid `page`, `limit`, `status` or `task_creation_status` return 400
+        (`INVALID_PAGINATION` for page and limit, `INVALID_FORM` with the parameter name in `fields` for the filters).
+        Filters combine with AND.
       x-permission: workspace.read
       security:
         - bearerAuth: []
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: form_id, in: path, required: true, schema: {type: integer}}
+        - {name: page, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 10000, default: 1}}
+        - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100, default: 20}}
+        - {name: status, in: query, required: false, description: "Submission lifecycle status.", schema: {type: string, enum: [submitted, processing, processed, failed]}}
+        - {name: task_creation_status, in: query, required: false, description: "Outcome of the automatic task creation, see TaskCreationStatus.", schema: {$ref: '#/components/schemas/TaskCreationStatus'}}
       responses:
         '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1013,6 +1095,23 @@ paths:
     put:
       tags: [forms]
       summary: "Replace task-creation configuration for the next form publication"
+      description: |
+        Validates and stores the draft configuration; a form version keeps an immutable copy of it when the form is published.
+        The response is the stored configuration (with the resolved `template.version_id`).
+
+        **How the task is built (precedence, highest first).** For every field of the created task:
+        1. a **mapping** from an answer wins, if the respondent answered that question (an unanswered optional question maps nothing and the lower layers apply);
+        2. otherwise the **template** value (`title`, `description`, `priority`, `status_id`, `assignee_id`, `due_date`, `tags`, `custom_fields` of the template version);
+        3. otherwise **`task_defaults`** (`priority`, `status_id`, `assignee_id`).
+        So the order is `mappings > template > task_defaults`. Notes: a template always carries a priority (`normal` when it was saved without one), so with a template `task_defaults.priority` is never used; `task_defaults.priority` defaults to `normal` and applies without a template. Mapped custom fields override template custom fields with the same `field_id`. Without a title from a mapping or the template the configuration is rejected (the task title must come from somewhere); if the title is empty at submission time the task is called `Form submission {id}`.
+
+        **`template.version_id`.** Optional. When omitted, the latest version of the template **at the time this request is saved** is used and stored in the configuration (the response shows it), and it is the version snapshotted into the published form version. Creating a newer template version later does not change the saved configuration; send the new `version_id` (or repeat the request without it) to move to it. An explicit `version_id` must belong to `template_id`. The template must belong to the workspace and must not be archived, otherwise 400 `FORM_TASK_TEMPLATE_INVALID` (`fields`: `template.template_id` or `template.version_id`). `template` is only validated and resolved when `enabled` is true.
+
+        **Lists and statuses.** The task is created in `target.list_id`, which must belong to a space of the form's workspace. Every status that can end up on the task must belong to that list, otherwise 400 `FORM_TASK_STATUS_NOT_IN_LIST` with the offending path in `fields`: `task_defaults.status_id`, `template.template_id` (the template version has a `status_id` of another list), `mappings[i].transform.values` (a `status_id` mapping value). At least one status must be known: `task_defaults.status_id` or a template status (`INVALID_FORM_TASK_CONFIG`, `fields.task_defaults.status_id`). Template tags must belong to the space of the target list, template custom fields and assignees to the workspace.
+
+        **Mappings.** `question_id` must be an answerable question of this form (not a section, description or divider), each question and each target is used at most once. Targets: `task_field` with `field` in `title`, `description` (text, email, phone or url questions, no transform), `priority` (choice question + enum transform whose values are priority names, see TaskPriorityName), `status_id` and `assignee_id` (choice question + enum transform whose values are ids as strings), `due_date` (date question); or `custom_field` with `field_id` of a compatible type. An enum transform must contain an entry for every option value of the question. Errors name the failing key, for example `mappings[2].target`.
+
+        **Priority names** are `low`, `normal`, `high`, `urgent`, `critical` (1..5, see TaskPriorityName); an unknown name is a 400.
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -1172,12 +1271,27 @@ paths:
     get:
       tags: [forms]
       summary: "Get task creation status for a form submission"
+      description: |
+        Requires workspace read permission. Response body (`status` is always present, `error` is an empty string unless the creation failed):
+        ```json
+        {"data": {"status": "failed", "error": "invalid task template"}}
+        ```
+        ```json
+        {"data": {"status": "succeeded", "error": ""}}
+        ```
+        `status` is a TaskCreationStatus. `error` is the diagnostic text of the last failed attempt (at most 2000 bytes; not a stable code, for display and logs only).
+        Error responses use the usual envelope:
+        ```json
+        {"error": {"code": "SUBMISSION_OR_FORM_NOT_FOUND", "message": "submission or form not found"}}
+        ```
+        `404 SUBMISSION_OR_FORM_NOT_FOUND` for an unknown submission, `403 FORBIDDEN` (`"forbidden"`) without workspace read permission, `400 INVALID_ID` (`"invalid submission_id"`) for a malformed id.
       security:
         - bearerAuth: []
       parameters:
         - {name: submission_id, in: path, required: true, schema: {type: integer}}
       responses:
         '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1185,6 +1299,7 @@ paths:
     post:
       tags: [forms]
       summary: "Retry task creation for a failed submission"
+      description: "Requires workspace update permission. Returns the same body as `task-status` after the attempt: `{\"data\": {\"status\": \"succeeded\", \"error\": \"\"}}`. Submissions that are already `succeeded` or `skipped` are returned unchanged."
       security:
         - bearerAuth: []
       parameters:
@@ -2730,6 +2845,7 @@ components:
       properties:
         id: {type: integer}
         position: {type: integer}
+        priority: {$ref: '#/components/schemas/TaskPriority'}
         checklist_items_total: {type: integer, minimum: 0, description: "Number of items over all checklists of the task; 0 without checklists. Subtasks are not counted."}
         checklist_items_resolved: {type: integer, minimum: 0, description: "Number of resolved items; never above checklist_items_total."}
     CreateTaskRequest:
@@ -2740,20 +2856,81 @@ components:
         description: {type: string}
         status_id: {type: integer, description: Must be a status of the list in the path.}
         parent_id: {type: integer, nullable: true, description: Must be a task of the same list.}
-        priority: {type: integer, minimum: 0, maximum: 5}
+        priority: {type: integer, minimum: 0, maximum: 5, description: "1 low, 2 normal, 3 high, 4 urgent, 5 critical; higher is more urgent. 0 or omitted means 2 (normal). See TaskPriority."}
         assignee_ids: {type: array, items: {type: integer}, description: Must be workspace members.}
         tag_ids: {type: array, items: {type: integer}, description: Must be tags of the same space.}
         new_tag_names: {type: array, items: {type: string}}
         start_date: {type: string, format: date-time, nullable: true}
         due_date: {type: string, format: date-time, nullable: true, description: Must not be before start_date (400 INVALID_DATE_RANGE).}
         time_estimate: {type: integer, minimum: 0, description: Seconds.}
+    TaskPriority:
+      type: integer
+      enum: [1, 2, 3, 4, 5]
+      x-enum-varnames: [Low, Normal, High, Urgent, Critical]
+      description: |
+        The single priority scale for tasks, task templates and forms. Higher number = more urgent.
+
+        | value | name |
+        |---|---|
+        | 1 | low |
+        | 2 | normal (default) |
+        | 3 | high |
+        | 4 | urgent |
+        | 5 | critical |
+    TaskPriorityName:
+      type: string
+      enum: [low, normal, high, urgent, critical]
+      x-enum-varnames: [Low, Normal, High, Urgent, Critical]
+      description: |
+        Name of a TaskPriority, accepted wherever a priority is given as a string (task templates, form `task_defaults.priority`
+        and the values of an enum transform that maps a choice answer to `priority`). Exact, lower-case match:
+        `low` = 1, `normal` = 2, `high` = 3, `urgent` = 4, `critical` = 5. Any other string is a 400.
+    TaskCreationStatus:
+      type: string
+      enum: [pending, processing, succeeded, failed, skipped]
+      description: |
+        Outcome of the automatic task creation for a submission.
+        - `pending`: the submission is stored, task creation has not run yet (it normally runs in the same request, so this is rarely visible).
+        - `processing`: task creation is running right now.
+        - `succeeded`: a task was created (see `GET /submissions/{submission_id}/tasks`).
+        - `failed`: the attempt failed; the submission itself is kept and `task_creation_error` explains why. Retry with `POST /submissions/{submission_id}/retry-task-creation`.
+        - `skipped`: the published form version has no enabled task configuration, so no task is created.
+    FormSubmission:
+      type: object
+      properties:
+        id: {type: integer}
+        form_id: {type: integer}
+        form_version_id: {type: integer}
+        workspace_id: {type: integer}
+        respondent_id: {type: integer, nullable: true}
+        status: {type: string, enum: [submitted, processing, processed, failed]}
+        submitted_at: {type: string, format: date-time}
+        task_creation_status: {$ref: '#/components/schemas/TaskCreationStatus'}
+        task_creation_error: {type: string, description: "Present only after a failed attempt."}
+        answers:
+          type: array
+          items:
+            type: object
+            properties:
+              question_id: {type: integer}
+              value: {description: "JSON value in the format of the question type, see FormSubmissionRequest."}
+    FormPreset:
+      type: object
+      description: "A built-in form preset in the shape of the create request (without `slug` and `task_config`)."
+      properties:
+        key: {type: string, enum: [feedback, project_request, order, application, it_request]}
+        name: {type: string}
+        description: {type: string}
+        questions:
+          type: array
+          items: {$ref: '#/components/schemas/FormQuestionRequest'}
     FormRequest:
       type: object
       required: [name, slug]
       properties:
         name: {type: string, minLength: 1, maxLength: 255}
         description: {type: string}
-        slug: {type: string, minLength: 1, maxLength: 255, description: Globally unique public URL slug}
+        slug: {type: string, minLength: 1, maxLength: 255, description: "Globally unique public URL slug: lower-case letters, digits and hyphens, starting with a letter or digit."}
         settings: {$ref: '#/components/schemas/FormSettings'}
     FormSettings:
       type: object
@@ -2787,7 +2964,48 @@ components:
         content_type: {type: string}
         size: {type: integer}
         task_attachment_id: {type: integer, description: "Present once the file was attached to the task created from the submission."}
+    FormCreateRequest:
+      description: "FormRequest plus optional questions and task configuration, created atomically. See POST /workspaces/{workspace_id}/forms."
+      allOf:
+        - $ref: '#/components/schemas/FormRequest'
+        - type: object
+          properties:
+            questions:
+              type: array
+              maxItems: 100
+              items: {$ref: '#/components/schemas/FormQuestionRequest'}
+              description: "At most 100. Array order defines the positions; `position` inside items is ignored."
+            task_config:
+              $ref: '#/components/schemas/FormTaskConfigurationRequest'
     FormQuestionRequest:
+      description: |
+        A question of a form. `settings` is a JSON object (default `{}`; `null` is treated as `{}`); only the keys listed
+        for the type are accepted, any other key is a 400 naming `settings.<key>`. Defaults apply when a key is omitted.
+
+        | type | settings keys (validation) | defaults |
+        |---|---|---|
+        | `short_text` | `placeholder` (string, <= 255 chars), `min_length` (integer 0..1000), `max_length` (integer 1..1000, >= min_length) | no length limits |
+        | `long_text` | `placeholder`, `min_length` (0..50000), `max_length` (1..50000) | no length limits |
+        | `number` | `placeholder`, `min`, `max` (numbers, min <= max) | unbounded |
+        | `email`, `phone`, `url` | `placeholder` | none |
+        | `date`, `datetime`, `checkbox`, `single_choice` | none | none |
+        | `dropdown` | `placeholder` | none |
+        | `multiple_choice` | `min_selected` (integer 0..100), `max_selected` (integer 1..100, >= min_selected, neither above the number of options) | no limits |
+        | `rating` | `min` (integer 0..10), `max` (integer 1..10), min < max | `min` 1, `max` 5 |
+        | `scale` | `min` (integer 0..100), `max` (integer 1..100), min < max, `min_label`, `max_label` (strings <= 100 chars) | `min` 1, `max` 10 |
+        | `file` | any JSON object (defined together with file uploads) | none |
+        | `section`, `description`, `divider` | none (static; not answerable, `required` must be false) | none |
+
+        `options` (`label`, `value`, both <= 255 chars, `value` unique within the question) are required (1..100) for `single_choice`, `multiple_choice` and `dropdown` and forbidden for every other type.
+        The settings are enforced when a respondent submits (see FormSubmissionRequest).
+        `position`: see `POST /workspaces/{workspace_id}/forms/{form_id}/questions`.
+
+        Examples:
+        ```json
+        {"type": "rating", "title": "How was it?", "required": true, "settings": {"min": 1, "max": 5}}
+        {"type": "short_text", "title": "Name", "settings": {"placeholder": "Jane Doe", "max_length": 80}}
+        {"type": "multiple_choice", "title": "Tools", "options": [{"label": "Git", "value": "git"}, {"label": "Docker", "value": "docker"}], "settings": {"max_selected": 2}}
+        ```
       type: object
       required: [type, title]
       properties:
@@ -2797,10 +3015,11 @@ components:
         title: {type: string, minLength: 1}
         description: {type: string}
         required: {type: boolean}
-        position: {type: integer, minimum: 0}
+        position: {type: integer, minimum: 0, description: "Optional. Omitted: appended as max(position)+1 (0 for the first). Taken: the question is inserted and the following ones are shifted by +1. Ignored by the atomic form creation."}
         settings:
           type: object
           description: |
+            Per-type settings; see the type table in the description of this schema. Besides those keys:
             Free-form per-type settings. Known keys: `min`/`max` (number, rating, scale), `max_files` (`file`: integer 1-10, default 5;
             400 FORM_QUESTION_SETTINGS_INVALID otherwise) and `visible_if` (any type, including sections): a condition that must hold for the
             question to be shown, `{"question_id": 12, "operator": "equals", "value": "yes"}`. Operators: `equals`, `not_equals`
@@ -2832,7 +3051,35 @@ components:
         answers:
           type: object
           additionalProperties: {}
-          description: "Maps question IDs to JSON values; required and choice constraints are validated against the published version."
+          description: |
+            Maps question IDs (as JSON object keys) to JSON values. Every question is optional unless `required` is true. An answer to a
+            question that is not part of the published version, to a `section`, `description` or `divider`, or an empty value
+            (`null`, a blank string, an empty array) is a 400; omit the key to leave a question unanswered. All values are validated against the
+            published version; a violation returns 400 `INVALID_FORM`. Formats per question type:
+
+            | type | value |
+            |---|---|
+            | `short_text`, `long_text` | string; length in characters within `settings.min_length` / `settings.max_length` when set |
+            | `number` | JSON number; within `settings.min` / `settings.max` when set |
+            | `email` | string with a bare e-mail address (`jane@example.com`, no display name) |
+            | `phone` | non-empty string (no format check) |
+            | `url` | absolute `http` or `https` URL |
+            | `date` | string `YYYY-MM-DD` |
+            | `datetime` | RFC 3339 string with a zone, e.g. `2026-02-28T10:00:00+03:00` |
+            | `single_choice`, `dropdown` | the `value` of one option |
+            | `multiple_choice` | array of option `value`s without duplicates; its length within `settings.min_selected` / `settings.max_selected` when set |
+            | `checkbox` | boolean (`false` is a valid answer, also for a required checkbox) |
+            | `rating` | integer within `settings.min`..`settings.max` (defaults 1..5) |
+            | `scale` | integer within `settings.min`..`settings.max` (defaults 1..10) |
+            | `file` | array of file ids (integers); the files are uploaded separately |
+            | `section`, `description`, `divider` | no answer |
+          example:
+            "11": "Cannot sign in"
+            "12": 4
+            "13": ["git", "docker"]
+            "14": true
+            "15": "2026-03-01"
+            "16": "jane@example.com"
     FormTaskConfigurationRequest:
       type: object
       required: [enabled, target, task_defaults, mappings]
@@ -2848,11 +3095,12 @@ components:
           type: object
           properties:
             template_id: {type: integer}
-            version_id: {type: integer}
+            version_id: {type: integer, description: "Optional. Omitted: the latest version of the template when the configuration is saved, stored in the configuration and snapshotted when the form is published."}
         task_defaults:
           type: object
+          description: "Lowest precedence: mappings > template > task_defaults. See PUT task-config."
           properties:
-            priority: {type: string, enum: [low, normal, high, urgent]}
+            priority: {$ref: '#/components/schemas/TaskPriorityName'}
             status_id: {type: integer, nullable: true}
             assignee_id: {type: integer, nullable: true}
         mappings:
@@ -2860,9 +3108,11 @@ components:
           maxItems: 200
           items:
             type: object
-            required: [question_id, target]
+            required: [target]
+            description: "Exactly one of `question_id` and `question_index` is required; `question_index` is only accepted when the configuration is sent together with `questions` in POST /workspaces/{workspace_id}/forms."
             properties:
               question_id: {type: integer}
+              question_index: {type: integer, minimum: 0, description: "Zero-based index into the `questions` array of the same create request."}
               target:
                 type: object
                 required: [type]
@@ -2874,7 +3124,7 @@ components:
                 type: object
                 properties:
                   type: {type: string, enum: [enum]}
-                  values: {type: object, additionalProperties: {type: string}}
+                  values: {type: object, additionalProperties: {type: string}, description: "Option value -> target value. For `priority` targets the values are priority names (low, normal, high, urgent, critical); for `status_id` and `assignee_id` they are ids as strings."}
     TaskTemplateRequest:
       type: object
       required: [name, configuration]
@@ -2901,7 +3151,7 @@ components:
           properties:
             title: {type: string, nullable: true}
             description: {type: string, nullable: true}
-            priority: {type: string, enum: [low, normal, high, urgent]}
+            priority: {$ref: '#/components/schemas/TaskPriorityName'}
             status_id: {type: integer, nullable: true}
             assignee_id: {type: integer, nullable: true}
             due_date: {type: string, format: date, nullable: true}
@@ -3014,7 +3264,7 @@ components:
         description: {type: string}
         status_id: {type: integer}
         parent_id: {type: integer, nullable: true, description: "Another task of the same list; null makes the task top-level. A cycle is rejected."}
-        priority: {type: integer, minimum: 1, maximum: 5}
+        priority: {type: integer, minimum: 1, maximum: 5, description: "1 low, 2 normal, 3 high, 4 urgent, 5 critical. See TaskPriority."}
         start_date: {type: string, format: date-time, nullable: true, description: "null clears the date."}
         due_date: {type: string, format: date-time, nullable: true, description: "null clears the date. Must not be before start_date (400 INVALID_DATE_RANGE)."}
         time_estimate: {type: integer, minimum: 0, description: Seconds.}

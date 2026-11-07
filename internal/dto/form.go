@@ -14,6 +14,12 @@ type FormRequest struct {
 	Settings *domain.FormSettings `json:"settings"`
 }
 
+type CreateFormRequest struct {
+	FormRequest
+	Questions  []FormQuestionRequest         `json:"questions"`
+	TaskConfig *FormTaskConfigurationRequest `json:"task_config"`
+}
+
 type FormQuestionOptionRequest struct {
 	Label string `json:"label" binding:"required"`
 	Value string `json:"value" binding:"required"`
@@ -24,7 +30,7 @@ type FormQuestionRequest struct {
 	Title       string                      `json:"title" binding:"required"`
 	Description string                      `json:"description"`
 	Required    bool                        `json:"required"`
-	Position    int                         `json:"position"`
+	Position    *int                        `json:"position"`
 	Settings    json.RawMessage             `json:"settings"`
 	Options     []FormQuestionOptionRequest `json:"options"`
 }

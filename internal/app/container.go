@@ -149,6 +149,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	formUploadRepo := repository.NewFormUploadRepository(db)
 	formService := service.NewFormService(formRepo).
 		WithSubmissionLimit(cfg.Forms.SubmissionsPerHour, time.Hour).
+		WithTransactions(database.NewTransactionRunner(db)).
 		WithSettingsPolicy(cfg.Environment == "development", cfg.Storage.PublicBaseURL).
 		WithUploads(formUploadRepo)
 	keyDerivation := hmac.New(sha256.New, []byte(cfg.JWT.Secret))

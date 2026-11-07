@@ -68,9 +68,7 @@ func NormalizeTaskTemplateConfiguration(raw json.RawMessage) (json.RawMessage, e
 	if config.Task.Priority == "" {
 		config.Task.Priority = "normal"
 	}
-	switch config.Task.Priority {
-	case "low", "normal", "high", "urgent":
-	default:
+	if !domain.ValidTaskPriorityName(config.Task.Priority) {
 		return nil, domain.ErrInvalidTaskTemplate
 	}
 	for _, field := range config.CustomFields {

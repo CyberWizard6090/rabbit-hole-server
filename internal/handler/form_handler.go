@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -11,9 +12,12 @@ import (
 	"rabbit-hole-server/internal/dto"
 	contextutil "rabbit-hole-server/internal/http/context"
 	httperrors "rabbit-hole-server/internal/http/errors"
+	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
 )
+
+const defaultSubmissionsLimit = 20
 
 type FormHandler struct {
 	service service.FormService
@@ -33,19 +37,30 @@ func (h *FormHandler) Create(c *gin.Context) {
 		response.Unauthorized(c)
 		return
 	}
-	var req dto.FormRequest
+	var req dto.CreateFormRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.ValidationError(c, err)
 		return
 	}
-	form, err := h.service.Create(c.Request.Context(), workspaceID, userID, service.FormInput{
-		Name: req.Name, Description: req.Description, Slug: req.Slug, Settings: req.Settings,
-	})
+	input := service.FormInput{Name: req.Name, Description: req.Description, Slug: req.Slug, Settings: req.Settings}
+	for _, question := range req.Questions {
+		input.Questions = append(input.Questions, formQuestionInput(question))
+	}
+	if req.TaskConfig != nil {
+		config := decodeFormTaskConfiguration(*req.TaskConfig)
+		input.TaskConfig = &config
+	}
+	form, err := h.service.Create(c.Request.Context(), workspaceID, userID, input)
 	if err != nil {
 		h.writeError(c, "FORM_CREATE_FAILED", err)
 		return
 	}
 	response.Success(c, http.StatusCreated, form)
+}
+
+func (h *FormHandler) ListTemplates(c *gin.Context) {
+	locale := service.LocaleFromAcceptLanguage(c.GetHeader("Accept-Language"))
+	response.Success(c, http.StatusOK, service.FormPresets(locale))
 }
 
 func (h *FormHandler) List(c *gin.Context) {
@@ -242,12 +257,30 @@ func (h *FormHandler) ListSubmissions(c *gin.Context) {
 	if !ok {
 		return
 	}
-	submissions, err := h.service.ListSubmissions(c.Request.Context(), workspaceID, formID)
+	rawLimit := c.Query("limit")
+	if strings.TrimSpace(rawLimit) == "" {
+		rawLimit = strconv.Itoa(defaultSubmissionsLimit)
+	}
+	params, err := pagination.ParseOffset(c.Query("page"), rawLimit)
+	if err != nil {
+		response.HandleError(c, httperrors.BadRequest("INVALID_PAGINATION", err.Error(), err))
+		return
+	}
+	filter := domain.SubmissionFilter{
+		Status:             strings.TrimSpace(c.Query("status")),
+		TaskCreationStatus: domain.TaskCreationStatus(strings.TrimSpace(c.Query("task_creation_status"))),
+	}
+	submissions, total, err := h.service.ListSubmissions(
+		c.Request.Context(), workspaceID, formID, filter, params.Limit, params.Offset,
+	)
 	if err != nil {
 		h.writeError(c, "FORM_SUBMISSIONS_FETCH_FAILED", err)
 		return
 	}
-	response.Success(c, http.StatusOK, submissions)
+	response.SuccessWithPagination(c, http.StatusOK, submissions, &response.Pagination{
+		Total: int(total), Page: params.Page, Limit: params.Limit,
+		Pages: (int(total) + params.Limit - 1) / params.Limit,
+	})
 }
 
 func (h *FormHandler) GetSubmission(c *gin.Context) {
@@ -284,7 +317,9 @@ func writeFormError(c *gin.Context, code string, err error) {
 		response.HandleError(c, httperrors.Wrap("FORM_CLOSED", err.Error(), http.StatusGone, err))
 	case errors.Is(err, domain.ErrFormFull):
 		response.HandleError(c, httperrors.Conflict("FORM_FULL", err.Error(), err))
-	case errors.Is(err, domain.ErrInvalidForm), errors.Is(err, domain.ErrInvalidSubmission):
+	case errors.Is(err, domain.ErrInvalidForm):
+		response.HandleError(c, formBadRequest("INVALID_FORM", err))
+	case errors.Is(err, domain.ErrInvalidSubmission):
 		response.HandleError(c, httperrors.BadRequest("INVALID_FORM", err.Error(), err))
 	case errors.Is(err, domain.ErrFormSubmissionsLimited):
 		response.HandleError(c, httperrors.TooManyRequests("FORM_SUBMISSIONS_LIMITED", err.Error(), err))

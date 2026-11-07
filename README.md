@@ -76,6 +76,7 @@ relies on:
   `pagination.total` is the match count. E-mail addresses are never searched. See `docs/openapi.yaml`.
 - **Forms**: custom fields, task templates and forms with immutable published versions. A public submission (`POST /public/forms/{slug}/submissions`, idempotent, rate limited per IP and per form) can create a task in one transaction; the task is logged in the activity feed and notifications only after the commit. Failed task creation keeps the submission and can be retried.
   Forms also have presentation settings (button text, success message, https redirect, accent color, logo and cover images), `closes_at` and `max_submissions` restrictions, in-app notifications for chosen members (`notify_on_submit`), conditional questions (`settings.visible_if`) and public file uploads for `file` questions (`POST /public/forms/{slug}/uploads`, sniffed types, `FORM_UPLOAD_MAX_BYTES`, `FORM_UPLOAD_TTL`); the files become task attachments or stay downloadable from the submission.
+- **Form builder API**: new questions are appended (or inserted with a shift) under a row lock, `POST /workspaces/{id}/forms` creates a form with its questions and task configuration atomically, `GET /form-templates` returns localized presets, submissions are paginated and filterable, and one priority scale (1 low .. 5 critical, names `low`..`critical`) is used by tasks, templates and forms. The answer formats, question settings and task-config precedence (`mappings > template > task_defaults`) are documented in `docs/openapi.yaml`.
 - **Activity**: `GET /tasks/{id}/activity` returns who changed what on a task, newest first (field
   changes with old and new values, moves between lists, comment and attachment events). Entries are written after
   the change succeeds; a failed write is logged and does not fail the request.
@@ -108,16 +109,12 @@ relies on:
   assignments, comments, status and due date changes become notifications of five types, delivered to the
   in-app inbox (`/notifications`) and by e-mail according to per-type preferences
   (`/notifications/preferences`). Extra e-mail addresses (`/notifications/channels`) receive nothing until
-<<<<<<< HEAD
   the owner confirms them with an emailed link. `NOTIFICATION_EMAIL_PER_HOUR` caps mails per user. A `webhook`
   channel (https URL, SSRF-safe, confirmed with a signed single-use token POSTed to it) delivers the same events as
   JSON signed with `X-Rabbit-Hole-Signature` (HMAC-SHA256, per-channel secret shown once, rotatable); it is disabled
-  after `NOTIFICATION_WEBHOOK_MAX_FAILURES` consecutive failures.
-=======
-  the owner confirms them with an emailed link. `NOTIFICATION_EMAIL_PER_HOUR` caps mails per user. Open tabs
-  stay in sync over the per-user WebSocket feed `GET /notifications/events` (single-use ticket from
-  `POST /notifications/events/ticket`): `notification.created`, `.read`, `.deleted` and `.unread_count`.
->>>>>>> origin/develop
+  after `NOTIFICATION_WEBHOOK_MAX_FAILURES` consecutive failures. Open tabs stay in sync over the per-user
+  WebSocket feed `GET /notifications/events` (single-use ticket from `POST /notifications/events/ticket`):
+  `notification.created`, `.read`, `.deleted` and `.unread_count`.
 - **Task order**: every task has an integer `position` within its list; new tasks go to the end and
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.

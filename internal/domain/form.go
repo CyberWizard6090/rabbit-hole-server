@@ -67,6 +67,34 @@ const (
 	QuestionDivider        QuestionType = "divider"
 )
 
+const AppendQuestionPosition = -1
+
+const MaxFormQuestions = 100
+
+type SubmissionFilter struct {
+	Status             string
+	TaskCreationStatus TaskCreationStatus
+}
+
+func ValidSubmissionStatus(status string) bool {
+	switch status {
+	case "submitted", "processing", "processed", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func ValidTaskCreationStatus(status TaskCreationStatus) bool {
+	switch status {
+	case TaskCreationPending, TaskCreationProcessing, TaskCreationSucceeded,
+		TaskCreationFailed, TaskCreationSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
 type QuestionOption struct {
 	ID       uint   `json:"id,omitempty"`
 	Label    string `json:"label"`
@@ -200,9 +228,10 @@ type FormTaskDefaults struct {
 }
 
 type FormTaskMapping struct {
-	QuestionID uint                `json:"question_id"`
-	Target     FormMappingTarget   `json:"target"`
-	Transform  *FormValueTransform `json:"transform,omitempty"`
+	QuestionID    uint                `json:"question_id"`
+	QuestionIndex *int                `json:"question_index,omitempty"`
+	Target        FormMappingTarget   `json:"target"`
+	Transform     *FormValueTransform `json:"transform,omitempty"`
 }
 
 type FormMappingTarget struct {
@@ -267,7 +296,7 @@ type FormRepository interface {
 		answers []SubmissionAnswer,
 		options SubmissionOptions,
 	) (*FormSubmission, bool, error)
-	ListSubmissions(ctx context.Context, formID uint) ([]FormSubmission, error)
+	ListSubmissions(ctx context.Context, formID uint, filter SubmissionFilter, limit, offset int) ([]FormSubmission, int64, error)
 	GetSubmission(ctx context.Context, submissionID uint) (*FormSubmission, error)
 	CountSubmissions(ctx context.Context, formID uint) (int, error)
 	WorkspaceImageExists(ctx context.Context, workspaceID uint, publicID string) (bool, error)

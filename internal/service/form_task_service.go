@@ -70,6 +70,9 @@ func (s *formTaskConfigurationService) Set(
 	if form.WorkspaceID != workspaceID {
 		return domain.ErrFormNotFound
 	}
+	if err := s.resolveTemplateVersion(ctx, form.WorkspaceID, &config); err != nil {
+		return err
+	}
 	if err := s.validate(ctx, form, config); err != nil {
 		return err
 	}
@@ -105,62 +108,56 @@ func (s *formTaskConfigurationService) validate(
 	form *domain.Form,
 	config domain.FormTaskConfiguration,
 ) error {
-	if config.Target.WorkspaceID != form.WorkspaceID || len(config.Mappings) > 200 {
-		return domain.ErrInvalidForm
+	if config.Target.WorkspaceID != form.WorkspaceID {
+		return domain.NewFormValidationError("target.workspace_id", "must equal the workspace of the form")
+	}
+	if len(config.Mappings) > 200 {
+		return domain.NewFormValidationError("mappings", "at most 200 mappings are allowed")
 	}
 	if !config.Enabled {
 		return nil
 	}
-	if config.Target.ListID == 0 ||
-		config.TaskDefaults.Priority != "" && !validTaskPriority(config.TaskDefaults.Priority) {
-		return domain.ErrInvalidForm
+	if config.Target.ListID == 0 {
+		return domain.NewFormValidationError("target.list_id", "is required when the configuration is enabled")
+	}
+	if config.TaskDefaults.Priority != "" && !domain.ValidTaskPriorityName(config.TaskDefaults.Priority) {
+		return domain.NewFormValidationError("task_defaults.priority",
+			"must be one of low, normal, high, urgent, critical")
 	}
 	list, err := s.spaces.GetListByID(ctx, config.Target.ListID)
 	if err != nil {
-		return domain.ErrInvalidForm
+		return domain.NewFormValidationError("target.list_id", "list not found")
 	}
 	space, err := s.spaces.GetByID(ctx, list.SpaceID)
 	if err != nil || space.WorkspaceID != form.WorkspaceID {
-		return domain.ErrInvalidForm
+		return domain.NewFormValidationError("target.list_id", "list does not belong to the workspace of the form")
 	}
 	var templateConfig *TaskTemplateConfiguration
 	if config.Template != nil {
-		if config.Template.TemplateID == 0 || config.Template.VersionID == 0 {
-			return domain.ErrInvalidForm
-		}
-		template, err := s.templates.Get(ctx, config.Template.TemplateID)
-		if err != nil || template.WorkspaceID != form.WorkspaceID || template.Status != "active" {
-			return domain.ErrInvalidForm
-		}
-		version, err := s.templates.GetVersion(ctx, template.ID, config.Template.VersionID)
+		decoded, err := s.validateTemplate(ctx, form.WorkspaceID, *config.Template)
 		if err != nil {
-			return domain.ErrInvalidForm
+			return err
 		}
-		var decoded TaskTemplateConfiguration
-		if err := json.Unmarshal(version.Configuration, &decoded); err != nil {
-			return fmt.Errorf("decode task template version: %w", err)
-		}
-		templateConfig = &decoded
-		for _, field := range decoded.CustomFields {
-			if _, err := s.fields.Get(ctx, form.WorkspaceID, field.FieldID); err != nil {
-				return domain.ErrInvalidForm
-			}
-		}
+		templateConfig = decoded
 	}
 	statusID := config.TaskDefaults.StatusID
 	if statusID != nil && !listHasStatus(list, *statusID) {
-		return domain.ErrInvalidForm
+		return statusNotInList("task_defaults.status_id", *statusID, list.ID)
 	}
 	if config.TaskDefaults.AssigneeID != nil {
 		if _, err := s.workspaces.GetMember(ctx, form.WorkspaceID, *config.TaskDefaults.AssigneeID); err != nil {
-			return domain.ErrInvalidForm
+			return domain.NewFormValidationError("task_defaults.assignee_id", "is not a member of the workspace")
 		}
 	}
 	if templateConfig != nil && templateConfig.Task.StatusID != nil {
+		if !listHasStatus(list, *templateConfig.Task.StatusID) {
+			return statusNotInList("template.template_id", *templateConfig.Task.StatusID, list.ID)
+		}
 		statusID = templateConfig.Task.StatusID
 	}
-	if statusID == nil || !listHasStatus(list, *statusID) {
-		return domain.ErrInvalidForm
+	if statusID == nil {
+		return domain.NewFormValidationError("task_defaults.status_id",
+			"is required unless the template defines a status of the target list")
 	}
 	questions := make(map[uint]domain.FormQuestion, len(form.Questions))
 	for _, question := range form.Questions {
@@ -169,21 +166,27 @@ func (s *formTaskConfigurationService) validate(
 	seenQuestions := make(map[uint]struct{}, len(config.Mappings))
 	seenTargets := make(map[string]struct{}, len(config.Mappings))
 	hasTitle := templateConfig != nil && templateConfig.Task.Title != nil && *templateConfig.Task.Title != ""
-	for _, mapping := range config.Mappings {
+	for i, mapping := range config.Mappings {
+		field := fmt.Sprintf("mappings[%d]", i)
+		if mapping.QuestionIndex != nil {
+			return domain.NewFormValidationError(field+".question_index",
+				"is only supported when creating a form; use question_id")
+		}
 		question, exists := questions[mapping.QuestionID]
-		if !exists || isStaticQuestion(question.Type) {
-			return domain.ErrInvalidForm
+		if mapping.QuestionID == 0 || !exists || isStaticQuestion(question.Type) {
+			return domain.NewFormValidationError(field+".question_id",
+				"must reference an answerable question of this form")
 		}
 		if _, exists := seenQuestions[mapping.QuestionID]; exists {
-			return domain.ErrInvalidForm
+			return domain.NewFormValidationError(field+".question_id", "question is mapped more than once")
 		}
 		seenQuestions[mapping.QuestionID] = struct{}{}
-		targetKey, err := s.validateMapping(ctx, form.WorkspaceID, list.ID, question, mapping)
+		targetKey, err := s.validateMapping(ctx, form.WorkspaceID, list.ID, question, mapping, field)
 		if err != nil {
 			return err
 		}
 		if _, exists := seenTargets[targetKey]; exists {
-			return domain.ErrInvalidForm
+			return domain.NewFormValidationError(field+".target", "target is already used by another mapping")
 		}
 		seenTargets[targetKey] = struct{}{}
 		if targetKey == "task:title" {
@@ -191,17 +194,87 @@ func (s *formTaskConfigurationService) validate(
 		}
 	}
 	if !hasTitle {
-		return domain.ErrInvalidForm
+		return domain.NewFormValidationError("mappings",
+			"a mapping to the task title or a template with a title is required")
 	}
-	if config.Template != nil && templateConfig != nil {
+	if templateConfig != nil {
 		for _, tagID := range templateConfig.Tags {
 			tag, err := s.tags.GetByID(ctx, tagID)
 			if err != nil || tag.SpaceID != space.ID {
-				return domain.ErrInvalidForm
+				return domain.NewFormValidationError("template.template_id",
+					fmt.Sprintf("template tag %d does not belong to the space of the target list", tagID)).
+					WithCode(domain.FormErrorTaskTemplateInvalid)
 			}
 		}
 	}
 	return nil
+}
+
+func (s *formTaskConfigurationService) validateTemplate(
+	ctx context.Context,
+	workspaceID uint,
+	reference domain.FormTaskTemplate,
+) (*TaskTemplateConfiguration, error) {
+	invalid := func(field, reason string) error {
+		return domain.NewFormValidationError(field, reason).WithCode(domain.FormErrorTaskTemplateInvalid)
+	}
+	if reference.TemplateID == 0 {
+		return nil, invalid("template.template_id", "is required")
+	}
+	if reference.VersionID == 0 {
+		return nil, invalid("template.version_id", "is required")
+	}
+	template, err := s.templates.Get(ctx, reference.TemplateID)
+	if err != nil || template.WorkspaceID != workspaceID {
+		return nil, invalid("template.template_id", "template not found in this workspace")
+	}
+	if template.Status != "active" {
+		return nil, invalid("template.template_id", "template is archived")
+	}
+	version, err := s.templates.GetVersion(ctx, template.ID, reference.VersionID)
+	if err != nil {
+		return nil, invalid("template.version_id", "version does not belong to the template")
+	}
+	var decoded TaskTemplateConfiguration
+	if err := json.Unmarshal(version.Configuration, &decoded); err != nil {
+		return nil, fmt.Errorf("decode task template version: %w", err)
+	}
+	for _, field := range decoded.CustomFields {
+		if _, err := s.fields.Get(ctx, workspaceID, field.FieldID); err != nil {
+			return nil, invalid("template.template_id",
+				fmt.Sprintf("template custom field %d does not exist in this workspace", field.FieldID))
+		}
+	}
+	return &decoded, nil
+}
+
+func (s *formTaskConfigurationService) resolveTemplateVersion(
+	ctx context.Context,
+	workspaceID uint,
+	config *domain.FormTaskConfiguration,
+) error {
+	if !config.Enabled || config.Template == nil || config.Template.VersionID != 0 || config.Template.TemplateID == 0 {
+		return nil
+	}
+	template, err := s.templates.Get(ctx, config.Template.TemplateID)
+	if err != nil || template.WorkspaceID != workspaceID {
+		return domain.NewFormValidationError("template.template_id", "template not found in this workspace").
+			WithCode(domain.FormErrorTaskTemplateInvalid)
+	}
+	if template.Status != "active" || len(template.Versions) == 0 {
+		return domain.NewFormValidationError("template.template_id", "template is archived or has no versions").
+			WithCode(domain.FormErrorTaskTemplateInvalid)
+	}
+	resolved := *config.Template
+	resolved.VersionID = template.Versions[len(template.Versions)-1].ID
+	config.Template = &resolved
+	return nil
+}
+
+func statusNotInList(field string, statusID, listID uint) error {
+	return domain.NewFormValidationError(field,
+		fmt.Sprintf("status %d does not belong to the target list %d", statusID, listID)).
+		WithCode(domain.FormErrorTaskStatusNotInList)
 }
 
 func listHasStatus(list *domain.List, statusID uint) bool {
@@ -219,14 +292,18 @@ func (s *formTaskConfigurationService) validateMapping(
 	listID uint,
 	question domain.FormQuestion,
 	mapping domain.FormTaskMapping,
+	field string,
 ) (string, error) {
+	invalid := func(path, reason string) (string, error) {
+		return "", domain.NewFormValidationError(field+path, reason)
+	}
 	if mapping.Transform != nil {
 		if mapping.Transform.Type != "enum" || len(mapping.Transform.Values) == 0 {
-			return "", domain.ErrInvalidForm
+			return invalid(".transform", "must be of type enum with at least one value")
 		}
 		for _, option := range question.Options {
 			if _, ok := mapping.Transform.Values[option.Value]; !ok {
-				return "", domain.ErrInvalidForm
+				return invalid(".transform.values", fmt.Sprintf("has no entry for option %q", option.Value))
 			}
 		}
 	}
@@ -236,54 +313,58 @@ func (s *formTaskConfigurationService) validateMapping(
 		switch mapping.Target.Field {
 		case "title", "description":
 			if mapping.Transform != nil || !questionIsText(question.Type) {
-				return "", domain.ErrInvalidForm
+				return invalid(".target", "title and description need a text question and no transform")
 			}
 		case "priority":
 			if !isChoiceQuestion(question.Type) || mapping.Transform == nil {
-				return "", domain.ErrInvalidForm
+				return invalid(".target", "priority needs a choice question and an enum transform")
 			}
 			for _, value := range mapping.Transform.Values {
-				if !validTaskPriority(value) {
-					return "", domain.ErrInvalidForm
+				if !domain.ValidTaskPriorityName(value) {
+					return invalid(".transform.values",
+						fmt.Sprintf("%q is not a priority (low, normal, high, urgent, critical)", value))
 				}
 			}
 		case "status_id", "assignee_id":
 			if !isChoiceQuestion(question.Type) || mapping.Transform == nil {
-				return "", domain.ErrInvalidForm
+				return invalid(".target", mapping.Target.Field+" needs a choice question and an enum transform")
 			}
 			for _, value := range mapping.Transform.Values {
 				id, err := strconv.ParseUint(value, 10, 64)
 				if err != nil || id == 0 {
-					return "", domain.ErrInvalidForm
+					return invalid(".transform.values", fmt.Sprintf("%q is not an id", value))
 				}
 				if mapping.Target.Field == "status_id" {
 					status, err := s.spaces.GetStatusByID(ctx, uint(id))
 					if err != nil || status.ListID != listID {
-						return "", domain.ErrInvalidForm
+						return "", statusNotInList(field+".transform.values", uint(id), listID)
 					}
 				} else if _, err := s.workspaces.GetMember(ctx, workspaceID, uint(id)); err != nil {
-					return "", domain.ErrInvalidForm
+					return invalid(".transform.values", fmt.Sprintf("%d is not a member of the workspace", id))
 				}
 			}
 		case "due_date":
 			if question.Type != domain.QuestionDate || mapping.Transform != nil {
-				return "", domain.ErrInvalidForm
+				return invalid(".target", "due_date needs a date question and no transform")
 			}
 		default:
-			return "", domain.ErrInvalidForm
+			return invalid(".target.field", "is not a supported task field")
 		}
 		return key, nil
 	case "custom_field":
 		if mapping.Target.FieldID == 0 || mapping.Target.Field != "" || mapping.Transform != nil {
-			return "", domain.ErrInvalidForm
+			return invalid(".target", "custom_field needs field_id and no field or transform")
 		}
-		field, err := s.fields.Get(ctx, workspaceID, mapping.Target.FieldID)
-		if err != nil || !questionCompatibleWithCustomField(question.Type, field.Type) {
-			return "", domain.ErrInvalidForm
+		customField, err := s.fields.Get(ctx, workspaceID, mapping.Target.FieldID)
+		if err != nil {
+			return invalid(".target.field_id", "custom field not found in this workspace")
 		}
-		return fmt.Sprintf("custom:%d", field.ID), nil
+		if !questionCompatibleWithCustomField(question.Type, customField.Type) {
+			return invalid(".target.field_id", "custom field type does not match the question type")
+		}
+		return fmt.Sprintf("custom:%d", customField.ID), nil
 	default:
-		return "", domain.ErrInvalidForm
+		return invalid(".target.type", "must be task_field or custom_field")
 	}
 }
 
@@ -323,14 +404,5 @@ func defaultFormTaskConfiguration(workspaceID uint) domain.FormTaskConfiguration
 		Target:       domain.FormTaskTarget{WorkspaceID: workspaceID},
 		TaskDefaults: domain.FormTaskDefaults{Priority: "normal"},
 		Mappings:     []domain.FormTaskMapping{},
-	}
-}
-
-func validTaskPriority(priority string) bool {
-	switch priority {
-	case "low", "normal", "high", "urgent":
-		return true
-	default:
-		return false
 	}
 }

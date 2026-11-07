@@ -42,6 +42,7 @@ var (
 		"DELETE /api/v1/profile/avatar":       "removes the caller's own avatar",
 		"POST /api/v1/auth/logout-all":        "revokes the caller's own sessions",
 		"GET /api/v1/users/search":            "public projection only",
+		"GET /api/v1/form-templates":          "static catalog of form presets, no workspace data",
 		"GET /api/v1/contacts":                "caller's own contacts",
 		"POST /api/v1/contacts":               "caller's own contacts",
 		"DELETE /api/v1/contacts/:contact_id": "scoped to caller in SQL",

@@ -63,7 +63,12 @@ func (h *FormTaskHandler) SetConfig(c *gin.Context) {
 		h.writeError(c, err)
 		return
 	}
-	response.Success(c, http.StatusOK, config)
+	stored, err := h.config.Get(c.Request.Context(), workspaceID, formID)
+	if err != nil {
+		h.writeError(c, err)
+		return
+	}
+	response.Success(c, http.StatusOK, stored)
 }
 
 func (h *FormTaskHandler) ListSubmissionTasks(c *gin.Context) {
@@ -140,8 +145,9 @@ func (h *FormTaskHandler) authorizeSubmission(c *gin.Context, submissionID uint,
 
 func (h *FormTaskHandler) writeError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, domain.ErrInvalidForm), errors.Is(err, domain.ErrInvalidSubmission),
-		errors.Is(err, domain.ErrInvalidTaskTemplate):
+	case errors.Is(err, domain.ErrInvalidForm):
+		response.HandleError(c, formBadRequest("INVALID_FORM_TASK_CONFIG", err))
+	case errors.Is(err, domain.ErrInvalidSubmission), errors.Is(err, domain.ErrInvalidTaskTemplate):
 		response.HandleError(c, httperrors.BadRequest("INVALID_FORM_TASK_CONFIG", err.Error(), err))
 	case errors.Is(err, domain.ErrFormNotFound), errors.Is(err, domain.ErrNotFound):
 		response.HandleError(c, httperrors.NotFound("SUBMISSION_OR_FORM_NOT_FOUND", "submission or form not found", err))
