@@ -182,6 +182,7 @@ func ensureSeparateDatabaseURLs(applicationURL, testURL string) error {
 func resetIntegrationDatabase() error {
 	return integrationDB.Exec(`
 		TRUNCATE TABLE
+			outbox_events,
 			task_assignees,
 			task_tags,
 			tasks,

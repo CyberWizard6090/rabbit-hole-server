@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"rabbit-hole-server/internal/config"
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/handler"
 	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/mail"
@@ -41,11 +42,15 @@ type Container struct {
 	FolderHandler    *handler.FolderHandler
 	ListHandler      *handler.ListHandler
 
-	ContactHandler *handler.ContactHandler
-	SearchHandler  *handler.SearchHandler
-	SpaceHandler   *handler.SpaceHandler
-	StatusHandler  *handler.StatusHandler
-	TagHandler     *handler.TagHandler
+	ContactHandler      *handler.ContactHandler
+	SearchHandler       *handler.SearchHandler
+	SpaceHandler        *handler.SpaceHandler
+	StatusHandler       *handler.StatusHandler
+	TagHandler          *handler.TagHandler
+	CustomFieldHandler  *handler.CustomFieldHandler
+	FormHandler         *handler.FormHandler
+	FormTaskHandler     *handler.FormTaskHandler
+	TaskTemplateHandler *handler.TaskTemplateHandler
 
 	PermissionChecker service.PermissionChecker
 
@@ -119,6 +124,17 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	spaceServ := service.NewSpaceService(spaceRepo)
 	statusServ := service.NewStatusService(statusRepo, spaceRepo)
 	tagService := service.NewTagService(tagRepo)
+	customFieldService := service.NewCustomFieldService(
+		repository.NewCustomFieldRepository(db),
+		repository.NewTaskCustomFieldValueRepository(db),
+	)
+	formRepo := repository.NewFormRepository(db)
+	templateRepo := repository.NewTaskTemplateRepository(db)
+	templateService := service.NewTaskTemplateService(templateRepo, customFieldService, spaceRepo, tagRepo, workspaceRepo)
+	formTaskConfigService := service.NewFormTaskConfigurationService(
+		formRepo, spaceRepo, templateRepo, customFieldService, tagRepo, workspaceRepo,
+	)
+	formService := service.NewFormService(formRepo).WithSubmissionLimit(cfg.Forms.SubmissionsPerHour, time.Hour)
 	keyDerivation := hmac.New(sha256.New, []byte(cfg.JWT.Secret))
 	_, _ = keyDerivation.Write([]byte("rabbit-hole-server/task-cursor-signing/v1"))
 	cursorCodec, err := pagination.NewCodec(keyDerivation.Sum(nil))
@@ -130,6 +146,9 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	notifications := newNotifications(db, cfg, sender, permissionChecker)
 	activityRecorder := service.NewNotifyingRecorder(activityService, notifications.dispatcher)
 	taskService := service.NewTaskService(taskRepo, spaceRepo, tagService, cursorCodec, activityRecorder)
+	taskProcessor := service.NewSubmissionTaskProcessor(formRepo, taskService, templateRepo, customFieldService)
+	templateApplier := service.NewTaskTemplateApplier(database.NewTransactionRunner(db), templateRepo, spaceRepo, taskService, customFieldService)
+	formService.WithTaskIntegration(formTaskConfigService, taskProcessor)
 	userService := service.NewUserService(userRepo)
 	contactService := service.NewContactService(contactRepo)
 	folderService := service.NewFolderService(folderRepo)
@@ -174,11 +193,19 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 		TaskHandler:         handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
 		UserHandler:         handler.NewUserHandler(userService).WithPendingEmail(emailChange),
 
-		ContactHandler:    handler.NewContactHandler(contactService),
-		SearchHandler:     handler.NewSearchHandler(service.NewSearchService(repository.NewSearchRepository(db))),
-		SpaceHandler:      handler.NewSpaceHandler(spaceServ),
-		StatusHandler:     handler.NewStatusHandler(statusServ),
-		TagHandler:        handler.NewTagHandler(tagService),
+		ContactHandler:     handler.NewContactHandler(contactService),
+		SearchHandler:      handler.NewSearchHandler(service.NewSearchService(repository.NewSearchRepository(db))),
+		SpaceHandler:       handler.NewSpaceHandler(spaceServ),
+		StatusHandler:      handler.NewStatusHandler(statusServ),
+		TagHandler:         handler.NewTagHandler(tagService),
+		CustomFieldHandler: handler.NewCustomFieldHandler(customFieldService),
+		FormHandler:        handler.NewFormHandler(formService),
+		FormTaskHandler: handler.NewFormTaskHandler(
+			formTaskConfigService, formRepo, taskProcessor, taskService, permissionChecker,
+		),
+		TaskTemplateHandler: handler.NewTaskTemplateHandler(
+			templateService, permissionChecker, templateApplier,
+		),
 		WorkspaceHandler:  handler.NewWorkspaceHandler(workspaceService),
 		FolderHandler:     handler.NewFolderHandler(folderService),
 		ListHandler:       handler.NewListHandler(spaceServ, folderService),
