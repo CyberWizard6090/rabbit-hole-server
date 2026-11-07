@@ -26,7 +26,9 @@ Health check: `GET /healthz`.
 ## Configuration
 
 See `.env.example`. Important variables: `APP_ENV`, `DB_URL`, `JWT_SECRET`, `JWT_ACCESS_TTL`,
-`JWT_REFRESH_TTL`, `ALLOWED_ORIGINS` (CORS), `TRUSTED_PROXIES`.
+`JWT_REFRESH_TTL`, `ALLOWED_ORIGINS` (CORS), `TRUSTED_PROXIES`. The server validates the whole
+configuration at startup and refuses to start with one error that lists every problem (variable, what is
+wrong, how to fix it); secret values are never printed. `go run ./cmd/migrate` checks the database settings the same way.
 
 ## API
 
@@ -50,7 +52,8 @@ relies on:
   `EMAIL_NOT_VERIFIED` until the address is confirmed. Mail language follows `Accept-Language`
   (Russian or English). `MAIL_DRIVER=log` (the default) only logs mail; for a test mailbox run
   `docker compose --profile mail up` and read the mails at http://127.0.0.1:8025 (Mailpit), see
-  `.env.example`. Production needs `MAIL_DRIVER=smtp` with `starttls` or `tls`.
+  `.env.example`. Production needs `MAIL_DRIVER=smtp` with `starttls` or `tls`. Full setup, links and
+  troubleshooting: [`docs/mail.md`](docs/mail.md).
   A signed-in user changes the login address with `POST /profile/email` (password required): a 24 h
   single-use link goes to the new address (`FRONTEND_URL/confirm-email-change?token=...`, posted to
   `/auth/confirm-email-change`), `DELETE /profile/email-change` cancels it, `GET /profile` shows
