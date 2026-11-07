@@ -37,6 +37,8 @@ func notificationError(c *gin.Context, code string, err error) {
 		response.HandleError(c, httperrors.BadRequest("INVALID_DESTINATION", err.Error(), err))
 	case errors.Is(err, domain.ErrChannelNeedsNoDestination):
 		response.HandleError(c, httperrors.BadRequest("CHANNEL_HAS_NO_DESTINATION", err.Error(), err))
+	case errors.Is(err, domain.ErrChannelHasNoSecret):
+		response.HandleError(c, httperrors.BadRequest("CHANNEL_HAS_NO_SECRET", err.Error(), err))
 	case errors.Is(err, domain.ErrUnsupportedNotificationLoc):
 		response.HandleError(c, httperrors.BadRequest("UNSUPPORTED_LOCALE", err.Error(), err))
 	case errors.Is(err, domain.ErrInvalidToken):
@@ -273,6 +275,24 @@ func (h *NotificationHandler) ResendChannel(c *gin.Context) {
 		return
 	}
 	response.Success(c, http.StatusAccepted, gin.H{"message": "confirmation sent"})
+}
+
+func (h *NotificationHandler) RotateChannelSecret(c *gin.Context) {
+	uid, err := contextutil.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
+	id, ok := idParamOf(c, "channel_id")
+	if !ok {
+		return
+	}
+	secret, err := h.channels.RotateSecret(c.Request.Context(), uid, id)
+	if err != nil {
+		notificationError(c, "CHANNEL_ROTATE_FAILED", err)
+		return
+	}
+	response.Success(c, http.StatusOK, gin.H{"secret": secret})
 }
 
 func (h *NotificationHandler) DeleteChannel(c *gin.Context) {

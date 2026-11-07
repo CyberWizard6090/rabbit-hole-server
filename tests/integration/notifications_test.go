@@ -295,13 +295,13 @@ func TestNotifications_PreferenceMatrixChangesBehaviourPerTypeAndChannel(t *test
 
 	rec := request(t, tc.Router, http.MethodGet, "/api/v1/notifications/preferences", f.tokenA, nil)
 	cells := decodeJSON(t, rec)["data"].([]any)
-	if len(cells) != 10 {
-		t.Fatalf("matrix has %d cells, want 5 types x 2 channels", len(cells))
+	if len(cells) != 15 {
+		t.Fatalf("matrix has %d cells, want 5 types x 3 channels", len(cells))
 	}
 	for _, raw := range cells {
 		cell := raw.(map[string]any)
 		wantDefault := cell["channel"] == "in_app" || cell["type"] == "mention" || cell["type"] == "assigned"
-		if cell["default"] != wantDefault || cell["enabled"] != wantDefault || cell["usable"] != true {
+		if cell["default"] != wantDefault || cell["enabled"] != wantDefault || cell["usable"] != (cell["channel"] != "webhook") {
 			t.Fatalf("cell = %v", cell)
 		}
 	}

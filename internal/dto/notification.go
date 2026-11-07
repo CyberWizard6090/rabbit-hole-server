@@ -4,7 +4,7 @@ import "strings"
 
 type AddChannelRequest struct {
 	Kind        string `json:"kind" binding:"required,max=32"`
-	Destination string `json:"destination" binding:"required,max=254"`
+	Destination string `json:"destination" binding:"required,max=2048"`
 }
 
 type ConfirmChannelRequest struct {

@@ -282,10 +282,10 @@ func TestNotificationTypeRegistryDefaults(t *testing.T) {
 	}
 	for _, typ := range types {
 		w := want[typ.Key]
-		if typ.DefaultEnabled(domain.ChannelKindInApp) != w[0] || typ.DefaultEnabled(domain.ChannelKindEmail) != w[1] {
+		if typ.DefaultEnabled(domain.ChannelKindInApp) != w[0] || typ.DefaultEnabled(domain.ChannelKindEmail) != w[1] || typ.DefaultEnabled(domain.ChannelKindWebhook) != w[1] {
 			t.Errorf("%s defaults wrong", typ.Key)
 		}
-		if typ.DefaultEnabled("webhook") {
+		if typ.DefaultEnabled("carrier-pigeon") {
 			t.Errorf("%s must default to off for unknown channels", typ.Key)
 		}
 		for _, locale := range []string{"en", "ru"} {

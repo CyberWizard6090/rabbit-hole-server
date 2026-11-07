@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	ChannelKindInApp = "in_app"
-	ChannelKindEmail = "email"
+	ChannelKindInApp   = "in_app"
+	ChannelKindEmail   = "email"
+	ChannelKindWebhook = "webhook"
 )
 
 const (
@@ -34,6 +35,7 @@ var (
 	ErrChannelLimitReached        = errors.New("too many extra destinations for this channel")
 	ErrChannelExists              = errors.New("this destination is already added")
 	ErrChannelAlreadyConfirmed    = errors.New("this destination is already confirmed")
+	ErrChannelHasNoSecret         = errors.New("this channel has no signing secret")
 	ErrConfirmationTooSoon        = errors.New("a confirmation was sent a moment ago, try again later")
 	ErrUnsupportedNotificationLoc = errors.New("unsupported locale")
 )
@@ -63,7 +65,7 @@ func (t NotificationType) WordingFor(locale string) NotificationWording {
 var notificationTypes = []NotificationType{
 	{
 		Key: NotificationMention, Priority: 0,
-		Defaults: map[string]bool{ChannelKindInApp: true, ChannelKindEmail: true},
+		Defaults: map[string]bool{ChannelKindInApp: true, ChannelKindEmail: true, ChannelKindWebhook: true},
 		Wording: map[string]NotificationWording{
 			"en": {Subject: "%[1]s mentioned you in \"%[2]s\""},
 			"ru": {Subject: "Вас упомянули в задаче «%[2]s» (%[1]s)"},
@@ -71,7 +73,7 @@ var notificationTypes = []NotificationType{
 	},
 	{
 		Key: NotificationAssigned, Priority: 1,
-		Defaults: map[string]bool{ChannelKindInApp: true, ChannelKindEmail: true},
+		Defaults: map[string]bool{ChannelKindInApp: true, ChannelKindEmail: true, ChannelKindWebhook: true},
 		Wording: map[string]NotificationWording{
 			"en": {Subject: "%[1]s assigned you to \"%[2]s\""},
 			"ru": {Subject: "Вас назначили на «%[2]s» (%[1]s)"},
@@ -186,6 +188,20 @@ type NotificationChannel struct {
 	Destination string     `json:"destination"`
 	VerifiedAt  *time.Time `json:"verified_at"`
 	CreatedAt   time.Time  `json:"created_at"`
+	DisabledAt  *time.Time `json:"disabled_at"`
+	LastError   string     `json:"last_error"`
+	SecretEnc   string     `json:"-"`
+}
+
+type WebhookTarget struct {
+	ChannelID uint
+	SecretEnc string
+}
+
+type WebhookChannelRepository interface {
+	SetSecret(ctx context.Context, userID, channelID uint, secretEnc string) error
+	ActiveTarget(ctx context.Context, userID uint, destination string) (*WebhookTarget, error)
+	RecordDelivery(ctx context.Context, channelID uint, failure string, maxFailures int) error
 }
 
 type NotificationChannelRepository interface {

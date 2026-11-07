@@ -56,6 +56,8 @@ var (
 		"POST /api/v1/notifications/channels":                    "adds a destination to the caller's own account",
 		"POST /api/v1/notifications/channels/:channel_id/resend": "scoped to the caller in SQL; others get 404",
 		"DELETE /api/v1/notifications/channels/:channel_id":      "scoped to the caller in SQL; others get 404",
+
+		"POST /api/v1/notifications/channels/:channel_id/rotate-secret": "scoped to the caller in SQL; others get 404",
 	}
 )
 

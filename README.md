@@ -103,7 +103,10 @@ relies on:
   assignments, comments, status and due date changes become notifications of five types, delivered to the
   in-app inbox (`/notifications`) and by e-mail according to per-type preferences
   (`/notifications/preferences`). Extra e-mail addresses (`/notifications/channels`) receive nothing until
-  the owner confirms them with an emailed link. `NOTIFICATION_EMAIL_PER_HOUR` caps mails per user.
+  the owner confirms them with an emailed link. `NOTIFICATION_EMAIL_PER_HOUR` caps mails per user. A `webhook`
+  channel (https URL, SSRF-safe, confirmed with a signed single-use token POSTed to it) delivers the same events as
+  JSON signed with `X-Rabbit-Hole-Signature` (HMAC-SHA256, per-channel secret shown once, rotatable); it is disabled
+  after `NOTIFICATION_WEBHOOK_MAX_FAILURES` consecutive failures.
 - **Task order**: every task has an integer `position` within its list; new tasks go to the end and
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.

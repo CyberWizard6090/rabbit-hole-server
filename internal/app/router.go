@@ -149,6 +149,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					notifications.GET("/channels", deps.NotificationHandler.ListChannels)
 					notifications.POST("/channels", channelMailLimiter, deps.NotificationHandler.AddChannel)
 					notifications.POST("/channels/:channel_id/resend", channelMailLimiter, deps.NotificationHandler.ResendChannel)
+					notifications.POST("/channels/:channel_id/rotate-secret", channelMailLimiter, deps.NotificationHandler.RotateChannelSecret)
 					notifications.DELETE("/channels/:channel_id", deps.NotificationHandler.DeleteChannel)
 					notifications.DELETE("/:notification_id", deps.NotificationHandler.Delete)
 				}

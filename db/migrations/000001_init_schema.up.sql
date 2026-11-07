@@ -445,6 +445,10 @@ CREATE TABLE notification_channels (
     destination TEXT NOT NULL,
     verified_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    secret_enc TEXT,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    disabled_at TIMESTAMPTZ,
+    last_error TEXT,
     CONSTRAINT chk_notification_channels_destination CHECK (btrim(destination) <> ''),
     CONSTRAINT fk_notification_channels_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
