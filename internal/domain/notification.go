@@ -140,13 +140,18 @@ type NotificationDraft struct {
 	Payload     json.RawMessage
 }
 
+type NotificationRef struct {
+	ID        uint
+	CreatedAt time.Time
+}
+
 type NotificationFilter struct {
 	UnreadOnly bool
 	Type       string
 }
 
 type NotificationRepository interface {
-	Create(ctx context.Context, draft NotificationDraft, keep int) error
+	Create(ctx context.Context, draft NotificationDraft, keep int) (NotificationRef, error)
 	List(ctx context.Context, userID uint, filter NotificationFilter, limit, offset int) ([]Notification, int64, error)
 	UnreadCounts(ctx context.Context, userID uint) (map[string]int64, error)
 	MarkRead(ctx context.Context, userID uint, ids []uint, all bool, typeKey string) (int64, error)

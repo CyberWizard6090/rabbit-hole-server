@@ -104,7 +104,9 @@ relies on:
   assignments, comments, status and due date changes become notifications of five types, delivered to the
   in-app inbox (`/notifications`) and by e-mail according to per-type preferences
   (`/notifications/preferences`). Extra e-mail addresses (`/notifications/channels`) receive nothing until
-  the owner confirms them with an emailed link. `NOTIFICATION_EMAIL_PER_HOUR` caps mails per user.
+  the owner confirms them with an emailed link. `NOTIFICATION_EMAIL_PER_HOUR` caps mails per user. Open tabs
+  stay in sync over the per-user WebSocket feed `GET /notifications/events` (single-use ticket from
+  `POST /notifications/events/ticket`): `notification.created`, `.read`, `.deleted` and `.unread_count`.
 - **Task order**: every task has an integer `position` within its list; new tasks go to the end and
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.

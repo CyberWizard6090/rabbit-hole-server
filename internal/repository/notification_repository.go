@@ -27,24 +27,35 @@ func NewNotificationRepository(db *gorm.DB) domain.NotificationRepository {
 	return &notificationRepository{db: db}
 }
 
-func (r *notificationRepository) Create(ctx context.Context, d domain.NotificationDraft, keep int) error {
+func (r *notificationRepository) Create(ctx context.Context, d domain.NotificationDraft, keep int) (domain.NotificationRef, error) {
 	payload := d.Payload
 	if len(payload) == 0 {
 		payload = json.RawMessage("{}")
 	}
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Exec(
-			"INSERT INTO notifications (user_id, type, task_id, actor_id, workspace_id, payload) VALUES (?, ?, ?, ?, ?, ?::jsonb)",
+	var ref domain.NotificationRef
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var rows []struct {
+			ID        uint
+			CreatedAt time.Time
+		}
+		if err := tx.Raw(
+			"INSERT INTO notifications (user_id, type, task_id, actor_id, workspace_id, payload) VALUES (?, ?, ?, ?, ?, ?::jsonb) "+
+				"RETURNING id, created_at",
 			d.UserID, d.Type, d.TaskID, d.ActorID, d.WorkspaceID, string(payload),
-		).Error; err != nil {
+		).Scan(&rows).Error; err != nil {
 			return err
 		}
+		if len(rows) != 1 {
+			return domain.ErrNotFound
+		}
+		ref = domain.NotificationRef{ID: rows[0].ID, CreatedAt: rows[0].CreatedAt}
 		return tx.Exec(
 			"DELETE FROM notifications WHERE user_id = ? AND id NOT IN "+
 				"(SELECT id FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT ?)",
 			d.UserID, d.UserID, keep,
 		).Error
-	}))
+	})
+	return ref, mapErr(err)
 }
 
 type notificationRow struct {

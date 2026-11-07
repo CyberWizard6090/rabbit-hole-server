@@ -71,13 +71,14 @@ func (r *ChannelRegistry) Get(kind string) (Channel, bool) {
 type inAppChannel struct {
 	repo domain.NotificationRepository
 	keep int
+	push *notificationPush
 }
 
-func NewInAppChannel(repo domain.NotificationRepository, keep int) Channel {
+func NewInAppChannel(repo domain.NotificationRepository, keep int, publisher NotificationPublisher) Channel {
 	if keep <= 0 {
 		keep = domain.MaxNotificationsPerUser
 	}
-	return &inAppChannel{repo: repo, keep: keep}
+	return &inAppChannel{repo: repo, keep: keep, push: newNotificationPush(repo, publisher)}
 }
 
 func (c *inAppChannel) Kind() string { return domain.ChannelKindInApp }
@@ -101,10 +102,15 @@ func (c *inAppChannel) Deliver(ctx context.Context, d Delivery) error {
 	if err != nil {
 		return err
 	}
-	return c.repo.Create(ctx, domain.NotificationDraft{
+	ref, err := c.repo.Create(ctx, domain.NotificationDraft{
 		UserID: d.RecipientID, Type: d.Content.Type.Key, TaskID: d.Content.TaskID,
 		ActorID: d.Content.ActorID, WorkspaceID: d.Content.WorkspaceID, Payload: raw,
 	}, c.keep)
+	if err != nil {
+		return err
+	}
+	c.push.created(ctx, d.RecipientID, ref, d.Content)
+	return nil
 }
 
 type EmailThrottle struct {

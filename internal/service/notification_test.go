@@ -75,24 +75,30 @@ func (f *fakeSettings) Locale(_ context.Context, id uint) (string, error) {
 func (f *fakeSettings) SaveLocale(context.Context, uint, string) error { return nil }
 
 type fakeInbox struct {
-	mu     sync.Mutex
-	drafts []domain.NotificationDraft
+	mu        sync.Mutex
+	drafts    []domain.NotificationDraft
+	counts    map[string]int64
+	countsErr error
+	marked    int64
+	deleteErr error
 }
 
-func (f *fakeInbox) Create(_ context.Context, d domain.NotificationDraft, _ int) error {
+func (f *fakeInbox) Create(_ context.Context, d domain.NotificationDraft, _ int) (domain.NotificationRef, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.drafts = append(f.drafts, d)
-	return nil
+	return domain.NotificationRef{ID: uint(len(f.drafts)), CreatedAt: time.Unix(1700000000, 0).UTC()}, nil
 }
 func (f *fakeInbox) List(context.Context, uint, domain.NotificationFilter, int, int) ([]domain.Notification, int64, error) {
 	return nil, 0, nil
 }
-func (f *fakeInbox) UnreadCounts(context.Context, uint) (map[string]int64, error) { return nil, nil }
-func (f *fakeInbox) MarkRead(context.Context, uint, []uint, bool, string) (int64, error) {
-	return 0, nil
+func (f *fakeInbox) UnreadCounts(context.Context, uint) (map[string]int64, error) {
+	return f.counts, f.countsErr
 }
-func (f *fakeInbox) Delete(context.Context, uint, uint) error { return nil }
+func (f *fakeInbox) MarkRead(context.Context, uint, []uint, bool, string) (int64, error) {
+	return f.marked, nil
+}
+func (f *fakeInbox) Delete(context.Context, uint, uint) error { return f.deleteErr }
 
 type fakeComments struct{ comment *domain.Comment }
 
@@ -239,7 +245,7 @@ func newNotifyRig(t *testing.T, perms allowPerms, emailLimit int) *notifyRig {
 		4: {Email: "four@example.test", Verified: true},
 	}}
 	registry := NewChannelRegistry(
-		NewInAppChannel(rig.inbox, 1000),
+		NewInAppChannel(rig.inbox, 1000, nil),
 		NewEmailChannel(source, rig.channels, rig.mailbox, "https://app.example.test", rig.throttle),
 	)
 	rig.dispatcher = NewNotificationDispatcher(NotificationDispatcherDeps{
@@ -500,7 +506,7 @@ func TestChannelServiceValidationLimitsAndCooldown(t *testing.T) {
 	repo := newFakeChannelRepo()
 	mailbox := mail.NewMemory()
 	registry := NewChannelRegistry(
-		NewInAppChannel(&fakeInbox{}, 10),
+		NewInAppChannel(&fakeInbox{}, 10, nil),
 		NewEmailChannel(&fakeSource{}, repo, mailbox, "https://app.example.test", NewEmailThrottle(1, time.Hour)),
 	)
 	svc := NewNotificationChannelService(repo, &fakeSource{}, registry)
@@ -639,7 +645,7 @@ func TestPreferencesMatrixReportsUsability(t *testing.T) {
 	source := &fakeSource{accounts: map[uint]domain.AccountMailTarget{
 		2: {Email: "a@b.test", Verified: true}, 3: {Email: "c@d.test"},
 	}}
-	registry := NewChannelRegistry(NewInAppChannel(&fakeInbox{}, 10), NewEmailChannel(source, repo, mail.NewMemory(), "x", NewEmailThrottle(1, time.Hour)))
+	registry := NewChannelRegistry(NewInAppChannel(&fakeInbox{}, 10, nil), NewEmailChannel(source, repo, mail.NewMemory(), "x", NewEmailThrottle(1, time.Hour)))
 	svc := NewNotificationService(&fakeInbox{}, settings, &fakeWatchers{}, registry)
 
 	matrix, err := svc.Preferences(context.Background(), 3)

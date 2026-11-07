@@ -30,6 +30,7 @@ type NotificationService struct {
 	settings domain.NotificationSettingsRepository
 	watchers domain.WatcherRepository
 	channels *ChannelRegistry
+	push     *notificationPush
 }
 
 func NewNotificationService(
@@ -37,6 +38,11 @@ func NewNotificationService(
 	watchers domain.WatcherRepository, channels *ChannelRegistry,
 ) *NotificationService {
 	return &NotificationService{inbox: inbox, settings: settings, watchers: watchers, channels: channels}
+}
+
+func (s *NotificationService) WithPublisher(publisher NotificationPublisher) *NotificationService {
+	s.push = newNotificationPush(s.inbox, publisher)
+	return s
 }
 
 func (s *NotificationService) List(
@@ -69,11 +75,20 @@ func (s *NotificationService) MarkRead(ctx context.Context, userID uint, ids []u
 			return 0, domain.ErrUnknownNotificationType
 		}
 	}
-	return s.inbox.MarkRead(ctx, userID, ids, all, typeKey)
+	updated, err := s.inbox.MarkRead(ctx, userID, ids, all, typeKey)
+	if err != nil {
+		return updated, err
+	}
+	s.push.read(ctx, userID, ids, all, typeKey, updated)
+	return updated, nil
 }
 
 func (s *NotificationService) Delete(ctx context.Context, userID, id uint) error {
-	return s.inbox.Delete(ctx, userID, id)
+	if err := s.inbox.Delete(ctx, userID, id); err != nil {
+		return err
+	}
+	s.push.deleted(ctx, userID, id)
+	return nil
 }
 
 func (s *NotificationService) Preferences(ctx context.Context, userID uint) ([]PreferenceView, error) {
