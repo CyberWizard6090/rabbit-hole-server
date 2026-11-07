@@ -104,12 +104,29 @@ func (h *RealtimeHandler) IssueSpaceTicket(c *gin.Context) {
 	}
 }
 
+func (h *RealtimeHandler) IssueNotificationTicket(c *gin.Context) {
+	userID, err := contextutil.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
+	h.issueTicket(c, realtime.UserTopic(userID))
+}
+
+func (h *RealtimeHandler) ConnectNotifications(c *gin.Context) {
+	redeem := func(raw string) (uint, string, error) {
+		userID, err := h.tickets.RedeemUser(raw)
+		return userID, realtime.UserTopic(userID), err
+	}
+	h.connect(c, redeem, func(uint) (bool, error) { return true, nil })
+}
+
 func (h *RealtimeHandler) ConnectList(c *gin.Context) {
 	listID, ok := idParam(c, "list_id")
 	if !ok {
 		return
 	}
-	h.connect(c, realtime.ListTopic(listID), func(userID uint) (bool, error) {
+	h.connect(c, redeemFor(h, realtime.ListTopic(listID)), func(userID uint) (bool, error) {
 		return h.checker.HasListPermission(c.Request.Context(), userID, listID, permissionTaskRead)
 	})
 }
@@ -119,13 +136,22 @@ func (h *RealtimeHandler) ConnectSpace(c *gin.Context) {
 	if !ok {
 		return
 	}
-	h.connect(c, realtime.SpaceTopic(spaceID), func(userID uint) (bool, error) {
+	h.connect(c, redeemFor(h, realtime.SpaceTopic(spaceID)), func(userID uint) (bool, error) {
 		return h.checker.HasSpacePermission(c.Request.Context(), userID, spaceID, permissionTaskRead)
 	})
 }
 
-func (h *RealtimeHandler) connect(c *gin.Context, topic string, authorize func(userID uint) (bool, error)) {
-	userID, err := h.tickets.Redeem(c.GetString(middleware.WSTicketKey), topic)
+func redeemFor(h *RealtimeHandler, topic string) func(string) (uint, string, error) {
+	return func(raw string) (uint, string, error) {
+		userID, err := h.tickets.Redeem(raw, topic)
+		return userID, topic, err
+	}
+}
+
+func (h *RealtimeHandler) connect(
+	c *gin.Context, redeem func(raw string) (uint, string, error), authorize func(userID uint) (bool, error),
+) {
+	userID, topic, err := redeem(c.GetString(middleware.WSTicketKey))
 	if err != nil {
 		response.HandleError(c, httperrors.Unauthorized("INVALID_TICKET", "invalid or expired ticket", err))
 		return

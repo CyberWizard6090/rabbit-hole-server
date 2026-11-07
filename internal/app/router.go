@@ -109,6 +109,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 
 			v1.GET("/images/:public_id", deps.FileHandler.ServeImage)
 
+			v1.GET("/notifications/events", deps.RealtimeHandler.ConnectNotifications)
 			v1.GET("/lists/:list_id/events", deps.RealtimeHandler.ConnectList)
 			v1.GET("/spaces/:space_id/events", deps.RealtimeHandler.ConnectSpace)
 
@@ -141,6 +142,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				{
 					notifications.GET("", deps.NotificationHandler.List)
 					notifications.GET("/unread-count", deps.NotificationHandler.UnreadCount)
+					notifications.POST("/events/ticket", ticketLimiter, deps.RealtimeHandler.IssueNotificationTicket)
 					notifications.POST("/read", deps.NotificationHandler.MarkRead)
 					notifications.GET("/preferences", deps.NotificationHandler.Preferences)
 					notifications.PUT("/preferences", deps.NotificationHandler.SavePreferences)

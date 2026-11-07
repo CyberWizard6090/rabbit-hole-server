@@ -134,9 +134,25 @@ func (h *Hub) Publish(event Event) {
 		return
 	}
 
+	h.fanOut(payload, ListTopic(event.ListID), SpaceTopic(event.SpaceID))
+}
+
+func (h *Hub) PublishUser(userID uint, event UserEvent) {
+	if event.At.IsZero() {
+		event.At = h.now()
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		h.log.Error("realtime: cannot encode event", "type", event.Type, "error", err)
+		return
+	}
+	h.fanOut(payload, UserTopic(userID))
+}
+
+func (h *Hub) fanOut(payload []byte, topics ...string) {
 	var slow []*Subscriber
 	h.mu.RLock()
-	for _, topic := range []string{ListTopic(event.ListID), SpaceTopic(event.SpaceID)} {
+	for _, topic := range topics {
 		for sub := range h.topics[topic] {
 			select {
 			case sub.send <- payload:

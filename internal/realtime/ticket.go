@@ -106,6 +106,28 @@ func (s *TicketStore) Redeem(raw, topic string) (uint, error) {
 	return t.userID, nil
 }
 
+func (s *TicketStore) RedeemUser(raw string) (uint, error) {
+	if raw == "" {
+		return 0, ErrInvalidTicket
+	}
+	key := hashTicket(raw)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	t, ok := s.tickets[key]
+	if !ok {
+		return 0, ErrInvalidTicket
+	}
+	delete(s.tickets, key)
+	s.releaseLocked(t.userID)
+
+	if !s.now().Before(t.expires) || t.topic != UserTopic(t.userID) {
+		return 0, ErrInvalidTicket
+	}
+	return t.userID, nil
+}
+
 func (s *TicketStore) releaseLocked(userID uint) {
 	if s.byUser[userID]--; s.byUser[userID] <= 0 {
 		delete(s.byUser, userID)

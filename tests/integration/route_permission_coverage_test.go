@@ -23,6 +23,7 @@ var (
 		"POST /api/v1/auth/reset-password":            "authenticated by a single-use emailed token",
 		"POST /api/v1/auth/confirm-email-change":      "authenticated by a single-use token emailed to the new address",
 		"POST /api/v1/notifications/channels/confirm": "authenticated by a single-use emailed token; answers the same for every address",
+		"GET /api/v1/notifications/events":            "authenticated by a single-use ticket issued to the signed-in user for their own feed",
 		"GET /api/v1/lists/:list_id/events":           "authenticated by a single-use ticket issued after a permission check",
 		"GET /api/v1/spaces/:space_id/events":         "authenticated by a single-use ticket issued after a permission check",
 		"GET /api/v1/images/:public_id":               "editor images and avatars are public by design; the id is a random 128-bit value",
@@ -46,6 +47,7 @@ var (
 
 		"GET /api/v1/notifications":                              "caller's own inbox; entries about unreadable tasks are hidden",
 		"GET /api/v1/notifications/unread-count":                 "caller's own unread counts",
+		"POST /api/v1/notifications/events/ticket":               "issues a ticket for the caller's own notification feed",
 		"POST /api/v1/notifications/read":                        "scoped to the caller in SQL",
 		"DELETE /api/v1/notifications/:notification_id":          "scoped to the caller in SQL; others get 404",
 		"GET /api/v1/notifications/preferences":                  "caller's own preferences",

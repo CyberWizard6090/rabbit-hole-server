@@ -1695,6 +1695,47 @@ paths:
       responses:
         '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
+  /notifications/events/ticket:
+    post:
+      tags: [realtime, notifications]
+      summary: "Issue a single-use WebSocket ticket for the caller's notification feed"
+      description: Valid for about 30 seconds and only for the notification feed of the caller. Rate limited to 60 requests per minute.
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /notifications/events:
+    get:
+      tags: [realtime, notifications]
+      summary: "Follow the caller's notifications over WebSocket"
+      description: |
+        Upgrades to a WebSocket. Authenticated by the single-use ticket instead of a bearer token; the `Origin`
+        header is checked like on the list and space feeds. Every connection receives only the events of the user
+        who requested the ticket, so several tabs stay in sync. At most 10 connections per user (429 beyond that).
+        Delivery is best effort: refetch `/notifications` and `/notifications/unread-count` after a reconnect.
+        Entries about tasks the user can no longer read are never pushed.
+
+        Frames are JSON text messages; the first is `ready`. Event types:
+
+        * `notification.created`: `notification` (`id`, `type`, `task_id`, `title` is the task title,
+          optional `snippet` is a plain-text excerpt of the comment or checklist item, `created_at`)
+          and `unread_count`. Sent after the entry is stored.
+        * `notification.read`: `ids` (or `all: true` with an optional `filter_type`), `updated`, `unread_count`.
+          Not sent when nothing changed.
+        * `notification.deleted`: `notification_id`, `unread_count`.
+        * `notification.unread_count`: `unread_count` and `by_type`, sent after each of the events above.
+
+        Every event also carries `at`.
+      security: []
+      parameters:
+        - {name: ticket, in: query, required: true, schema: {type: string}}
+      responses:
+        '101': {description: Switching Protocols}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
   /notifications/read:
     post:
       tags: [notifications]

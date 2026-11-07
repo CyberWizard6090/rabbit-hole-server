@@ -127,7 +127,9 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	}
 	activityService := service.NewActivityService(repository.NewActivityRepository(db))
 	permissionChecker := repository.NewPermissionChecker(db)
-	notifications := newNotifications(db, cfg, sender, permissionChecker)
+	hub := realtime.NewHub(realtime.DefaultMaxConnectionsPerUser, slog.Default())
+	tickets := realtime.NewTicketStore(realtime.DefaultTicketTTL)
+	notifications := newNotifications(db, cfg, sender, permissionChecker, hub)
 	activityRecorder := service.NewNotifyingRecorder(activityService, notifications.dispatcher)
 	taskService := service.NewTaskService(taskRepo, spaceRepo, tagService, cursorCodec, activityRecorder)
 	userService := service.NewUserService(userRepo)
@@ -156,9 +158,6 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	if err != nil {
 		return nil, fmt.Errorf("get database handle for readiness checks: %w", err)
 	}
-
-	hub := realtime.NewHub(realtime.DefaultMaxConnectionsPerUser, slog.Default())
-	tickets := realtime.NewTicketStore(realtime.DefaultTicketTTL)
 
 	return &Container{
 		AuthService:         authServ,
@@ -195,7 +194,7 @@ type notificationParts struct {
 	handler    *handler.NotificationHandler
 }
 
-func newNotifications(db *gorm.DB, cfg *config.Config, sender mail.Sender, permissions service.PermissionChecker) notificationParts {
+func newNotifications(db *gorm.DB, cfg *config.Config, sender mail.Sender, permissions service.PermissionChecker, publisher service.NotificationPublisher) notificationParts {
 	inbox := repository.NewNotificationRepository(db)
 	source := repository.NewNotificationSourceRepository(db)
 	settings := repository.NewNotificationSettingsRepository(db)
@@ -204,7 +203,7 @@ func newNotifications(db *gorm.DB, cfg *config.Config, sender mail.Sender, permi
 
 	throttle := service.NewEmailThrottle(cfg.Notifications.EmailPerHour, time.Hour)
 	registry := service.NewChannelRegistry(
-		service.NewInAppChannel(inbox, cfg.Notifications.MaxPerUser),
+		service.NewInAppChannel(inbox, cfg.Notifications.MaxPerUser, publisher),
 		service.NewEmailChannel(source, channelRepo, sender, cfg.Mail.FrontendURL, throttle),
 	)
 	dispatcher := service.NewNotificationDispatcher(service.NotificationDispatcherDeps{
@@ -214,7 +213,7 @@ func newNotifications(db *gorm.DB, cfg *config.Config, sender mail.Sender, permi
 	return notificationParts{
 		dispatcher: dispatcher,
 		handler: handler.NewNotificationHandler(
-			service.NewNotificationService(inbox, settings, watchers, registry),
+			service.NewNotificationService(inbox, settings, watchers, registry).WithPublisher(publisher),
 			service.NewNotificationChannelService(channelRepo, source, registry),
 		),
 	}
