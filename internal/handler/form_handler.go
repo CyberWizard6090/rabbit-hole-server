@@ -39,7 +39,7 @@ func (h *FormHandler) Create(c *gin.Context) {
 		return
 	}
 	form, err := h.service.Create(c.Request.Context(), workspaceID, userID, service.FormInput{
-		Name: req.Name, Description: req.Description, Slug: req.Slug,
+		Name: req.Name, Description: req.Description, Slug: req.Slug, Settings: req.Settings,
 	})
 	if err != nil {
 		h.writeError(c, "FORM_CREATE_FAILED", err)
@@ -85,7 +85,7 @@ func (h *FormHandler) Update(c *gin.Context) {
 		return
 	}
 	form, err := h.service.Update(c.Request.Context(), workspaceID, formID, service.FormInput{
-		Name: req.Name, Description: req.Description, Slug: req.Slug,
+		Name: req.Name, Description: req.Description, Slug: req.Slug, Settings: req.Settings,
 	})
 	if err != nil {
 		h.writeError(c, "FORM_UPDATE_FAILED", err)
@@ -268,7 +268,22 @@ func (h *FormHandler) GetSubmission(c *gin.Context) {
 }
 
 func (h *FormHandler) writeError(c *gin.Context, code string, err error) {
+	writeFormError(c, code, err)
+}
+
+func writeFormError(c *gin.Context, code string, err error) {
+	var formErr *domain.FormError
 	switch {
+	case errors.As(err, &formErr):
+		status := formErr.Status
+		if status == 0 {
+			status = http.StatusBadRequest
+		}
+		response.HandleError(c, httperrors.Wrap(formErr.Code, formErr.Message, status, err))
+	case errors.Is(err, domain.ErrFormClosed):
+		response.HandleError(c, httperrors.Wrap("FORM_CLOSED", err.Error(), http.StatusGone, err))
+	case errors.Is(err, domain.ErrFormFull):
+		response.HandleError(c, httperrors.Conflict("FORM_FULL", err.Error(), err))
 	case errors.Is(err, domain.ErrInvalidForm), errors.Is(err, domain.ErrInvalidSubmission):
 		response.HandleError(c, httperrors.BadRequest("INVALID_FORM", err.Error(), err))
 	case errors.Is(err, domain.ErrFormSubmissionsLimited):

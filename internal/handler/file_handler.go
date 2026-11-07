@@ -40,6 +40,10 @@ func extendDeadlines(c *gin.Context) {
 }
 
 func (h *FileHandler) handleError(c *gin.Context, code string, err error) {
+	writeFileError(c, code, err)
+}
+
+func writeFileError(c *gin.Context, code string, err error) {
 	var tooBig *http.MaxBytesError
 	switch {
 	case errors.As(err, &tooBig), errors.Is(err, domain.ErrFileTooLarge):

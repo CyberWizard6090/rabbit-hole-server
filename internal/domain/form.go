@@ -20,7 +20,21 @@ var (
 	ErrInvalidTaskTemplate    = errors.New("invalid task template")
 	ErrTaskTemplateNotFound   = errors.New("task template not found")
 	ErrTaskTemplateArchived   = errors.New("task template is archived")
+	ErrFormClosed             = errors.New("form no longer accepts submissions")
+	ErrFormFull               = errors.New("form reached its submission limit")
 )
+
+type FormError struct {
+	Code    string
+	Message string
+	Status  int
+}
+
+func (e *FormError) Error() string { return e.Message }
+
+func NewFormError(code, message string) *FormError {
+	return &FormError{Code: code, Message: message}
+}
 
 type FormStatus string
 
@@ -94,6 +108,32 @@ type Form struct {
 	Questions        []FormQuestion  `json:"questions,omitempty"`
 	CurrentVersion   *FormVersion    `json:"current_version,omitempty"`
 	TaskConfig       json.RawMessage `json:"task_config,omitempty"`
+	Settings         FormSettings    `json:"settings"`
+}
+
+type FormSettings struct {
+	SubmitButtonText string     `json:"submit_button_text"`
+	SuccessMessage   string     `json:"success_message"`
+	RedirectURL      string     `json:"redirect_url"`
+	AccentColor      string     `json:"accent_color"`
+	LogoFileID       string     `json:"logo_file_id"`
+	CoverFileID      string     `json:"cover_file_id"`
+	NotifyOnSubmit   []uint     `json:"notify_on_submit"`
+	ClosesAt         *time.Time `json:"closes_at"`
+	MaxSubmissions   *int       `json:"max_submissions"`
+	LogoURL          string     `json:"logo_url,omitempty"`
+	CoverURL         string     `json:"cover_url,omitempty"`
+}
+
+type FormUploadClaim struct {
+	QuestionID uint
+	PublicID   string
+}
+
+type SubmissionOptions struct {
+	ClosesAt       *time.Time
+	MaxSubmissions *int
+	Uploads        []FormUploadClaim
 }
 
 type SubmissionAnswer struct {
@@ -113,6 +153,16 @@ type FormSubmission struct {
 	TaskCreationStatus TaskCreationStatus `json:"task_creation_status"`
 	TaskCreationError  string             `json:"task_creation_error,omitempty"`
 	CreatedBy          uint               `json:"-"`
+	Files              []SubmissionFile   `json:"files,omitempty"`
+}
+
+type SubmissionFile struct {
+	ID               uint   `json:"id"`
+	QuestionID       uint   `json:"question_id"`
+	Name             string `json:"name"`
+	ContentType      string `json:"content_type"`
+	Size             int64  `json:"size"`
+	TaskAttachmentID *uint  `json:"task_attachment_id,omitempty"`
 }
 
 type TaskCreationStatus string
@@ -215,9 +265,13 @@ type FormRepository interface {
 		idempotencyKey string,
 		requestHash string,
 		answers []SubmissionAnswer,
+		options SubmissionOptions,
 	) (*FormSubmission, bool, error)
 	ListSubmissions(ctx context.Context, formID uint) ([]FormSubmission, error)
 	GetSubmission(ctx context.Context, submissionID uint) (*FormSubmission, error)
+	CountSubmissions(ctx context.Context, formID uint) (int, error)
+	WorkspaceImageExists(ctx context.Context, workspaceID uint, publicID string) (bool, error)
+	WorkspaceMemberIDs(ctx context.Context, workspaceID uint, userIDs []uint) ([]uint, error)
 }
 
 type TaskTemplateRepository interface {

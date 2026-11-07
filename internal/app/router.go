@@ -67,6 +67,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		"POST /api/v1/workspaces/:workspace_id/images": cfg.Storage.MaxImageBytes + multipartOverhead,
 		"POST /api/v1/profile/avatar":                  cfg.Storage.MaxAvatarBytes + multipartOverhead,
 		"POST /api/v1/public/forms/:slug/submissions":  publicFormBodyLimit,
+		"POST /api/v1/public/forms/:slug/uploads":      cfg.Forms.UploadMaxBytes + multipartOverhead,
 	}))
 
 	require := func(resource middleware.Resource) func(code string) gin.HandlerFunc {
@@ -85,6 +86,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	uploadLimiter := middleware.RateLimiter(60, time.Minute)
 	channelMailLimiter := middleware.RateLimiter(20, time.Minute)
 	rehostLimiter := middleware.RateLimiter(30, time.Minute)
+	formUploadLimiter := middleware.RateLimiter(30, time.Minute)
 
 	api := r.Group("/api")
 	{
@@ -114,6 +116,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 			v1.POST("/public/forms/:slug/submissions",
 				middleware.RateLimiter(5, time.Minute),
 				deps.FormHandler.Submit)
+			v1.POST("/public/forms/:slug/uploads", formUploadLimiter, deps.FormUploadHandler.Upload)
 
 			v1.GET("/notifications/events", deps.RealtimeHandler.ConnectNotifications)
 			v1.GET("/lists/:list_id/events", deps.RealtimeHandler.ConnectList)
@@ -251,6 +254,9 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					workspaces.GET("/:workspace_id/submissions/:submission_id",
 						inWorkspace(domain.PermWorkspaceRead),
 						deps.FormHandler.GetSubmission)
+					workspaces.GET("/:workspace_id/submissions/:submission_id/files/:file_id",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.FormUploadHandler.DownloadSubmissionFile)
 
 					workspaces.POST("/:workspace_id/custom-fields",
 						inWorkspace(domain.PermWorkspaceUpdate),

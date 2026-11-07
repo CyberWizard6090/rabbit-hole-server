@@ -661,17 +661,74 @@ paths:
     get:
       tags: [forms]
       summary: "Get the published public form schema"
+      description: |
+        Public. Serves the current published version. `settings` carries the presentation settings of that version
+        (`submit_button_text`, `success_message`, `redirect_url`, `accent_color`, `logo_url`, `cover_url`, `closes_at`; empty
+        strings and `null` mean "not set"). `closed` is true once `closes_at` has passed and `full` once `max_submissions` is
+        reached; a closed or full form is still returned so the page can explain it, and submissions are refused with
+        `FORM_CLOSED` (410) or `FORM_FULL` (409). The notification recipients, the submission limit and workspace or creator
+        identifiers are never part of the public schema. Each question may carry `settings.visible_if`
+        (see `FormQuestionRequest`) for the client to evaluate.
       security: []
       parameters:
         - {name: slug, in: path, required: true, schema: {type: string}}
       responses:
         '200': {$ref: '#/components/responses/Ok'}
         '404': {$ref: '#/components/responses/Error'}
+  /public/forms/{slug}/uploads:
+    post:
+      tags: [forms]
+      summary: "Upload a file for a `file` question of a published form"
+      description: |
+        Public, `multipart/form-data` with one file in the `file` field per request (repeat the call for several files).
+        Only published forms with at least one `file` question accept uploads (404 for unknown, draft or archived forms,
+        400 `FORM_UPLOADS_NOT_ACCEPTED` without a file question, 410 `FORM_CLOSED` after `closes_at`). Limited to 30 requests
+        per minute per client IP and to 500 pending uploads per form (429 `FORM_UPLOADS_LIMITED`); the size limit is
+        `FORM_UPLOAD_MAX_BYTES` (default 10 MiB, 413 `FILE_TOO_LARGE`). The content type is sniffed from the bytes, the client
+        header is ignored: images (png, jpeg, gif, webp, avif), pdf, zip based documents and plain text are accepted; anything
+        else, HTML or SVG markup, executables and files with executable extensions are refused with 415
+        `UNSUPPORTED_FILE_TYPE` (empty files 400 `FILE_EMPTY`). The file name is sanitised like attachment names.
+        The returned `id` is an opaque 128-bit value. The upload expires after `FORM_UPLOAD_TTL` (default 24h) and is deleted by
+        a background cleanup unless a submission claims it. Put the ids in the answer of the `file` question as an array
+        (`{"<question_id>": ["<id>", ...]}`): every id must belong to this form, be unexpired and unused (400
+        `FORM_UPLOAD_INVALID` otherwise, nothing is stored) and the array may hold at most `settings.max_files` ids of the question
+        (default 5, hard cap 10). When the submission creates a task, the files become ordinary attachments of that task
+        (uploader is the form creator, activity `attachment.created`); otherwise they stay linked to the submission and can be
+        downloaded by workspace members.
+      security: []
+      parameters:
+        - {name: slug, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        '201':
+          description: "`data` is a FormUploadResult."
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Envelope'}
+              example: {data: {id: "7d1c0a6ee2f94b3d8f7c2a91b4e5d630", name: "report.pdf", content_type: "application/pdf", size: 48213, expires_at: "2026-11-08T18:00:00Z"}}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '410': {$ref: '#/components/responses/Error'}
+        '413': {$ref: '#/components/responses/Error'}
+        '415': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
   /public/forms/{slug}/submissions:
     post:
       tags: [forms]
       summary: "Submit answers to a published form"
-      description: "Public. Limited to 5 requests per minute per client IP and to FORM_SUBMISSIONS_PER_HOUR (default 200) per form (code FORM_SUBMISSIONS_LIMITED); the body is capped at 128 KiB. Idempotency-Key is required; matching retries within 24 hours return the original submission (200), while reuse with a different payload returns 409."
+      description: |
+        Public. Limited to 5 requests per minute per client IP and to FORM_SUBMISSIONS_PER_HOUR (default 200) per form (code FORM_SUBMISSIONS_LIMITED); the body is capped at 128 KiB. Idempotency-Key is required; matching retries within 24 hours return the original submission (200), while reuse with a different payload returns 409.
+        Conditional questions: a question whose `settings.visible_if` is not satisfied by the (effective) answers is hidden; a hidden question is never required and an answer sent for it is silently dropped (not validated, not stored, not echoed).
+        `file` questions take an array of upload ids from `POST /public/forms/{slug}/uploads`.
+        Restrictions of the published version: after `closes_at` the answer is 410 `FORM_CLOSED`, once `max_submissions` submissions exist it is 409 `FORM_FULL` (counted inside the submit transaction, so concurrent requests cannot overshoot); idempotent replays of an accepted submission keep returning it. New submissions notify the members listed in `notify_on_submit` (in-app notification of type `form_submission`).
       security: []
       parameters:
         - {name: slug, in: path, required: true, schema: {type: string}}
@@ -687,6 +744,7 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+        '410': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
   /workspaces/{workspace_id}/forms:
     get:
@@ -738,6 +796,7 @@ paths:
     patch:
       tags: [forms]
       summary: "Replace form metadata"
+      description: "`name` and `slug` are always replaced. `settings` replaces the whole settings object when present and leaves it untouched when omitted. Settings are validated (400 with FORM_SUBMIT_BUTTON_TEXT_INVALID, FORM_SUCCESS_MESSAGE_INVALID, FORM_REDIRECT_URL_INVALID, FORM_ACCENT_COLOR_INVALID, FORM_LOGO_INVALID, FORM_COVER_INVALID, FORM_NOTIFY_RECIPIENT_INVALID or FORM_MAX_SUBMISSIONS_INVALID) and take effect for visitors when the form is published again; every published version keeps its own copy."
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -898,10 +957,32 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/submissions/{submission_id}/files/{file_id}:
+    get:
+      tags: [forms]
+      summary: "Download a file uploaded with a form submission"
+      description: "Streams the file as an attachment (`Content-Disposition: attachment`, `Content-Security-Policy: default-src 'none'; sandbox`; types outside the safe list are served as `application/octet-stream`). `file_id` is the `id` of an entry of the submission's `files`. 404 when the file does not belong to the submission or the workspace. When the submission created a task the same file is also an ordinary task attachment (`task_attachment_id`); deleting that attachment removes the stored object."
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: submission_id, in: path, required: true, schema: {type: integer}}
+        - {name: file_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: "The file content."
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
   /workspaces/{workspace_id}/submissions/{submission_id}:
     get:
       tags: [forms]
       summary: "Get a submission"
+      description: "`files` lists the files uploaded for `file` questions (`id`, `question_id`, `name`, `content_type`, `size`, `task_attachment_id` when attached to the created task); the answer value of a `file` question is the array of upload ids."
       x-permission: workspace.read
       security:
         - bearerAuth: []
@@ -2266,9 +2347,11 @@ paths:
       summary: "In-app inbox, newest first"
       description: |
         Offset pagination (`page`, `limit`). Entries about tasks the caller can no longer read are hidden.
-        Types: `mention`, `assigned`, `comment`, `status_changed`, `due_date_changed`. At most the latest
+        Types: `mention`, `assigned`, `comment`, `status_changed`, `due_date_changed`, `form_submission`. At most the latest
         1000 entries per user are kept. `actor` is the public user projection; `payload` depends on the type
-        (`task_title`, `comment_excerpt`, `status_name`, `due_date`, `item_text`).
+        (`task_title`, `comment_excerpt`, `status_name`, `due_date`, `item_text`). `form_submission` entries (in-app on, e-mail and
+        webhook off by default) have no `task_id` and an empty actor (the respondent is anonymous); their payload is
+        `form_id`, `form_name` and `submission_id`, and they are visible while the recipient can read the workspace.
       security:
         - bearerAuth: []
       parameters:
@@ -2671,6 +2754,39 @@ components:
         name: {type: string, minLength: 1, maxLength: 255}
         description: {type: string}
         slug: {type: string, minLength: 1, maxLength: 255, description: Globally unique public URL slug}
+        settings: {$ref: '#/components/schemas/FormSettings'}
+    FormSettings:
+      type: object
+      description: "Form settings (request and response; `logo_url` and `cover_url` are output only). Omitted fields mean not set."
+      properties:
+        submit_button_text: {type: string, maxLength: 80, example: "Send request"}
+        success_message: {type: string, maxLength: 2000}
+        redirect_url: {type: string, maxLength: 2048, description: "Absolute https URL (http only when APP_ENV=development, no credentials, no javascript: or data: schemes). Where the client sends the visitor after a successful submission.", example: "https://example.com/thanks"}
+        accent_color: {type: string, pattern: '^#[0-9a-fA-F]{6}$', example: "#ff8800"}
+        logo_file_id: {type: string, description: "Public id of an image uploaded to this workspace with `POST /workspaces/{workspace_id}/images` (the last path segment of the returned `url`; the full url is accepted too). Avatars and images of other workspaces are refused.", example: "0123456789abcdef0123456789abcdef"}
+        cover_file_id: {type: string, description: "Same as logo_file_id."}
+        logo_url: {type: string, readOnly: true, description: "Public URL of the logo, served like editor images."}
+        cover_url: {type: string, readOnly: true}
+        notify_on_submit: {type: array, maxItems: 50, items: {type: integer}, description: "Workspace member ids that get an in-app `form_submission` notification for every new submission (only while they can still read the workspace). Never exposed publicly."}
+        closes_at: {type: string, format: date-time, nullable: true, description: "After this moment the public form is flagged `closed` and submissions get 410 FORM_CLOSED."}
+        max_submissions: {type: integer, minimum: 1, maximum: 1000000, nullable: true, description: "Total submissions accepted; further ones get 409 FORM_FULL."}
+    FormUploadResult:
+      type: object
+      properties:
+        id: {type: string, description: "Opaque upload id to use inside the answer of a `file` question."}
+        name: {type: string}
+        content_type: {type: string}
+        size: {type: integer}
+        expires_at: {type: string, format: date-time}
+    FormSubmissionFile:
+      type: object
+      properties:
+        id: {type: integer, description: "Use with GET /workspaces/{workspace_id}/submissions/{submission_id}/files/{file_id}."}
+        question_id: {type: integer}
+        name: {type: string}
+        content_type: {type: string}
+        size: {type: integer}
+        task_attachment_id: {type: integer, description: "Present once the file was attached to the task created from the submission."}
     FormQuestionRequest:
       type: object
       required: [type, title]
@@ -2682,7 +2798,21 @@ components:
         description: {type: string}
         required: {type: boolean}
         position: {type: integer, minimum: 0}
-        settings: {type: object}
+        settings:
+          type: object
+          description: |
+            Free-form per-type settings. Known keys: `min`/`max` (number, rating, scale), `max_files` (`file`: integer 1-10, default 5;
+            400 FORM_QUESTION_SETTINGS_INVALID otherwise) and `visible_if` (any type, including sections): a condition that must hold for the
+            question to be shown, `{"question_id": 12, "operator": "equals", "value": "yes"}`. Operators: `equals`, `not_equals`
+            (scalar answers, a single selected option counts as equal), `contains` (array answers of multiple choice, case-insensitive
+            substring of text answers) and `any` (the referenced question has a non-empty answer; unchecked checkboxes count as empty,
+            `value` is ignored). `value` must be a string, number or boolean (an option value for choice questions). The referenced question must
+            belong to the form, be earlier in order (position, then id), not be a section/description/divider and must not
+            depend on this question: self references and cycles are rejected with 400 FORM_QUESTION_VISIBILITY_CYCLE, other
+            problems with 400 FORM_QUESTION_VISIBILITY_INVALID. Deleting a question that others depend on is 409
+            FORM_QUESTION_REFERENCED, and publishing re-checks the whole form. The rule is part of the published snapshot; a hidden
+            question is not required and its answer is dropped on submit.
+          example: {visible_if: {question_id: 12, operator: equals, value: "yes"}}
         options:
           type: array
           items:

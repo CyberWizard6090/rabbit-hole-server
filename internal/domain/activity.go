@@ -22,6 +22,8 @@ const (
 
 	ActivityAttachmentCreated = "attachment.created"
 	ActivityAttachmentDeleted = "attachment.deleted"
+
+	ActivityFormSubmissionCreated = "form.submission_created"
 )
 
 type Activity struct {

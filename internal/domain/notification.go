@@ -19,6 +19,7 @@ const (
 	NotificationComment       = "comment"
 	NotificationStatusChanged = "status_changed"
 	NotificationDueDateChange = "due_date_changed"
+	NotificationFormSubmitted = "form_submission"
 )
 
 const (
@@ -103,6 +104,14 @@ var notificationTypes = []NotificationType{
 			"ru": {Subject: "Изменён срок задачи «%[2]s» (%[1]s)"},
 		},
 	},
+	{
+		Key: NotificationFormSubmitted, Priority: 4,
+		Defaults: map[string]bool{ChannelKindInApp: true},
+		Wording: map[string]NotificationWording{
+			"en": {Subject: "New submission in the form \"%[2]s\""},
+			"ru": {Subject: "Новый ответ в форме «%[2]s»"},
+		},
+	},
 }
 
 func NotificationTypes() []NotificationType {
@@ -125,7 +134,7 @@ func IsSupportedNotificationLocale(locale string) bool {
 type Notification struct {
 	ID          uint            `json:"id"`
 	Type        string          `json:"type"`
-	TaskID      uint            `json:"task_id"`
+	TaskID      uint            `json:"task_id,omitempty"`
 	WorkspaceID uint            `json:"workspace_id"`
 	Actor       CommentUser     `json:"actor"`
 	Payload     json.RawMessage `json:"payload"`

@@ -75,6 +75,7 @@ relies on:
   Results carry a score, task context and a plain-text snippet with rune offsets of the matches;
   `pagination.total` is the match count. E-mail addresses are never searched. See `docs/openapi.yaml`.
 - **Forms**: custom fields, task templates and forms with immutable published versions. A public submission (`POST /public/forms/{slug}/submissions`, idempotent, rate limited per IP and per form) can create a task in one transaction; the task is logged in the activity feed and notifications only after the commit. Failed task creation keeps the submission and can be retried.
+  Forms also have presentation settings (button text, success message, https redirect, accent color, logo and cover images), `closes_at` and `max_submissions` restrictions, in-app notifications for chosen members (`notify_on_submit`), conditional questions (`settings.visible_if`) and public file uploads for `file` questions (`POST /public/forms/{slug}/uploads`, sniffed types, `FORM_UPLOAD_MAX_BYTES`, `FORM_UPLOAD_TTL`); the files become task attachments or stay downloadable from the submission.
 - **Activity**: `GET /tasks/{id}/activity` returns who changed what on a task, newest first (field
   changes with old and new values, moves between lists, comment and attachment events). Entries are written after
   the change succeeds; a failed write is logged and does not fail the request.

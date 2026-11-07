@@ -17,6 +17,8 @@ type submissionTaskProcessor struct {
 	tasks     FormTaskCreator
 	templates domain.TaskTemplateRepository
 	fields    CustomFieldService
+	uploads   domain.FormUploadRepository
+	activity  ActivityRecorder
 }
 
 func NewSubmissionTaskProcessor(
@@ -24,8 +26,29 @@ func NewSubmissionTaskProcessor(
 	tasks FormTaskCreator,
 	templates domain.TaskTemplateRepository,
 	fields CustomFieldService,
+	uploads domain.FormUploadRepository,
+	activity ActivityRecorder,
 ) domain.FormTaskProcessor {
-	return &submissionTaskProcessor{forms: forms, tasks: tasks, templates: templates, fields: fields}
+	return &submissionTaskProcessor{
+		forms: forms, tasks: tasks, templates: templates, fields: fields, uploads: uploads, activity: activity,
+	}
+}
+
+func (s *submissionTaskProcessor) attachFiles(ctx context.Context, submission domain.FormSubmission, taskID uint) error {
+	if s.uploads == nil {
+		return nil
+	}
+	files, err := s.uploads.AttachSubmissionFiles(ctx, submission.ID, taskID, submission.CreatedBy)
+	if err != nil {
+		return fmt.Errorf("attach submission files: %w", err)
+	}
+	for _, file := range files {
+		recordActivity(ctx, s.activity, domain.ActivityEntry{
+			TaskID: taskID, ActorID: submission.CreatedBy, Action: domain.ActivityAttachmentCreated,
+			NewValue: mustJSON(map[string]any{"id": file.ID, "name": file.Name, "size": file.Size}),
+		})
+	}
+	return nil
 }
 
 func (s *submissionTaskProcessor) ProcessSubmission(
@@ -90,6 +113,9 @@ func (s *submissionTaskProcessor) process(
 			if err := s.fields.SetTaskValue(txCtx, task.ID, fieldID, value); err != nil {
 				return 0, nil, fmt.Errorf("set mapped custom field %d: %w", fieldID, err)
 			}
+		}
+		if err := s.attachFiles(txCtx, submission, task.ID); err != nil {
+			return 0, nil, err
 		}
 		return task.ID, mappingSnapshot, nil
 	})
