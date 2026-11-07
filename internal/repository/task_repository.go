@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/persistence"
@@ -26,7 +27,7 @@ func NewTaskRepository(db *gorm.DB) domain.TaskRepository {
 
 func (r *taskRepository) Create(ctx context.Context, task *domain.Task, assigneeIDs []uint, tagIDs []uint) error {
 	m := taskFromDomain(*task)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := validateTaskReferences(tx, task, assigneeIDs, tagIDs); err != nil {
 			return err
 		}

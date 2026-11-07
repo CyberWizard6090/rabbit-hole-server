@@ -53,18 +53,20 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     cfg.AllowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "Idempotency-Key"},
 		ExposeHeaders:    []string{"Content-Length", "Content-Disposition"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
 
 	const multipartOverhead int64 = 1 << 20
+	const publicFormBodyLimit int64 = 128 << 10
 	r.MaxMultipartMemory = 8 << 20
 	r.Use(middleware.BodyLimitByRoute(middleware.DefaultMaxBodyBytes, map[string]int64{
 		"POST /api/v1/tasks/:task_id/attachments":      cfg.Storage.MaxAttachmentBytes + multipartOverhead,
 		"POST /api/v1/workspaces/:workspace_id/images": cfg.Storage.MaxImageBytes + multipartOverhead,
 		"POST /api/v1/profile/avatar":                  cfg.Storage.MaxAvatarBytes + multipartOverhead,
+		"POST /api/v1/public/forms/:slug/submissions":  publicFormBodyLimit,
 	}))
 
 	require := func(resource middleware.Resource) func(code string) gin.HandlerFunc {
@@ -108,7 +110,12 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 			v1.POST("/notifications/channels/confirm", middleware.RateLimiter(20, time.Minute), deps.NotificationHandler.ConfirmChannel)
 
 			v1.GET("/images/:public_id", deps.FileHandler.ServeImage)
+			v1.GET("/public/forms/:slug", deps.FormHandler.GetPublic)
+			v1.POST("/public/forms/:slug/submissions",
+				middleware.RateLimiter(5, time.Minute),
+				deps.FormHandler.Submit)
 
+			v1.GET("/notifications/events", deps.RealtimeHandler.ConnectNotifications)
 			v1.GET("/lists/:list_id/events", deps.RealtimeHandler.ConnectList)
 			v1.GET("/spaces/:space_id/events", deps.RealtimeHandler.ConnectSpace)
 
@@ -141,6 +148,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				{
 					notifications.GET("", deps.NotificationHandler.List)
 					notifications.GET("/unread-count", deps.NotificationHandler.UnreadCount)
+					notifications.POST("/events/ticket", ticketLimiter, deps.RealtimeHandler.IssueNotificationTicket)
 					notifications.POST("/read", deps.NotificationHandler.MarkRead)
 					notifications.GET("/preferences", deps.NotificationHandler.Preferences)
 					notifications.PUT("/preferences", deps.NotificationHandler.SavePreferences)
@@ -153,6 +161,16 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					notifications.DELETE("/channels/:channel_id", deps.NotificationHandler.DeleteChannel)
 					notifications.DELETE("/:notification_id", deps.NotificationHandler.Delete)
 				}
+
+				protected.GET("/task-templates/:template_id", deps.TaskTemplateHandler.Get)
+				protected.PATCH("/task-templates/:template_id", deps.TaskTemplateHandler.Update)
+				protected.DELETE("/task-templates/:template_id", deps.TaskTemplateHandler.Archive)
+				protected.POST("/task-templates/:template_id/versions", deps.TaskTemplateHandler.CreateVersion)
+				protected.GET("/task-templates/:template_id/versions", deps.TaskTemplateHandler.ListVersions)
+				protected.POST("/task-templates/:template_id/apply", deps.TaskTemplateHandler.Apply)
+				protected.GET("/submissions/:submission_id/tasks", deps.FormTaskHandler.ListSubmissionTasks)
+				protected.GET("/submissions/:submission_id/task-status", deps.FormTaskHandler.TaskStatus)
+				protected.POST("/submissions/:submission_id/retry-task-creation", deps.FormTaskHandler.Retry)
 
 				workspaces := protected.Group("/workspaces")
 				{
@@ -187,6 +205,74 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					workspaces.GET("/:workspace_id/search",
 						inWorkspace(domain.PermWorkspaceRead),
 						deps.SearchHandler.Search)
+
+					workspaces.POST("/:workspace_id/forms",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.FormHandler.Create)
+					workspaces.GET("/:workspace_id/forms",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.FormHandler.List)
+					workspaces.GET("/:workspace_id/forms/:form_id",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.FormHandler.Get)
+					workspaces.PATCH("/:workspace_id/forms/:form_id",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.FormHandler.Update)
+					workspaces.DELETE("/:workspace_id/forms/:form_id",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.FormHandler.Delete)
+					workspaces.POST("/:workspace_id/forms/:form_id/publish",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.FormHandler.Publish)
+					workspaces.POST("/:workspace_id/forms/:form_id/archive",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.FormHandler.Archive)
+					workspaces.POST("/:workspace_id/forms/:form_id/questions",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.FormHandler.CreateQuestion)
+					workspaces.PATCH("/:workspace_id/forms/:form_id/questions/:question_id",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.FormHandler.UpdateQuestion)
+					workspaces.DELETE("/:workspace_id/forms/:form_id/questions/:question_id",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.FormHandler.DeleteQuestion)
+					workspaces.PUT("/:workspace_id/forms/:form_id/questions/reorder",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.FormHandler.ReorderQuestions)
+					workspaces.GET("/:workspace_id/forms/:form_id/submissions",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.FormHandler.ListSubmissions)
+					workspaces.GET("/:workspace_id/forms/:form_id/task-config",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.FormTaskHandler.GetConfig)
+					workspaces.PUT("/:workspace_id/forms/:form_id/task-config",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.FormTaskHandler.SetConfig)
+					workspaces.GET("/:workspace_id/submissions/:submission_id",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.FormHandler.GetSubmission)
+
+					workspaces.POST("/:workspace_id/custom-fields",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.CustomFieldHandler.Create)
+					workspaces.GET("/:workspace_id/custom-fields",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.CustomFieldHandler.List)
+					workspaces.GET("/:workspace_id/custom-fields/:field_id",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.CustomFieldHandler.Get)
+					workspaces.PATCH("/:workspace_id/custom-fields/:field_id",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.CustomFieldHandler.Update)
+					workspaces.DELETE("/:workspace_id/custom-fields/:field_id",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.CustomFieldHandler.Delete)
+					workspaces.POST("/:workspace_id/task-templates",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.TaskTemplateHandler.Create)
+					workspaces.GET("/:workspace_id/task-templates",
+						inWorkspace(domain.PermWorkspaceRead),
+						deps.TaskTemplateHandler.List)
 
 					workspaces.POST("/:workspace_id/images",
 						inWorkspace(domain.PermTaskUpdate),
@@ -309,6 +395,15 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 
 				tasks := protected.Group("/tasks/:task_id")
 				{
+					tasks.GET("/custom-fields",
+						inTask(domain.PermTaskRead),
+						deps.CustomFieldHandler.GetTaskValues)
+					tasks.PUT("/custom-fields/:field_id",
+						inTask(domain.PermTaskUpdate),
+						deps.CustomFieldHandler.SetTaskValue)
+					tasks.DELETE("/custom-fields/:field_id",
+						inTask(domain.PermTaskUpdate),
+						deps.CustomFieldHandler.DeleteTaskValue)
 					tasks.GET("",
 						inTask(domain.PermTaskRead),
 						deps.TaskHandler.Get)

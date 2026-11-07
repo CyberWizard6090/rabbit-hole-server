@@ -22,6 +22,7 @@ type Config struct {
 	Storage        StorageConfig
 	Mail           MailConfig
 	Notifications  NotificationConfig
+	Forms          FormsConfig
 	AllowedOrigins []string `env:"ALLOWED_ORIGINS" envDefault:"http://127.0.0.1:3000" envSeparator:"," validate:"required,min=1,dive,url"`
 }
 
@@ -75,6 +76,10 @@ type NotificationConfig struct {
 	MaxPerUser   int `env:"NOTIFICATION_MAX_PER_USER" envDefault:"1000" validate:"gt=0"`
 
 	WebhookMaxFailures int `env:"NOTIFICATION_WEBHOOK_MAX_FAILURES" envDefault:"10" validate:"gt=0"`
+}
+
+type FormsConfig struct {
+	SubmissionsPerHour int `env:"FORM_SUBMISSIONS_PER_HOUR" envDefault:"200" validate:"gt=0"`
 }
 
 type S3Config struct {

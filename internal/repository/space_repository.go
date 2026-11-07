@@ -5,6 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/persistence"
 )
@@ -19,7 +20,7 @@ func NewSpaceRepository(db *gorm.DB) domain.SpaceRepository {
 
 func (r *spaceRepository) GetByID(ctx context.Context, id uint) (*domain.Space, error) {
 	var m persistence.Space
-	if err := r.db.WithContext(ctx).Preload("Lists").First(&m, id).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Preload("Lists").First(&m, id).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	space := spaceToDomain(m)
@@ -162,7 +163,7 @@ func (r *spaceRepository) UpdateStatus(ctx context.Context, status *domain.TaskS
 
 func (r *spaceRepository) GetListByID(ctx context.Context, id uint) (*domain.List, error) {
 	var m persistence.List
-	err := r.db.WithContext(ctx).Preload("Statuses", func(db *gorm.DB) *gorm.DB {
+	err := database.DBFromContext(ctx, r.db).Preload("Statuses", func(db *gorm.DB) *gorm.DB {
 		return db.Order("position ASC")
 	}).First(&m, id).Error
 

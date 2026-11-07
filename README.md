@@ -71,6 +71,7 @@ relies on:
   may search). `q` has 2-100 characters; 3+ characters also match typos (pg_trgm, GIN indexes).
   Results carry a score, task context and a plain-text snippet with rune offsets of the matches;
   `pagination.total` is the match count. E-mail addresses are never searched. See `docs/openapi.yaml`.
+- **Forms**: custom fields, task templates and forms with immutable published versions. A public submission (`POST /public/forms/{slug}/submissions`, idempotent, rate limited per IP and per form) can create a task in one transaction; the task is logged in the activity feed and notifications only after the commit. Failed task creation keeps the submission and can be retried.
 - **Activity**: `GET /tasks/{id}/activity` returns who changed what on a task, newest first (field
   changes with old and new values, moves between lists, comment and attachment events). Entries are written after
   the change succeeds; a failed write is logged and does not fail the request.
@@ -103,10 +104,16 @@ relies on:
   assignments, comments, status and due date changes become notifications of five types, delivered to the
   in-app inbox (`/notifications`) and by e-mail according to per-type preferences
   (`/notifications/preferences`). Extra e-mail addresses (`/notifications/channels`) receive nothing until
+<<<<<<< HEAD
   the owner confirms them with an emailed link. `NOTIFICATION_EMAIL_PER_HOUR` caps mails per user. A `webhook`
   channel (https URL, SSRF-safe, confirmed with a signed single-use token POSTed to it) delivers the same events as
   JSON signed with `X-Rabbit-Hole-Signature` (HMAC-SHA256, per-channel secret shown once, rotatable); it is disabled
   after `NOTIFICATION_WEBHOOK_MAX_FAILURES` consecutive failures.
+=======
+  the owner confirms them with an emailed link. `NOTIFICATION_EMAIL_PER_HOUR` caps mails per user. Open tabs
+  stay in sync over the per-user WebSocket feed `GET /notifications/events` (single-use ticket from
+  `POST /notifications/events/ticket`): `notification.created`, `.read`, `.deleted` and `.unread_count`.
+>>>>>>> origin/develop
 - **Task order**: every task has an integer `position` within its list; new tasks go to the end and
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.

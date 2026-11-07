@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -184,25 +185,174 @@ type Tag struct {
 
 type Task struct {
 	gorm.Model
-	SpaceID      uint `gorm:"index;not null;column:space_id"`
-	ListID       uint `gorm:"index;not null;column:list_id"`
-	StatusID     uint `gorm:"not null;column:status_id"`
-	ParentID     *uint
-	Title        string `gorm:"not null"`
-	Description  string
-	Priority     int    `gorm:"type:integer;not null;default:2"`
-	UserID       uint   `gorm:"not null"`
-	Assignees    []User `gorm:"many2many:task_assignees;constraint:OnDelete:CASCADE"`
-	Tags         []Tag  `gorm:"many2many:task_tags;constraint:OnDelete:CASCADE"`
-	StartDate    *time.Time
-	DueDate      *time.Time
-	TimeEstimate int   `gorm:"type:integer;not null;default:0"`
-	TimeSpent    int   `gorm:"type:integer;not null;default:0"`
-	Position     int64 `gorm:"type:bigint;not null"`
+	SpaceID           uint `gorm:"index;not null;column:space_id"`
+	ListID            uint `gorm:"index;not null;column:list_id"`
+	StatusID          uint `gorm:"not null;column:status_id"`
+	ParentID          *uint
+	Title             string `gorm:"not null"`
+	Description       string
+	Priority          int    `gorm:"type:integer;not null;default:2"`
+	UserID            uint   `gorm:"not null"`
+	Assignees         []User `gorm:"many2many:task_assignees;constraint:OnDelete:CASCADE"`
+	Tags              []Tag  `gorm:"many2many:task_tags;constraint:OnDelete:CASCADE"`
+	StartDate         *time.Time
+	DueDate           *time.Time
+	TimeEstimate      int    `gorm:"type:integer;not null;default:0"`
+	TimeSpent         int    `gorm:"type:integer;not null;default:0"`
+	Position          int64  `gorm:"type:bigint;not null"`
+	Source            string `gorm:"type:varchar(30);not null;default:'manual'"`
+	SourceReferenceID *uint  `gorm:"index"`
 
 	SortStatusPosition int     `gorm:"->;-:migration"`
 	SortAssignee       *string `gorm:"->;-:migration"`
 
 	ChecklistItemsTotal    int `gorm:"->;-:migration"`
 	ChecklistItemsResolved int `gorm:"->;-:migration"`
+}
+
+type CustomField struct {
+	gorm.Model
+	WorkspaceID uint                `gorm:"not null;index"`
+	Name        string              `gorm:"size:255;not null"`
+	Description string              `gorm:"type:text"`
+	Type        string              `gorm:"size:50;not null"`
+	Required    bool                `gorm:"not null;default:false"`
+	Config      map[string]any      `gorm:"type:jsonb;serializer:json;not null;default:'{}'"`
+	Options     []CustomFieldOption `gorm:"foreignKey:CustomFieldID;constraint:OnDelete:CASCADE"`
+}
+
+type CustomFieldOption struct {
+	ID            uint   `gorm:"primaryKey"`
+	CustomFieldID uint   `gorm:"not null;index"`
+	Label         string `gorm:"size:255;not null"`
+	Value         string `gorm:"size:255;not null"`
+	Position      int    `gorm:"not null"`
+}
+
+type TaskCustomFieldValue struct {
+	ID            uint            `gorm:"primaryKey"`
+	TaskID        uint            `gorm:"not null;uniqueIndex:idx_task_custom_field_value"`
+	CustomFieldID uint            `gorm:"not null;uniqueIndex:idx_task_custom_field_value"`
+	WorkspaceID   uint            `gorm:"not null;index"`
+	Value         json.RawMessage `gorm:"type:jsonb;serializer:json;not null"`
+	CreatedAt     time.Time       `gorm:"not null"`
+	UpdatedAt     time.Time       `gorm:"not null"`
+}
+
+type Form struct {
+	ID               uint      `gorm:"primaryKey"`
+	CreatedAt        time.Time `gorm:"not null"`
+	UpdatedAt        time.Time `gorm:"not null"`
+	WorkspaceID      uint      `gorm:"not null;index"`
+	Name             string    `gorm:"size:255;not null"`
+	Description      string    `gorm:"type:text"`
+	Slug             string    `gorm:"size:255;not null"`
+	Status           string    `gorm:"size:30;not null"`
+	CurrentVersionID *uint
+	CreatedBy        uint            `gorm:"not null"`
+	TaskConfig       json.RawMessage `gorm:"type:jsonb;serializer:json;not null;default:'{}'"`
+}
+
+type FormVersion struct {
+	ID             uint            `gorm:"primaryKey"`
+	FormID         uint            `gorm:"not null;uniqueIndex:uq_form_version_number"`
+	Version        int             `gorm:"not null;uniqueIndex:uq_form_version_number"`
+	SchemaSnapshot json.RawMessage `gorm:"type:jsonb;serializer:json;not null"`
+	Status         string          `gorm:"size:30;not null"`
+	PublishedAt    time.Time       `gorm:"not null"`
+	CreatedAt      time.Time       `gorm:"not null"`
+}
+
+type FormQuestion struct {
+	gorm.Model
+	FormID      uint                 `gorm:"not null;index"`
+	Type        string               `gorm:"size:50;not null"`
+	Title       string               `gorm:"type:text;not null"`
+	Description string               `gorm:"type:text"`
+	Required    bool                 `gorm:"not null;default:false"`
+	Position    int                  `gorm:"not null"`
+	Settings    json.RawMessage      `gorm:"type:jsonb;serializer:json;not null"`
+	Options     []FormQuestionOption `gorm:"foreignKey:QuestionID;constraint:OnDelete:CASCADE"`
+}
+
+type FormQuestionOption struct {
+	ID         uint   `gorm:"primaryKey"`
+	QuestionID uint   `gorm:"not null;index"`
+	Label      string `gorm:"size:255;not null"`
+	Value      string `gorm:"size:255;not null"`
+	Position   int    `gorm:"not null"`
+}
+
+type FormSubmission struct {
+	ID                 uint `gorm:"primaryKey"`
+	FormID             uint `gorm:"not null;index"`
+	FormVersionID      uint `gorm:"not null"`
+	WorkspaceID        uint `gorm:"not null;index"`
+	RespondentID       *uint
+	Status             string             `gorm:"size:30;not null"`
+	SubmittedAt        time.Time          `gorm:"not null"`
+	CreatedAt          time.Time          `gorm:"not null"`
+	Answers            []SubmissionAnswer `gorm:"foreignKey:SubmissionID;constraint:OnDelete:CASCADE"`
+	TaskCreationStatus string             `gorm:"size:30;not null;default:'pending'"`
+	TaskCreationError  string             `gorm:"type:text;not null;default:''"`
+}
+
+type SubmissionAnswer struct {
+	ID           uint            `gorm:"primaryKey"`
+	SubmissionID uint            `gorm:"not null;uniqueIndex:uq_submission_answer"`
+	QuestionID   uint            `gorm:"not null;uniqueIndex:uq_submission_answer"`
+	Value        json.RawMessage `gorm:"type:jsonb;serializer:json;not null"`
+	CreatedAt    time.Time       `gorm:"not null"`
+}
+
+type FormIdempotencyKey struct {
+	ID           uint   `gorm:"primaryKey"`
+	FormID       uint   `gorm:"not null;uniqueIndex:uq_form_idempotency_key"`
+	Key          string `gorm:"size:255;not null;uniqueIndex:uq_form_idempotency_key"`
+	RequestHash  string `gorm:"size:64;not null"`
+	SubmissionID *uint
+	Status       string    `gorm:"size:30;not null"`
+	CreatedAt    time.Time `gorm:"not null"`
+	ExpiresAt    time.Time `gorm:"not null;index"`
+}
+
+type TaskTemplate struct {
+	ID          uint      `gorm:"primaryKey"`
+	WorkspaceID uint      `gorm:"not null;index"`
+	Name        string    `gorm:"size:255;not null"`
+	Description string    `gorm:"type:text;not null"`
+	Status      string    `gorm:"size:30;not null"`
+	CreatedBy   uint      `gorm:"not null"`
+	CreatedAt   time.Time `gorm:"not null"`
+	UpdatedAt   time.Time `gorm:"not null"`
+}
+
+type TaskTemplateVersion struct {
+	ID            uint            `gorm:"primaryKey"`
+	TemplateID    uint            `gorm:"not null;uniqueIndex:uq_task_template_version"`
+	Version       int             `gorm:"not null;uniqueIndex:uq_task_template_version"`
+	Configuration json.RawMessage `gorm:"type:jsonb;serializer:json;not null"`
+	CreatedAt     time.Time       `gorm:"not null"`
+}
+
+type FormTaskConfig struct {
+	ID                uint `gorm:"primaryKey"`
+	FormID            uint `gorm:"not null;uniqueIndex:uq_form_task_config_version"`
+	FormVersionID     uint `gorm:"not null;uniqueIndex:uq_form_task_config_version"`
+	WorkspaceID       uint `gorm:"not null"`
+	TargetListID      uint `gorm:"not null"`
+	TemplateVersionID *uint
+	Enabled           bool            `gorm:"not null"`
+	Configuration     json.RawMessage `gorm:"type:jsonb;serializer:json;not null"`
+	CreatedAt         time.Time       `gorm:"not null"`
+	UpdatedAt         time.Time       `gorm:"not null"`
+}
+
+type FormSubmissionTask struct {
+	ID                uint `gorm:"primaryKey"`
+	SubmissionID      uint `gorm:"not null;uniqueIndex"`
+	TaskID            uint `gorm:"not null;uniqueIndex"`
+	TemplateVersionID *uint
+	MappingSnapshot   json.RawMessage `gorm:"type:jsonb;serializer:json;not null"`
+	CreatedAt         time.Time       `gorm:"not null"`
 }

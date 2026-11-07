@@ -150,6 +150,7 @@ func taskToDomain(t persistence.Task) domain.Task {
 		ParentID: t.ParentID, Title: t.Title, Description: t.Description, Priority: t.Priority,
 		UserID: t.UserID, StartDate: t.StartDate, DueDate: t.DueDate,
 		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent, Position: t.Position,
+		Source: domain.TaskSource(t.Source), SourceReferenceID: t.SourceReferenceID,
 		SortStatusPosition: t.SortStatusPosition, SortAssignee: t.SortAssignee,
 		ChecklistItemsTotal: t.ChecklistItemsTotal, ChecklistItemsResolved: t.ChecklistItemsResolved,
 		Assignees: mapSlice(t.Assignees, userToDomain),
@@ -163,6 +164,7 @@ func taskFromDomain(t domain.Task) persistence.Task {
 		ParentID: t.ParentID, Title: t.Title, Description: t.Description, Priority: t.Priority,
 		UserID: t.UserID, StartDate: t.StartDate, DueDate: t.DueDate,
 		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent, Position: t.Position,
+		Source: string(t.Source), SourceReferenceID: t.SourceReferenceID,
 		Assignees: mapSlice(t.Assignees, userFromDomain),
 		Tags:      mapSlice(t.Tags, tagFromDomain),
 	}

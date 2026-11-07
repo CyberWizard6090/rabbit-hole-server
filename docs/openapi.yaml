@@ -23,6 +23,9 @@ tags:
   - name: profile
   - name: contacts
   - name: workspaces
+  - name: forms
+  - name: task-templates
+  - name: custom-fields
   - name: members
   - name: spaces
   - name: tags
@@ -654,6 +657,547 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /public/forms/{slug}:
+    get:
+      tags: [forms]
+      summary: "Get the published public form schema"
+      security: []
+      parameters:
+        - {name: slug, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '404': {$ref: '#/components/responses/Error'}
+  /public/forms/{slug}/submissions:
+    post:
+      tags: [forms]
+      summary: "Submit answers to a published form"
+      description: "Public. Limited to 5 requests per minute per client IP and to FORM_SUBMISSIONS_PER_HOUR (default 200) per form (code FORM_SUBMISSIONS_LIMITED); the body is capped at 128 KiB. Idempotency-Key is required; matching retries within 24 hours return the original submission (200), while reuse with a different payload returns 409."
+      security: []
+      parameters:
+        - {name: slug, in: path, required: true, schema: {type: string}}
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 1, maxLength: 255}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FormSubmissionRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/forms:
+    get:
+      tags: [forms]
+      summary: "List forms in a workspace"
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [forms]
+      summary: "Create a form"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FormRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/forms/{form_id}:
+    get:
+      tags: [forms]
+      summary: "Get a form and its editable questions"
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: form_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [forms]
+      summary: "Replace form metadata"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: form_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FormRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [forms]
+      summary: "Delete a form without submissions"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: form_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/forms/{form_id}/publish:
+    post:
+      tags: [forms]
+      summary: "Publish a new immutable form version"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: form_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/forms/{form_id}/archive:
+    post:
+      tags: [forms]
+      summary: "Archive a form and disable public submissions"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: form_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/forms/{form_id}/questions:
+    post:
+      tags: [forms]
+      summary: "Add a question to a form"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: form_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FormQuestionRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/forms/{form_id}/questions/{question_id}:
+    patch:
+      tags: [forms]
+      summary: "Replace a question"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: form_id, in: path, required: true, schema: {type: integer}}
+        - {name: question_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FormQuestionRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [forms]
+      summary: "Delete a question that has no submitted answers"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: form_id, in: path, required: true, schema: {type: integer}}
+        - {name: question_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/forms/{form_id}/questions/reorder:
+    put:
+      tags: [forms]
+      summary: "Set the order of every question in a form"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: form_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReorderFormQuestionsRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/forms/{form_id}/submissions:
+    get:
+      tags: [forms]
+      summary: "List submissions to a form"
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: form_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/submissions/{submission_id}:
+    get:
+      tags: [forms]
+      summary: "Get a submission"
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: submission_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/forms/{form_id}/task-config:
+    get:
+      tags: [forms]
+      summary: "Get the draft task-creation configuration for a form"
+      description: "Published versions keep an immutable copy. Updating this configuration does not change submissions to an already published version."
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: form_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    put:
+      tags: [forms]
+      summary: "Replace task-creation configuration for the next form publication"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: form_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FormTaskConfigurationRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/task-templates:
+    get:
+      tags: [task-templates]
+      summary: "List task templates in a workspace"
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [task-templates]
+      summary: "Create a versioned task template"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TaskTemplateRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /task-templates/{template_id}:
+    get:
+      tags: [task-templates]
+      summary: "Get a task template and its immutable versions"
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: template_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [task-templates]
+      summary: "Update task template metadata"
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: template_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateTaskTemplateRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [task-templates]
+      summary: "Archive a task template"
+      description: "Templates and versions remain available to configurations that already reference them."
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: template_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /task-templates/{template_id}/versions:
+    get:
+      tags: [task-templates]
+      summary: "List immutable task template versions"
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: template_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [task-templates]
+      summary: "Create a new immutable task template version"
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: template_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TaskTemplateVersionRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /task-templates/{template_id}/apply:
+    post:
+      tags: [task-templates]
+      summary: "Create a task from the latest template version"
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: template_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ApplyTaskTemplateRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /submissions/{submission_id}/tasks:
+    get:
+      tags: [forms]
+      summary: "Get the task created from a form submission"
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: submission_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /submissions/{submission_id}/task-status:
+    get:
+      tags: [forms]
+      summary: "Get task creation status for a form submission"
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: submission_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /submissions/{submission_id}/retry-task-creation:
+    post:
+      tags: [forms]
+      summary: "Retry task creation for a failed submission"
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: submission_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/custom-fields:
+    get:
+      tags: [custom-fields]
+      summary: "List custom field definitions in a workspace"
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [custom-fields]
+      summary: "Create a custom field definition"
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CustomFieldRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/custom-fields/{field_id}:
+    get:
+      tags: [custom-fields]
+      summary: "Get a custom field definition"
+      x-permission: workspace.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: field_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [custom-fields]
+      summary: "Replace a custom field definition"
+      description: "The current implementation requires the full definition in the request body."
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: field_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CustomFieldRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [custom-fields]
+      summary: "Delete a custom field definition"
+      description: "Fields with stored task values are retained and cannot be deleted."
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: field_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
   /spaces/{space_id}:
     get:
       tags: [spaces]
@@ -1136,6 +1680,56 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/custom-fields:
+    get:
+      tags: [custom-fields]
+      summary: "Get values of custom fields on a task"
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/custom-fields/{field_id}:
+    put:
+      tags: [custom-fields]
+      summary: "Set a custom field value on a task"
+      description: "The field must belong to the task's workspace and the value must match its configured type."
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+        - {name: field_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CustomFieldValueRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [custom-fields]
+      summary: "Remove a custom field value from a task"
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+        - {name: field_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
   /tasks/{task_id}:
     get:
@@ -1695,6 +2289,47 @@ paths:
       responses:
         '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
+  /notifications/events/ticket:
+    post:
+      tags: [realtime, notifications]
+      summary: "Issue a single-use WebSocket ticket for the caller's notification feed"
+      description: Valid for about 30 seconds and only for the notification feed of the caller. Rate limited to 60 requests per minute.
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /notifications/events:
+    get:
+      tags: [realtime, notifications]
+      summary: "Follow the caller's notifications over WebSocket"
+      description: |
+        Upgrades to a WebSocket. Authenticated by the single-use ticket instead of a bearer token; the `Origin`
+        header is checked like on the list and space feeds. Every connection receives only the events of the user
+        who requested the ticket, so several tabs stay in sync. At most 10 connections per user (429 beyond that).
+        Delivery is best effort: refetch `/notifications` and `/notifications/unread-count` after a reconnect.
+        Entries about tasks the user can no longer read are never pushed.
+
+        Frames are JSON text messages; the first is `ready`. Event types:
+
+        * `notification.created`: `notification` (`id`, `type`, `task_id`, `title` is the task title,
+          optional `snippet` is a plain-text excerpt of the comment or checklist item, `created_at`)
+          and `unread_count`. Sent after the entry is stored.
+        * `notification.read`: `ids` (or `all: true` with an optional `filter_type`), `updated`, `unread_count`.
+          Not sent when nothing changed.
+        * `notification.deleted`: `notification_id`, `unread_count`.
+        * `notification.unread_count`: `unread_count` and `by_type`, sent after each of the events above.
+
+        Every event also carries `at`.
+      security: []
+      parameters:
+        - {name: ticket, in: query, required: true, schema: {type: string}}
+      responses:
+        '101': {description: Switching Protocols}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
   /notifications/read:
     post:
       tags: [notifications]
@@ -2029,6 +2664,157 @@ components:
         start_date: {type: string, format: date-time, nullable: true}
         due_date: {type: string, format: date-time, nullable: true, description: Must not be before start_date (400 INVALID_DATE_RANGE).}
         time_estimate: {type: integer, minimum: 0, description: Seconds.}
+    FormRequest:
+      type: object
+      required: [name, slug]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 255}
+        description: {type: string}
+        slug: {type: string, minLength: 1, maxLength: 255, description: Globally unique public URL slug}
+    FormQuestionRequest:
+      type: object
+      required: [type, title]
+      properties:
+        type:
+          type: string
+          enum: [short_text, long_text, number, email, phone, url, date, datetime, single_choice, multiple_choice, dropdown, checkbox, rating, scale, file, section, description, divider]
+        title: {type: string, minLength: 1}
+        description: {type: string}
+        required: {type: boolean}
+        position: {type: integer, minimum: 0}
+        settings: {type: object}
+        options:
+          type: array
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label: {type: string, minLength: 1, maxLength: 255}
+              value: {type: string, minLength: 1, maxLength: 255}
+    ReorderFormQuestionsRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids: {type: array, minItems: 1, maxItems: 200, items: {type: integer, minimum: 1}, description: "Must contain every question ID exactly once."}
+    FormSubmissionRequest:
+      type: object
+      properties:
+        answers:
+          type: object
+          additionalProperties: {}
+          description: "Maps question IDs to JSON values; required and choice constraints are validated against the published version."
+    FormTaskConfigurationRequest:
+      type: object
+      required: [enabled, target, task_defaults, mappings]
+      properties:
+        enabled: {type: boolean}
+        target:
+          type: object
+          required: [workspace_id]
+          properties:
+            workspace_id: {type: integer}
+            list_id: {type: integer}
+        template:
+          type: object
+          properties:
+            template_id: {type: integer}
+            version_id: {type: integer}
+        task_defaults:
+          type: object
+          properties:
+            priority: {type: string, enum: [low, normal, high, urgent]}
+            status_id: {type: integer, nullable: true}
+            assignee_id: {type: integer, nullable: true}
+        mappings:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required: [question_id, target]
+            properties:
+              question_id: {type: integer}
+              target:
+                type: object
+                required: [type]
+                properties:
+                  type: {type: string, enum: [task_field, custom_field]}
+                  field: {type: string, enum: [title, description, priority, status_id, assignee_id, due_date]}
+                  field_id: {type: integer}
+              transform:
+                type: object
+                properties:
+                  type: {type: string, enum: [enum]}
+                  values: {type: object, additionalProperties: {type: string}}
+    TaskTemplateRequest:
+      type: object
+      required: [name, configuration]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 255}
+        description: {type: string}
+        configuration: {$ref: '#/components/schemas/TaskTemplateConfiguration'}
+    UpdateTaskTemplateRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 255}
+        description: {type: string}
+    TaskTemplateVersionRequest:
+      type: object
+      required: [configuration]
+      properties:
+        configuration: {$ref: '#/components/schemas/TaskTemplateConfiguration'}
+    TaskTemplateConfiguration:
+      type: object
+      properties:
+        task:
+          type: object
+          properties:
+            title: {type: string, nullable: true}
+            description: {type: string, nullable: true}
+            priority: {type: string, enum: [low, normal, high, urgent]}
+            status_id: {type: integer, nullable: true}
+            assignee_id: {type: integer, nullable: true}
+            due_date: {type: string, format: date, nullable: true}
+        custom_fields:
+          type: array
+          items:
+            type: object
+            required: [field_id, value]
+            properties:
+              field_id: {type: integer}
+              value: {}
+        tags: {type: array, items: {type: integer}}
+        subtasks: {type: array, items: {type: object}, description: "Reserved for future subtask expansion."}
+    ApplyTaskTemplateRequest:
+      type: object
+      required: [list_id]
+      properties:
+        list_id: {type: integer}
+        status_id: {type: integer}
+        title: {type: string}
+        description: {type: string}
+    CustomFieldRequest:
+      type: object
+      required: [name, type]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 255}
+        description: {type: string}
+        type: {type: string, enum: [text, number, integer, boolean, datetime, date, url, email, phone, dropdown, multi_select, checkbox, people, files]}
+        required: {type: boolean}
+        config: {type: object, description: "Numeric fields support min/max; text fields support min_length/max_length."}
+        options:
+          type: array
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label: {type: string, minLength: 1, maxLength: 255}
+              value: {type: string, minLength: 1, maxLength: 255}
+    CustomFieldValueRequest:
+      type: object
+      required: [value]
+      properties:
+        value: {description: "JSON value matching the field's type; use the delete endpoint to clear an optional value."}
     CreateCommentRequest:
       type: object
       required: [body]

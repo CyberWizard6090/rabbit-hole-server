@@ -48,6 +48,9 @@ func TestTaskServiceCreateTaskUsesDefaultsAndResolvesNewTags(t *testing.T) {
 	if task.Priority != 2 || task.SpaceID != 55 || task.ListID != 7 || task.UserID != 42 {
 		t.Fatalf("task=%+v", task)
 	}
+	if task.Source != domain.TaskSourceManual || task.SourceReferenceID != nil {
+		t.Fatalf("manual task source metadata=%q/%v", task.Source, task.SourceReferenceID)
+	}
 	if !reflect.DeepEqual(tagMock.calls, []string{"Bug", "Idea"}) {
 		t.Fatalf("tag calls=%v", tagMock.calls)
 	}
@@ -73,6 +76,51 @@ func TestTaskServiceCreateTaskPreservesExplicitPriority(t *testing.T) {
 	}
 	if task.Priority != 5 {
 		t.Fatalf("priority=%d want 5", task.Priority)
+	}
+}
+
+func TestTaskServiceCreateTaskFromSubmissionSetsSource(t *testing.T) {
+	taskRepo := &taskRepositoryMock{}
+	spaceRepo := &spaceRepositoryMock{
+		list:  &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55},
+		space: &domain.Space{Model: domain.Model{ID: 55}, WorkspaceID: 99},
+	}
+	svc := NewTaskService(taskRepo, spaceRepo, &tagServiceMock{}, nil, nil)
+
+	task, err := svc.CreateTaskFromSubmission(context.Background(), 42, CreateTaskFromSubmissionParams{
+		WorkspaceID:  99,
+		SubmissionID: 123,
+		Task:         CreateTaskParams{Title: "Form task", ListID: 7, StatusID: 3},
+	})
+	if err != nil {
+		t.Fatalf("CreateTaskFromSubmission error=%v", err)
+	}
+	if task.Source != domain.TaskSourceForm || task.SourceReferenceID == nil || *task.SourceReferenceID != 123 {
+		t.Fatalf("task source metadata=%q/%v", task.Source, task.SourceReferenceID)
+	}
+	if taskRepo.createdTask != task {
+		t.Fatal("repository did not receive returned task")
+	}
+}
+
+func TestTaskServiceCreateTaskFromSubmissionRejectsDifferentWorkspace(t *testing.T) {
+	taskRepo := &taskRepositoryMock{}
+	spaceRepo := &spaceRepositoryMock{
+		list:  &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55},
+		space: &domain.Space{Model: domain.Model{ID: 55}, WorkspaceID: 100},
+	}
+	svc := NewTaskService(taskRepo, spaceRepo, &tagServiceMock{}, nil, nil)
+
+	_, err := svc.CreateTaskFromSubmission(context.Background(), 42, CreateTaskFromSubmissionParams{
+		WorkspaceID:  99,
+		SubmissionID: 123,
+		Task:         CreateTaskParams{Title: "Form task", ListID: 7, StatusID: 3},
+	})
+	if !errors.Is(err, domain.ErrInvalidListReference) {
+		t.Fatalf("error=%v, want %v", err, domain.ErrInvalidListReference)
+	}
+	if taskRepo.createdTask != nil {
+		t.Fatal("task should not be created for a different workspace")
 	}
 }
 

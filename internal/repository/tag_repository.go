@@ -7,6 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/persistence"
 )
@@ -43,7 +44,7 @@ func (r *tagRepository) CountUsageBySpace(ctx context.Context, spaceID uint) (ma
 
 func (r *tagRepository) Create(ctx context.Context, tag *domain.Tag) error {
 	m := tagFromDomain(*tag)
-	err := r.db.WithContext(ctx).Create(&m).Error
+	err := database.DBFromContext(ctx, r.db).Create(&m).Error
 	if err != nil && isUniqueViolation(err) {
 		return domain.ErrTagNameTaken
 	}
@@ -84,7 +85,7 @@ func (r *tagRepository) GetByID(ctx context.Context, tagID uint) (*domain.Tag, e
 
 func (r *tagRepository) GetByName(ctx context.Context, spaceID uint, name string) (*domain.Tag, error) {
 	var m persistence.Tag
-	err := r.db.WithContext(ctx).
+	err := database.DBFromContext(ctx, r.db).
 		Where("space_id = ? AND LOWER(name) = LOWER(?)", spaceID, name).
 		First(&m).Error
 	if err != nil {
