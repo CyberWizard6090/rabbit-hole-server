@@ -179,7 +179,7 @@ func resolveSubmissionTask(
 				input.Description, _ = value.(string)
 			case "priority":
 				priority, ok := value.(string)
-				if !ok || !validTaskPriority(priority) {
+				if !ok || !domain.ValidTaskPriorityName(priority) {
 					return CreateTaskParams{}, nil, nil, domain.ErrInvalidSubmission
 				}
 				input.Priority = taskPriorityValue(priority)
@@ -255,14 +255,8 @@ func resolveMappedValue(raw json.RawMessage, mapping domain.FormTaskMapping) (an
 }
 
 func taskPriorityValue(priority string) int {
-	switch priority {
-	case "low":
-		return 1
-	case "high":
-		return 3
-	case "urgent":
-		return 4
-	default:
-		return 2
+	if value, ok := domain.TaskPriorityFromName(priority); ok {
+		return value
 	}
+	return domain.TaskPriorityNormal
 }

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/mail"
@@ -32,7 +33,12 @@ type FormService interface {
 	Publish(ctx context.Context, workspaceID, formID uint) (*domain.Form, error)
 	GetPublic(ctx context.Context, slug string) (*PublicForm, error)
 	Submit(ctx context.Context, slug, idempotencyKey string, answers map[uint]json.RawMessage) (*domain.FormSubmission, bool, error)
-	ListSubmissions(ctx context.Context, workspaceID, formID uint) ([]domain.FormSubmission, error)
+	ListSubmissions(
+		ctx context.Context,
+		workspaceID, formID uint,
+		filter domain.SubmissionFilter,
+		limit, offset int,
+	) ([]domain.FormSubmission, int64, error)
 	GetSubmission(ctx context.Context, workspaceID, submissionID uint) (*domain.FormSubmission, error)
 }
 
@@ -40,6 +46,8 @@ type FormInput struct {
 	Name        string
 	Description string
 	Slug        string
+	Questions   []QuestionInput
+	TaskConfig  *domain.FormTaskConfiguration
 }
 
 type QuestionInput struct {
@@ -47,7 +55,7 @@ type QuestionInput struct {
 	Title       string
 	Description string
 	Required    bool
-	Position    int
+	Position    *int
 	Settings    json.RawMessage
 	Options     []domain.QuestionOption
 }
@@ -65,6 +73,7 @@ type formService struct {
 	taskConfig FormTaskConfigurationService
 	processor  domain.FormTaskProcessor
 	limiter    *submissionLimiter
+	tx         TransactionRunner
 }
 
 var formSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,254}$`)
@@ -75,6 +84,11 @@ func NewFormService(repo domain.FormRepository) *formService {
 
 func (s *formService) WithSubmissionLimit(max int, period time.Duration) *formService {
 	s.limiter = newSubmissionLimiter(max, period)
+	return s
+}
+
+func (s *formService) WithTransactions(tx TransactionRunner) *formService {
+	s.tx = tx
 	return s
 }
 
@@ -91,18 +105,134 @@ func (s *formService) Create(
 	workspaceID, userID uint,
 	input FormInput,
 ) (*domain.Form, error) {
-	input, err := normalizeFormInput(input)
-	if err != nil || workspaceID == 0 || userID == 0 {
+	if workspaceID == 0 || userID == 0 {
 		return nil, domain.ErrInvalidForm
+	}
+	questions, err := normalizeFormQuestions(input.Questions)
+	if err != nil {
+		return nil, err
+	}
+	input, err = normalizeFormInput(input)
+	if err != nil {
+		return nil, err
 	}
 	form := &domain.Form{
 		WorkspaceID: workspaceID, CreatedBy: userID, Name: input.Name,
 		Description: input.Description, Slug: input.Slug, Status: domain.FormDraft,
 	}
-	if err := s.repo.Create(ctx, form); err != nil {
-		return nil, fmt.Errorf("create form: %w", err)
+	if len(questions) == 0 && input.TaskConfig == nil {
+		if err := s.repo.Create(ctx, form); err != nil {
+			return nil, fmt.Errorf("create form: %w", err)
+		}
+		return form, nil
 	}
-	return form, nil
+	if err := s.runInTransaction(ctx, func(txCtx context.Context) error {
+		return s.createFormWithContent(txCtx, form, questions, input.TaskConfig)
+	}); err != nil {
+		return nil, err
+	}
+	return s.repo.GetByID(ctx, form.ID)
+}
+
+func (s *formService) runInTransaction(ctx context.Context, fn func(context.Context) error) error {
+	if s.tx == nil {
+		return fn(ctx)
+	}
+	return s.tx.Run(ctx, fn)
+}
+
+func (s *formService) createFormWithContent(
+	ctx context.Context,
+	form *domain.Form,
+	questions []domain.FormQuestion,
+	taskConfig *domain.FormTaskConfiguration,
+) error {
+	if err := s.repo.Create(ctx, form); err != nil {
+		return fmt.Errorf("create form: %w", err)
+	}
+	created := make([]domain.FormQuestion, len(questions))
+	for i := range questions {
+		question := questions[i]
+		question.FormID, question.Position = form.ID, i
+		if err := s.repo.CreateQuestion(ctx, &question); err != nil {
+			return fmt.Errorf("create form question %d: %w", i, err)
+		}
+		created[i] = question
+	}
+	if taskConfig == nil {
+		return nil
+	}
+	if s.taskConfig == nil {
+		return domain.NewFormValidationError("task_config", "task creation is not available")
+	}
+	resolved, err := resolveQuestionIndexes(*taskConfig, created)
+	if err != nil {
+		return err
+	}
+	if err := s.taskConfig.Set(ctx, form.WorkspaceID, form.ID, resolved); err != nil {
+		return prefixTaskConfigError(err)
+	}
+	return nil
+}
+
+func normalizeFormQuestions(inputs []QuestionInput) ([]domain.FormQuestion, error) {
+	if len(inputs) > domain.MaxFormQuestions {
+		return nil, domain.NewFormValidationError("questions",
+			fmt.Sprintf("at most %d questions are allowed", domain.MaxFormQuestions))
+	}
+	questions := make([]domain.FormQuestion, len(inputs))
+	for i, input := range inputs {
+		input.Position = nil
+		question, err := normalizeQuestion(1, input)
+		if err != nil {
+			var validation *domain.FormValidationError
+			if errors.As(err, &validation) {
+				return nil, validation.WithPrefix(fmt.Sprintf("questions[%d].", i))
+			}
+			return nil, err
+		}
+		question.FormID = 0
+		questions[i] = *question
+	}
+	return questions, nil
+}
+
+func resolveQuestionIndexes(
+	config domain.FormTaskConfiguration,
+	questions []domain.FormQuestion,
+) (domain.FormTaskConfiguration, error) {
+	mappings := make([]domain.FormTaskMapping, len(config.Mappings))
+	for i, mapping := range config.Mappings {
+		field := fmt.Sprintf("task_config.mappings[%d]", i)
+		switch {
+		case mapping.QuestionIndex != nil && mapping.QuestionID != 0:
+			return config, domain.NewFormValidationError(field, "set either question_id or question_index, not both")
+		case mapping.QuestionIndex != nil:
+			index := *mapping.QuestionIndex
+			if index < 0 || index >= len(questions) {
+				return config, domain.NewFormValidationError(field+".question_index",
+					"does not reference an item of questions")
+			}
+			mapping.QuestionID, mapping.QuestionIndex = questions[index].ID, nil
+		default:
+			return config, domain.NewFormValidationError(field+".question_index",
+				"is required because new forms have no question ids yet")
+		}
+		mappings[i] = mapping
+	}
+	config.Mappings = mappings
+	return config, nil
+}
+
+func prefixTaskConfigError(err error) error {
+	var validation *domain.FormValidationError
+	if errors.As(err, &validation) {
+		return validation.WithPrefix("task_config.")
+	}
+	if errors.Is(err, domain.ErrInvalidForm) {
+		return domain.NewFormValidationError("task_config", "is invalid")
+	}
+	return err
 }
 
 func (s *formService) List(ctx context.Context, workspaceID uint) ([]domain.Form, error) {
@@ -329,11 +459,23 @@ func (s *formService) Submit(
 	return submission, replay, nil
 }
 
-func (s *formService) ListSubmissions(ctx context.Context, workspaceID, formID uint) ([]domain.FormSubmission, error) {
+func (s *formService) ListSubmissions(
+	ctx context.Context,
+	workspaceID, formID uint,
+	filter domain.SubmissionFilter,
+	limit, offset int,
+) ([]domain.FormSubmission, int64, error) {
 	if _, err := s.Get(ctx, workspaceID, formID); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return s.repo.ListSubmissions(ctx, formID)
+	if filter.Status != "" && !domain.ValidSubmissionStatus(filter.Status) {
+		return nil, 0, domain.NewFormValidationError("status", "must be one of submitted, processing, processed, failed")
+	}
+	if filter.TaskCreationStatus != "" && !domain.ValidTaskCreationStatus(filter.TaskCreationStatus) {
+		return nil, 0, domain.NewFormValidationError("task_creation_status",
+			"must be one of pending, processing, succeeded, failed, skipped")
+	}
+	return s.repo.ListSubmissions(ctx, formID, filter, limit, offset)
 }
 
 func (s *formService) GetSubmission(ctx context.Context, workspaceID, submissionID uint) (*domain.FormSubmission, error) {
@@ -351,9 +493,14 @@ func normalizeFormInput(input FormInput) (FormInput, error) {
 	input.Name = strings.TrimSpace(input.Name)
 	input.Description = strings.TrimSpace(input.Description)
 	input.Slug = strings.TrimSpace(strings.ToLower(input.Slug))
-	if input.Name == "" || len(input.Name) > 255 || len(input.Description) > 10000 ||
-		!formSlugPattern.MatchString(input.Slug) {
-		return FormInput{}, domain.ErrInvalidForm
+	switch {
+	case input.Name == "" || len(input.Name) > 255:
+		return FormInput{}, domain.NewFormValidationError("name", "is required and must be at most 255 characters")
+	case len(input.Description) > 10000:
+		return FormInput{}, domain.NewFormValidationError("description", "must be at most 10000 characters")
+	case !formSlugPattern.MatchString(input.Slug):
+		return FormInput{}, domain.NewFormValidationError("slug",
+			"must contain lowercase letters, digits and hyphens and start with a letter or digit")
 	}
 	return input, nil
 }
@@ -361,41 +508,60 @@ func normalizeFormInput(input FormInput) (FormInput, error) {
 func normalizeQuestion(formID uint, input QuestionInput) (*domain.FormQuestion, error) {
 	input.Title = strings.TrimSpace(input.Title)
 	input.Description = strings.TrimSpace(input.Description)
-	if formID == 0 || input.Title == "" || len(input.Title) > 1000 || len(input.Description) > 5000 ||
-		!supportedQuestionType(input.Type) || input.Position < 0 {
-		return nil, domain.ErrInvalidForm
+	position := domain.AppendQuestionPosition
+	if input.Position != nil {
+		position = *input.Position
 	}
-	if len(input.Settings) == 0 {
+	switch {
+	case formID == 0:
+		return nil, domain.ErrInvalidForm
+	case !supportedQuestionType(input.Type):
+		return nil, domain.NewFormValidationError("type", "is not a supported question type")
+	case input.Title == "" || len(input.Title) > 1000:
+		return nil, domain.NewFormValidationError("title", "is required and must be at most 1000 characters")
+	case len(input.Description) > 5000:
+		return nil, domain.NewFormValidationError("description", "must be at most 5000 characters")
+	case input.Position != nil && position < 0:
+		return nil, domain.NewFormValidationError("position", "must not be negative")
+	}
+	if len(input.Settings) == 0 || string(input.Settings) == "null" {
 		input.Settings = json.RawMessage(`{}`)
 	}
 	if !json.Valid(input.Settings) || len(input.Settings) > 16384 {
-		return nil, domain.ErrInvalidForm
+		return nil, domain.NewFormValidationError("settings", "must be a JSON object of at most 16384 bytes")
 	}
 	options := append([]domain.QuestionOption(nil), input.Options...)
 	choice := isChoiceQuestion(input.Type)
-	if choice && (len(options) < 1 || len(options) > 100) || !choice && len(options) != 0 {
-		return nil, domain.ErrInvalidForm
+	if choice && (len(options) < 1 || len(options) > 100) {
+		return nil, domain.NewFormValidationError("options", "choice questions need between 1 and 100 options")
+	}
+	if !choice && len(options) != 0 {
+		return nil, domain.NewFormValidationError("options", "are only allowed for choice questions")
 	}
 	seen := make(map[string]struct{}, len(options))
 	for i := range options {
 		options[i].Label = strings.TrimSpace(options[i].Label)
 		options[i].Value = strings.TrimSpace(options[i].Value)
 		options[i].Position = i
+		field := fmt.Sprintf("options[%d]", i)
 		if options[i].Label == "" || options[i].Value == "" ||
 			len(options[i].Label) > 255 || len(options[i].Value) > 255 {
-			return nil, domain.ErrInvalidForm
+			return nil, domain.NewFormValidationError(field, "label and value are required and at most 255 characters")
 		}
 		if _, exists := seen[options[i].Value]; exists {
-			return nil, domain.ErrInvalidForm
+			return nil, domain.NewFormValidationError(field+".value", "must be unique within the question")
 		}
 		seen[options[i].Value] = struct{}{}
 	}
+	if err := validateQuestionSettings(input.Type, input.Settings, len(options)); err != nil {
+		return nil, err
+	}
 	if isStaticQuestion(input.Type) && input.Required {
-		return nil, domain.ErrInvalidForm
+		return nil, domain.NewFormValidationError("required", "is not allowed for section, description and divider questions")
 	}
 	return &domain.FormQuestion{
 		FormID: formID, Type: input.Type, Title: input.Title, Description: input.Description,
-		Required: input.Required, Position: input.Position, Settings: input.Settings, Options: options,
+		Required: input.Required, Position: position, Settings: input.Settings, Options: options,
 	}, nil
 }
 
@@ -439,8 +605,10 @@ func validateSubmission(questions []domain.FormQuestion, input map[uint]json.Raw
 	for _, question := range questions {
 		byID[question.ID] = question
 	}
-	if len(input) > len(byID) {
-		return nil, domain.ErrInvalidSubmission
+	for id := range input {
+		if _, known := byID[id]; !known {
+			return nil, domain.ErrInvalidSubmission
+		}
 	}
 	answers := make([]domain.SubmissionAnswer, 0, len(input))
 	for id, question := range byID {
@@ -478,7 +646,10 @@ func validateSubmission(questions []domain.FormQuestion, input map[uint]json.Raw
 
 func validQuestionValue(question domain.FormQuestion, value any) bool {
 	switch question.Type {
-	case domain.QuestionShortText, domain.QuestionLongText, domain.QuestionPhone:
+	case domain.QuestionShortText, domain.QuestionLongText:
+		text, ok := value.(string)
+		return ok && validTextLength(question, text)
+	case domain.QuestionPhone:
 		_, ok := value.(string)
 		return ok
 	case domain.QuestionEmail:
@@ -510,8 +681,7 @@ func validQuestionValue(question domain.FormQuestion, value any) bool {
 		_, err := time.Parse(time.RFC3339, text)
 		return err == nil
 	case domain.QuestionNumber, domain.QuestionRating, domain.QuestionScale:
-		number, ok := questionNumber(value)
-		return ok && withinQuestionBounds(question.Settings, number)
+		return validNumericAnswer(question, value)
 	case domain.QuestionCheckbox:
 		_, ok := value.(bool)
 		return ok
@@ -534,7 +704,7 @@ func validQuestionValue(question domain.FormQuestion, value any) bool {
 			}
 			seen[text] = struct{}{}
 		}
-		return true
+		return validSelectionCount(question, len(values))
 	case domain.QuestionFile:
 		return false
 	default:
@@ -552,25 +722,6 @@ func questionNumber(value any) (float64, bool) {
 	default:
 		return 0, false
 	}
-}
-
-func withinQuestionBounds(raw json.RawMessage, value float64) bool {
-	var settings map[string]any
-	if err := json.Unmarshal(raw, &settings); err != nil {
-		return false
-	}
-	for key, valid := range map[string]func(float64) bool{
-		"min": func(bound float64) bool { return value >= bound },
-		"max": func(bound float64) bool { return value <= bound },
-	} {
-		if setting, ok := settings[key]; ok {
-			bound, validNumber := questionNumber(setting)
-			if !validNumber || !valid(bound) {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 func questionHasOption(options []domain.QuestionOption, value string) bool {
