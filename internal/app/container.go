@@ -144,7 +144,8 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	formTaskConfigService := service.NewFormTaskConfigurationService(
 		formRepo, spaceRepo, templateRepo, customFieldService, tagRepo, workspaceRepo,
 	)
-	formService := service.NewFormService(formRepo).WithSubmissionLimit(cfg.Forms.SubmissionsPerHour, time.Hour)
+	formService := service.NewFormService(formRepo).WithSubmissionLimit(cfg.Forms.SubmissionsPerHour, time.Hour).
+		WithTransactions(database.NewTransactionRunner(db))
 	keyDerivation := hmac.New(sha256.New, []byte(cfg.JWT.Secret))
 	_, _ = keyDerivation.Write([]byte("rabbit-hole-server/task-cursor-signing/v1"))
 	cursorCodec, err := pagination.NewCodec(keyDerivation.Sum(nil))

@@ -39,7 +39,7 @@ type FormTaskTargetRequest struct {
 
 type FormTaskTemplateRequest struct {
 	TemplateID uint `json:"template_id" binding:"required,gt=0"`
-	VersionID  uint `json:"version_id" binding:"required,gt=0"`
+	VersionID  uint `json:"version_id" binding:"omitempty,gt=0"`
 }
 
 type FormTaskDefaultsRequest struct {
@@ -49,9 +49,10 @@ type FormTaskDefaultsRequest struct {
 }
 
 type FormTaskMappingRequest struct {
-	QuestionID uint                         `json:"question_id" binding:"required,gt=0"`
-	Target     FormTaskMappingTargetRequest `json:"target" binding:"required"`
-	Transform  *FormTaskTransformRequest    `json:"transform"`
+	QuestionID    uint                         `json:"question_id" binding:"omitempty,gt=0"`
+	QuestionIndex *int                         `json:"question_index" binding:"omitempty,gte=0"`
+	Target        FormTaskMappingTargetRequest `json:"target" binding:"required"`
+	Transform     *FormTaskTransformRequest    `json:"transform"`
 }
 
 type FormTaskMappingTargetRequest struct {

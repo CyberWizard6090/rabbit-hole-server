@@ -162,6 +162,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					notifications.DELETE("/:notification_id", deps.NotificationHandler.Delete)
 				}
 
+				protected.GET("/form-templates", deps.FormHandler.ListTemplates)
 				protected.GET("/task-templates/:template_id", deps.TaskTemplateHandler.Get)
 				protected.PATCH("/task-templates/:template_id", deps.TaskTemplateHandler.Update)
 				protected.DELETE("/task-templates/:template_id", deps.TaskTemplateHandler.Archive)
