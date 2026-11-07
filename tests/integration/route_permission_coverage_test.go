@@ -29,6 +29,7 @@ var (
 		"GET /api/v1/images/:public_id":               "editor images and avatars are public by design; the id is a random 128-bit value",
 		"GET /api/v1/public/forms/:slug":              "published form schema is public",
 		"POST /api/v1/public/forms/:slug/submissions": "published form submission is public and rate limited",
+		"POST /api/v1/public/forms/:slug/uploads":     "file answers of a published form are uploaded anonymously; rate limited, size and type checked",
 	}
 	selfScopedRoutes = map[string]string{
 		"GET /api/v1/profile":                 "caller's own profile",
@@ -136,7 +137,7 @@ func buildRouteFixture(t *testing.T, tc *TestContext, token string, userID uint)
 		"workspace_id": itoa(ws), "space_id": itoa(sp), "folder_id": itoa(fo), "list_id": itoa(li),
 		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "attachment_id": itoa(att), "checklist_id": itoa(cl), "item_id": itoa(it), "user_id": itoa(userID), "contact_id": itoa(userID), "notification_id": "1", "channel_id": "1",
 		"field_id": itoa(cf),
-		"form_id":  itoa(form), "question_id": itoa(question), "submission_id": itoa(submission),
+		"form_id":  itoa(form), "question_id": itoa(question), "submission_id": itoa(submission), "file_id": "1",
 		"slug":        formSlug,
 		"template_id": itoa(template), "version_id": itoa(templateVersion),
 	}}

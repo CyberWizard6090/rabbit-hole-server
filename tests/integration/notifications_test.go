@@ -295,8 +295,8 @@ func TestNotifications_PreferenceMatrixChangesBehaviourPerTypeAndChannel(t *test
 
 	rec := request(t, tc.Router, http.MethodGet, "/api/v1/notifications/preferences", f.tokenA, nil)
 	cells := decodeJSON(t, rec)["data"].([]any)
-	if len(cells) != 15 {
-		t.Fatalf("matrix has %d cells, want 5 types x 3 channels", len(cells))
+	if len(cells) != 18 {
+		t.Fatalf("matrix has %d cells, want 6 types x 3 channels", len(cells))
 	}
 	for _, raw := range cells {
 		cell := raw.(map[string]any)

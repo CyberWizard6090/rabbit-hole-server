@@ -45,7 +45,7 @@ func UserTopic(userID uint) string { return "user:" + strconv.FormatUint(uint64(
 type NotificationSummary struct {
 	ID        uint      `json:"id"`
 	Type      string    `json:"type"`
-	TaskID    uint      `json:"task_id"`
+	TaskID    uint      `json:"task_id,omitempty"`
 	Title     string    `json:"title"`
 	Snippet   string    `json:"snippet,omitempty"`
 	CreatedAt time.Time `json:"created_at"`

@@ -202,10 +202,13 @@ func (f *fakeChannelRepo) Confirm(_ context.Context, hash string) error {
 	return nil
 }
 
-type allowPerms struct{ denied map[uint]bool }
+type allowPerms struct {
+	denied          map[uint]bool
+	deniedWorkspace map[uint]bool
+}
 
-func (a allowPerms) HasWorkspacePermission(context.Context, uint, uint, string) (bool, error) {
-	return true, nil
+func (a allowPerms) HasWorkspacePermission(_ context.Context, user, _ uint, _ string) (bool, error) {
+	return !a.deniedWorkspace[user], nil
 }
 func (a allowPerms) HasSpacePermission(context.Context, uint, uint, string) (bool, error) {
 	return true, nil
@@ -281,6 +284,7 @@ func TestNotificationTypeRegistryDefaults(t *testing.T) {
 		domain.NotificationComment:       {true, false},
 		domain.NotificationStatusChanged: {true, false},
 		domain.NotificationDueDateChange: {true, false},
+		domain.NotificationFormSubmitted: {true, false},
 	}
 	types := domain.NotificationTypes()
 	if len(types) != len(want) {

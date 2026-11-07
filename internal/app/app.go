@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -20,6 +22,9 @@ type App struct {
 	realtime  *realtime.Hub
 	closeMail func(context.Context) error
 	notifier  *service.NotificationDispatcher
+
+	stopWorkers context.CancelFunc
+	workers     sync.WaitGroup
 }
 
 func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
@@ -28,8 +33,20 @@ func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("create app dependencies: %w", err)
 	}
 	r := SetupRouter(container, cfg)
-	return &App{router: r, realtime: container.Realtime, closeMail: container.CloseMail, notifier: container.Notifications}, nil
+	workerCtx, stopWorkers := context.WithCancel(context.Background())
+	a := &App{
+		router: r, realtime: container.Realtime, closeMail: container.CloseMail,
+		notifier: container.Notifications, stopWorkers: stopWorkers,
+	}
+	a.workers.Add(1)
+	go func() {
+		defer a.workers.Done()
+		service.RunFormUploadCleanup(workerCtx, container.FormUploads, formUploadCleanupInterval)
+	}()
+	return a, nil
 }
+
+const formUploadCleanupInterval = 10 * time.Minute
 
 func (a *App) Run(addr string) error {
 	return a.router.Run(addr)
@@ -40,6 +57,10 @@ func (a *App) Handler() http.Handler {
 }
 
 func (a *App) Close(ctx context.Context) error {
+	if a.stopWorkers != nil {
+		a.stopWorkers()
+		a.workers.Wait()
+	}
 	if a.realtime != nil {
 		a.realtime.Close()
 	}

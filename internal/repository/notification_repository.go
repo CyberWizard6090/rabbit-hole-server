@@ -10,14 +10,20 @@ import (
 	"rabbit-hole-server/internal/domain"
 )
 
-const readableTaskFilter = "EXISTS (SELECT 1 FROM tasks t " +
+const readableTaskFilter = "((n.task_id IS NOT NULL AND EXISTS (SELECT 1 FROM tasks t " +
 	"JOIN spaces s ON s.id = t.space_id AND s.deleted_at IS NULL " +
 	"JOIN workspaces w ON w.id = s.workspace_id AND w.deleted_at IS NULL " +
 	"JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = n.user_id AND wm.deleted_at IS NULL " +
 	"JOIN roles r ON r.id = wm.role_id AND r.deleted_at IS NULL " +
 	"JOIN role_permissions rp ON rp.role_id = r.id AND rp.deleted_at IS NULL " +
 	"JOIN permissions p ON p.id = rp.permission_id AND p.deleted_at IS NULL AND p.code = '" + domain.PermTaskRead + "' " +
-	"WHERE t.id = n.task_id AND t.deleted_at IS NULL)"
+	"WHERE t.id = n.task_id AND t.deleted_at IS NULL)) OR " +
+	"(n.task_id IS NULL AND EXISTS (SELECT 1 FROM workspaces w " +
+	"JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = n.user_id AND wm.deleted_at IS NULL " +
+	"JOIN roles r ON r.id = wm.role_id AND r.deleted_at IS NULL " +
+	"JOIN role_permissions rp ON rp.role_id = r.id AND rp.deleted_at IS NULL " +
+	"JOIN permissions p ON p.id = rp.permission_id AND p.deleted_at IS NULL AND p.code = '" + domain.PermWorkspaceRead + "' " +
+	"WHERE w.id = n.workspace_id AND w.deleted_at IS NULL)))"
 
 type notificationRepository struct {
 	db *gorm.DB
@@ -41,7 +47,7 @@ func (r *notificationRepository) Create(ctx context.Context, d domain.Notificati
 		if err := tx.Raw(
 			"INSERT INTO notifications (user_id, type, task_id, actor_id, workspace_id, payload) VALUES (?, ?, ?, ?, ?, ?::jsonb) "+
 				"RETURNING id, created_at",
-			d.UserID, d.Type, d.TaskID, d.ActorID, d.WorkspaceID, string(payload),
+			d.UserID, d.Type, nullableID(d.TaskID), nullableID(d.ActorID), d.WorkspaceID, string(payload),
 		).Scan(&rows).Error; err != nil {
 			return err
 		}
@@ -56,6 +62,13 @@ func (r *notificationRepository) Create(ctx context.Context, d domain.Notificati
 		).Error
 	})
 	return ref, mapErr(err)
+}
+
+func nullableID(id uint) any {
+	if id == 0 {
+		return nil
+	}
+	return id
 }
 
 type notificationRow struct {
@@ -89,7 +102,8 @@ func (r *notificationRepository) List(
 	}
 	var rows []notificationRow
 	if err := db.Raw(
-		"SELECT n.id, n.type, n.task_id, n.workspace_id, n.actor_id, n.payload, n.created_at, n.read_at "+
+		"SELECT n.id, n.type, COALESCE(n.task_id, 0) AS task_id, n.workspace_id, COALESCE(n.actor_id, 0) AS actor_id, "+
+			"n.payload, n.created_at, n.read_at "+
 			"FROM notifications n WHERE "+where+" ORDER BY n.id DESC LIMIT ? OFFSET ?",
 		append(args, limit, offset)...,
 	).Scan(&rows).Error; err != nil {

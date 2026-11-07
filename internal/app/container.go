@@ -49,6 +49,8 @@ type Container struct {
 	TagHandler          *handler.TagHandler
 	CustomFieldHandler  *handler.CustomFieldHandler
 	FormHandler         *handler.FormHandler
+	FormUploadHandler   *handler.FormUploadHandler
+	FormUploads         service.FormUploadService
 	FormTaskHandler     *handler.FormTaskHandler
 	TaskTemplateHandler *handler.TaskTemplateHandler
 
@@ -144,8 +146,12 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	formTaskConfigService := service.NewFormTaskConfigurationService(
 		formRepo, spaceRepo, templateRepo, customFieldService, tagRepo, workspaceRepo,
 	)
-	formService := service.NewFormService(formRepo).WithSubmissionLimit(cfg.Forms.SubmissionsPerHour, time.Hour).
-		WithTransactions(database.NewTransactionRunner(db))
+	formUploadRepo := repository.NewFormUploadRepository(db)
+	formService := service.NewFormService(formRepo).
+		WithSubmissionLimit(cfg.Forms.SubmissionsPerHour, time.Hour).
+		WithTransactions(database.NewTransactionRunner(db)).
+		WithSettingsPolicy(cfg.Environment == "development", cfg.Storage.PublicBaseURL).
+		WithUploads(formUploadRepo)
 	keyDerivation := hmac.New(sha256.New, []byte(cfg.JWT.Secret))
 	_, _ = keyDerivation.Write([]byte("rabbit-hole-server/task-cursor-signing/v1"))
 	cursorCodec, err := pagination.NewCodec(keyDerivation.Sum(nil))
@@ -162,9 +168,12 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	}
 	activityRecorder := service.NewNotifyingRecorder(activityService, notifications.dispatcher)
 	taskService := service.NewTaskService(taskRepo, spaceRepo, tagService, cursorCodec, activityRecorder)
-	taskProcessor := service.NewSubmissionTaskProcessor(formRepo, taskService, templateRepo, customFieldService)
+	taskProcessor := service.NewSubmissionTaskProcessor(
+		formRepo, taskService, templateRepo, customFieldService, formUploadRepo, activityRecorder,
+	)
 	templateApplier := service.NewTaskTemplateApplier(database.NewTransactionRunner(db), templateRepo, spaceRepo, taskService, customFieldService)
-	formService.WithTaskIntegration(formTaskConfigService, taskProcessor)
+	formService.WithTaskIntegration(formTaskConfigService, taskProcessor).
+		WithSubmissionNotifier(notifications.dispatcher)
 	userService := service.NewUserService(userRepo)
 	contactService := service.NewContactService(contactRepo)
 	folderService := service.NewFolderService(folderRepo)
@@ -186,6 +195,9 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 		service.RehostConfig{Fetcher: options.remoteFetcher, MaxBytes: cfg.Storage.RehostLimit()},
 	)
 	authServ.WithAvatarRemover(fileService)
+	formUploadService := service.NewFormUploadService(
+		formRepo, formUploadRepo, store, cfg.Forms.UploadMaxBytes, cfg.Forms.UploadTTL,
+	)
 
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -213,6 +225,8 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 		TagHandler:         handler.NewTagHandler(tagService),
 		CustomFieldHandler: handler.NewCustomFieldHandler(customFieldService),
 		FormHandler:        handler.NewFormHandler(formService),
+		FormUploadHandler:  handler.NewFormUploadHandler(formUploadService),
+		FormUploads:        formUploadService,
 		FormTaskHandler: handler.NewFormTaskHandler(
 			formTaskConfigService, formRepo, taskProcessor, taskService, permissionChecker,
 		),

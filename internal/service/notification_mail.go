@@ -154,7 +154,7 @@ func renderNotificationMail(locale, frontendURL string, c NotificationContent) (
 	view := notificationMailView{
 		Summary:         summary,
 		Detail:          notificationDetail(locale, c.Type.Key, c.Payload),
-		Link:            fmt.Sprintf("%s%s%d", frontendURL, taskPathPrefix, c.TaskID),
+		Link:            notificationLink(frontendURL, c),
 		OpenLabel:       strs.Open,
 		Footer:          strs.Footer,
 		PreferencesURL:  frontendURL + notificationPrefsPath,

@@ -46,6 +46,7 @@ type FormInput struct {
 	Name        string
 	Description string
 	Slug        string
+	Settings    *domain.FormSettings
 	Questions   []QuestionInput
 	TaskConfig  *domain.FormTaskConfiguration
 }
@@ -66,6 +67,9 @@ type PublicForm struct {
 	Slug        string                `json:"slug"`
 	Version     int                   `json:"version"`
 	Questions   []domain.FormQuestion `json:"questions"`
+	Settings    PublicFormSettings    `json:"settings"`
+	Closed      bool                  `json:"closed"`
+	Full        bool                  `json:"full"`
 }
 
 type formService struct {
@@ -73,7 +77,12 @@ type formService struct {
 	taskConfig FormTaskConfigurationService
 	processor  domain.FormTaskProcessor
 	limiter    *submissionLimiter
-	tx         TransactionRunner
+
+	allowInsecureRedirect bool
+	imageBaseURL          string
+	notifier              FormSubmissionNotifier
+	uploads               domain.FormUploadRepository
+	tx                    TransactionRunner
 }
 
 var formSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,254}$`)
@@ -120,10 +129,18 @@ func (s *formService) Create(
 		WorkspaceID: workspaceID, CreatedBy: userID, Name: input.Name,
 		Description: input.Description, Slug: input.Slug, Status: domain.FormDraft,
 	}
+	if input.Settings != nil {
+		settings, err := s.normalizeSettings(ctx, workspaceID, *input.Settings)
+		if err != nil {
+			return nil, err
+		}
+		form.Settings = settings
+	}
 	if len(questions) == 0 && input.TaskConfig == nil {
 		if err := s.repo.Create(ctx, form); err != nil {
 			return nil, fmt.Errorf("create form: %w", err)
 		}
+		s.decorateForm(form)
 		return form, nil
 	}
 	if err := s.runInTransaction(ctx, func(txCtx context.Context) error {
@@ -131,7 +148,12 @@ func (s *formService) Create(
 	}); err != nil {
 		return nil, err
 	}
-	return s.repo.GetByID(ctx, form.ID)
+	created, err := s.repo.GetByID(ctx, form.ID)
+	if err != nil {
+		return nil, err
+	}
+	s.decorateForm(created)
+	return created, nil
 }
 
 func (s *formService) runInTransaction(ctx context.Context, fn func(context.Context) error) error {
@@ -236,7 +258,11 @@ func prefixTaskConfigError(err error) error {
 }
 
 func (s *formService) List(ctx context.Context, workspaceID uint) ([]domain.Form, error) {
-	return s.repo.ListByWorkspace(ctx, workspaceID)
+	forms, err := s.repo.ListByWorkspace(ctx, workspaceID)
+	for i := range forms {
+		s.decorateForm(&forms[i])
+	}
+	return forms, err
 }
 
 func (s *formService) Get(ctx context.Context, workspaceID, formID uint) (*domain.Form, error) {
@@ -247,6 +273,7 @@ func (s *formService) Get(ctx context.Context, workspaceID, formID uint) (*domai
 	if form.WorkspaceID != workspaceID {
 		return nil, domain.ErrFormNotFound
 	}
+	s.decorateForm(form)
 	return form, nil
 }
 
@@ -264,9 +291,17 @@ func (s *formService) Update(
 		return nil, err
 	}
 	form.Name, form.Description, form.Slug = input.Name, input.Description, input.Slug
+	if input.Settings != nil {
+		settings, err := s.normalizeSettings(ctx, workspaceID, *input.Settings)
+		if err != nil {
+			return nil, err
+		}
+		form.Settings = settings
+	}
 	if err := s.repo.Update(ctx, form); err != nil {
 		return nil, fmt.Errorf("update form: %w", err)
 	}
+	s.decorateForm(form)
 	return form, nil
 }
 
@@ -300,6 +335,9 @@ func (s *formService) CreateQuestion(
 	if err != nil {
 		return nil, err
 	}
+	if err := savedQuestionVisibilityError(form.Questions, *question); err != nil {
+		return nil, err
+	}
 	if err := s.repo.CreateQuestion(ctx, question); err != nil {
 		return nil, fmt.Errorf("create form question: %w", err)
 	}
@@ -323,6 +361,9 @@ func (s *formService) UpdateQuestion(
 		return nil, err
 	}
 	question.ID = questionID
+	if err := savedQuestionVisibilityError(form.Questions, *question); err != nil {
+		return nil, err
+	}
 	if err := s.repo.UpdateQuestion(ctx, question); err != nil {
 		return nil, fmt.Errorf("update form question: %w", err)
 	}
@@ -336,6 +377,9 @@ func (s *formService) DeleteQuestion(ctx context.Context, workspaceID, formID, q
 	}
 	if form.Status == domain.FormArchived {
 		return domain.ErrInvalidForm
+	}
+	if referencedByVisibility(form.Questions, questionID) {
+		return questionReferencedError()
 	}
 	return s.repo.DeleteQuestion(ctx, formID, questionID)
 }
@@ -371,12 +415,20 @@ func (s *formService) Publish(ctx context.Context, workspaceID, formID uint) (*d
 			return nil, err
 		}
 	}
+	if err := publishVisibilityError(form.Questions); err != nil {
+		return nil, err
+	}
 	if s.taskConfig != nil {
 		if err := s.taskConfig.ValidatePublication(ctx, workspaceID, formID); err != nil {
 			return nil, err
 		}
 	}
-	return s.repo.Publish(ctx, formID)
+	published, err := s.repo.Publish(ctx, formID)
+	if err != nil {
+		return nil, err
+	}
+	s.decorateForm(published)
+	return published, nil
 }
 
 func (s *formService) GetPublic(ctx context.Context, slug string) (*PublicForm, error) {
@@ -391,14 +443,24 @@ func (s *formService) GetPublic(ctx context.Context, slug string) (*PublicForm, 
 		Name        string                `json:"name"`
 		Description string                `json:"description"`
 		Questions   []domain.FormQuestion `json:"questions"`
+		Settings    domain.FormSettings   `json:"settings"`
 	}
 	if err := json.Unmarshal(form.CurrentVersion.SchemaSnapshot, &snapshot); err != nil {
 		return nil, fmt.Errorf("decode published form schema: %w", err)
 	}
-	return &PublicForm{
+	public := &PublicForm{
 		Name: snapshot.Name, Description: snapshot.Description, Slug: form.Slug,
 		Version: form.CurrentVersion.Version, Questions: snapshot.Questions,
-	}, nil
+		Settings: s.publicSettings(snapshot.Settings), Closed: formClosed(snapshot.Settings, time.Now()),
+	}
+	if snapshot.Settings.MaxSubmissions != nil {
+		count, err := s.repo.CountSubmissions(ctx, form.ID)
+		if err != nil {
+			return nil, err
+		}
+		public.Full = count >= *snapshot.Settings.MaxSubmissions
+	}
+	return public, nil
 }
 
 func (s *formService) Submit(
@@ -424,12 +486,18 @@ func (s *formService) Submit(
 		return nil, false, domain.ErrFormSubmissionsLimited
 	}
 	var snapshot struct {
+		Name      string                `json:"name"`
 		Questions []domain.FormQuestion `json:"questions"`
+		Settings  domain.FormSettings   `json:"settings"`
 	}
 	if err := json.Unmarshal(form.CurrentVersion.SchemaSnapshot, &snapshot); err != nil {
 		return nil, false, fmt.Errorf("decode published form schema: %w", err)
 	}
 	answers, err := validateSubmission(snapshot.Questions, input)
+	if err != nil {
+		return nil, false, err
+	}
+	claims, err := fileClaims(snapshot.Questions, answers)
 	if err != nil {
 		return nil, false, err
 	}
@@ -441,9 +509,15 @@ func (s *formService) Submit(
 	hash := sha256.Sum256(requestBody)
 	submission, replay, err := s.repo.CreateSubmission(
 		ctx, form.ID, nil, idempotencyKey, hex.EncodeToString(hash[:]), answers,
+		domain.SubmissionOptions{
+			ClosesAt: snapshot.Settings.ClosesAt, MaxSubmissions: snapshot.Settings.MaxSubmissions, Uploads: claims,
+		},
 	)
 	if err != nil {
 		return nil, false, fmt.Errorf("save form submission: %w", err)
+	}
+	if !replay {
+		s.notifySubmission(form, snapshot.Name, snapshot.Settings, submission.ID)
 	}
 	if !replay && s.processor != nil {
 		if status, processErr := s.processor.ProcessSubmission(ctx, submission.ID); processErr != nil {
@@ -475,7 +549,11 @@ func (s *formService) ListSubmissions(
 		return nil, 0, domain.NewFormValidationError("task_creation_status",
 			"must be one of pending, processing, succeeded, failed, skipped")
 	}
-	return s.repo.ListSubmissions(ctx, formID, filter, limit, offset)
+	submissions, total, err := s.repo.ListSubmissions(ctx, formID, filter, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	return submissions, total, s.attachSubmissionFiles(ctx, submissions)
 }
 
 func (s *formService) GetSubmission(ctx context.Context, workspaceID, submissionID uint) (*domain.FormSubmission, error) {
@@ -486,7 +564,11 @@ func (s *formService) GetSubmission(ctx context.Context, workspaceID, submission
 	if submission.WorkspaceID != workspaceID {
 		return nil, domain.ErrFormNotFound
 	}
-	return submission, nil
+	withFiles := []domain.FormSubmission{*submission}
+	if err := s.attachSubmissionFiles(ctx, withFiles); err != nil {
+		return nil, err
+	}
+	return &withFiles[0], nil
 }
 
 func normalizeFormInput(input FormInput) (FormInput, error) {
@@ -559,6 +641,9 @@ func normalizeQuestion(formID uint, input QuestionInput) (*domain.FormQuestion, 
 	if isStaticQuestion(input.Type) && input.Required {
 		return nil, domain.NewFormValidationError("required", "is not allowed for section, description and divider questions")
 	}
+	if err := validateFileQuestionSettings(input.Type, input.Settings); err != nil {
+		return nil, err
+	}
 	return &domain.FormQuestion{
 		FormID: formID, Type: input.Type, Title: input.Title, Description: input.Description,
 		Required: input.Required, Position: position, Settings: input.Settings, Options: options,
@@ -601,22 +686,27 @@ func isStaticQuestion(questionType domain.QuestionType) bool {
 }
 
 func validateSubmission(questions []domain.FormQuestion, input map[uint]json.RawMessage) ([]domain.SubmissionAnswer, error) {
-	byID := make(map[uint]domain.FormQuestion, len(questions))
-	for _, question := range questions {
-		byID[question.ID] = question
+	ordered := orderedQuestions(questions)
+	known := make(map[uint]struct{}, len(ordered))
+	for _, question := range ordered {
+		known[question.ID] = struct{}{}
 	}
 	for id := range input {
-		if _, known := byID[id]; !known {
+		if _, ok := known[id]; !ok {
 			return nil, domain.ErrInvalidSubmission
 		}
 	}
 	answers := make([]domain.SubmissionAnswer, 0, len(input))
-	for id, question := range byID {
-		raw, exists := input[id]
+	effective := make(map[uint]any, len(input))
+	for _, question := range ordered {
+		raw, exists := input[question.ID]
 		if isStaticQuestion(question.Type) {
 			if exists {
 				return nil, domain.ErrInvalidSubmission
 			}
+			continue
+		}
+		if !questionVisible(question, effective) {
 			continue
 		}
 		if !exists {
@@ -639,7 +729,8 @@ func validateSubmission(questions []domain.FormQuestion, input map[uint]json.Raw
 		if err != nil {
 			return nil, domain.ErrInvalidSubmission
 		}
-		answers = append(answers, domain.SubmissionAnswer{QuestionID: id, Value: normalized})
+		effective[question.ID] = value
+		answers = append(answers, domain.SubmissionAnswer{QuestionID: question.ID, Value: normalized})
 	}
 	return answers, nil
 }
@@ -706,7 +797,22 @@ func validQuestionValue(question domain.FormQuestion, value any) bool {
 		}
 		return validSelectionCount(question, len(values))
 	case domain.QuestionFile:
-		return false
+		values, ok := value.([]any)
+		if !ok || len(values) == 0 || len(values) > questionMaxFiles(question.Settings) {
+			return false
+		}
+		seen := make(map[string]struct{}, len(values))
+		for _, raw := range values {
+			text, ok := raw.(string)
+			if !ok || !publicIDPattern.MatchString(text) {
+				return false
+			}
+			if _, duplicate := seen[text]; duplicate {
+				return false
+			}
+			seen[text] = struct{}{}
+		}
+		return true
 	default:
 		return false
 	}

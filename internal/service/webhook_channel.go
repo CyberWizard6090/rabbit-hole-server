@@ -280,7 +280,7 @@ func (c *webhookChannel) eventBody(d Delivery, deliveryID string) webhookEvent {
 		Detail:  notificationDetail(locale, content.Type.Key, content.Payload),
 		Task:    webhookTask{ID: content.TaskID, Title: title, WorkspaceID: content.WorkspaceID},
 		Actor:   webhookActor{DisplayName: actor},
-		Link:    c.cfg.FrontendURL + taskPathPrefix + strconv.FormatUint(uint64(content.TaskID), 10),
+		Link:    notificationLink(c.cfg.FrontendURL, content),
 	}
 }
 

@@ -88,7 +88,10 @@ func (r *formRepository) loadFormChildren(
 func (r *formRepository) Update(ctx context.Context, form *domain.Form) error {
 	result := r.db.WithContext(ctx).Model(&persistence.Form{}).
 		Where("id = ? AND workspace_id = ?", form.ID, form.WorkspaceID).
-		Updates(map[string]any{"name": form.Name, "description": form.Description, "slug": form.Slug})
+		Updates(map[string]any{
+			"name": form.Name, "description": form.Description, "slug": form.Slug,
+			"settings": encodeFormSettings(form.Settings),
+		})
 	if result.Error != nil {
 		if isUniqueViolation(result.Error) {
 			return domain.ErrFormSlugTaken
@@ -308,7 +311,8 @@ func (r *formRepository) Publish(ctx context.Context, formID uint) (*domain.Form
 			Name        string                `json:"name"`
 			Description string                `json:"description"`
 			Questions   []domain.FormQuestion `json:"questions"`
-		}{form.ID, form.Name, form.Description, questionSchema}
+			Settings    domain.FormSettings   `json:"settings"`
+		}{form.ID, form.Name, form.Description, questionSchema, decodeFormSettings(form.Settings)}
 		raw, err := json.Marshal(snapshot)
 		if err != nil {
 			return fmt.Errorf("encode form schema snapshot: %w", err)
@@ -551,6 +555,7 @@ func (r *formRepository) CreateSubmission(
 	idempotencyKey string,
 	requestHash string,
 	answers []domain.SubmissionAnswer,
+	options domain.SubmissionOptions,
 ) (*domain.FormSubmission, bool, error) {
 	var created domain.FormSubmission
 	var replay bool
@@ -586,6 +591,9 @@ func (r *formRepository) CreateSubmission(
 			First(&form, "id = ? AND status = ? AND current_version_id IS NOT NULL", formID, domain.FormPublished).Error; err != nil {
 			return domain.ErrFormNotPublished
 		}
+		if err := checkSubmissionOptions(tx, formID, options); err != nil {
+			return err
+		}
 		idem := persistence.FormIdempotencyKey{
 			FormID: formID, Key: idempotencyKey, RequestHash: requestHash,
 			Status: "processing", CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
@@ -612,6 +620,9 @@ func (r *formRepository) CreateSubmission(
 			if err := tx.Create(&rows).Error; err != nil {
 				return err
 			}
+		}
+		if err := claimFormUploads(tx, formID, submission.ID, options.Uploads, now); err != nil {
+			return err
 		}
 		if err := tx.Model(&idem).Updates(map[string]any{
 			"status": "completed", "submission_id": submission.ID,
@@ -684,7 +695,7 @@ func formToDomain(row persistence.Form) domain.Form {
 		Model:       domain.Model{ID: row.ID, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt},
 		WorkspaceID: row.WorkspaceID, Name: row.Name, Description: row.Description, Slug: row.Slug,
 		Status: domain.FormStatus(row.Status), CurrentVersionID: row.CurrentVersionID, CreatedBy: row.CreatedBy,
-		TaskConfig: row.TaskConfig,
+		TaskConfig: row.TaskConfig, Settings: decodeFormSettings(row.Settings),
 	}
 }
 
@@ -693,7 +704,7 @@ func formToPersistence(form domain.Form) persistence.Form {
 		ID: form.ID, CreatedAt: form.CreatedAt, UpdatedAt: form.UpdatedAt, WorkspaceID: form.WorkspaceID,
 		Name: form.Name, Description: form.Description, Slug: form.Slug,
 		Status: string(form.Status), CurrentVersionID: form.CurrentVersionID, CreatedBy: form.CreatedBy,
-		TaskConfig: form.TaskConfig,
+		TaskConfig: form.TaskConfig, Settings: encodeFormSettings(form.Settings),
 	}
 }
 

@@ -37,6 +37,8 @@ type settingSpec struct {
 
 var placeholderSetting = settingSpec{kind: settingString, max: maxPlaceholder}
 
+const visibleIfSettingKey = "visible_if"
+
 var questionSettingSpecs = map[domain.QuestionType]map[string]settingSpec{
 	domain.QuestionShortText: {
 		"placeholder": placeholderSetting,
@@ -87,6 +89,7 @@ func validateQuestionSettings(
 	if questionType == domain.QuestionFile {
 		return nil
 	}
+	delete(settings, visibleIfSettingKey)
 	specs := questionSettingSpecs[questionType]
 	numbers := make(map[string]float64, len(settings))
 	for key, value := range settings {

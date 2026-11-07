@@ -10,6 +10,8 @@ type FormRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
 	Slug        string `json:"slug" binding:"required"`
+
+	Settings *domain.FormSettings `json:"settings"`
 }
 
 type CreateFormRequest struct {

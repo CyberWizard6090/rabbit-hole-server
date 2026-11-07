@@ -470,8 +470,8 @@ CREATE TABLE notifications (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL,
     type TEXT NOT NULL,
-    task_id BIGINT NOT NULL,
-    actor_id BIGINT NOT NULL,
+    task_id BIGINT,
+    actor_id BIGINT,
     workspace_id BIGINT NOT NULL,
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -795,6 +795,31 @@ CREATE TABLE outbox_events (
     published_at TIMESTAMPTZ
 );
 CREATE INDEX idx_outbox_events_pending ON outbox_events(created_at, id) WHERE published_at IS NULL;
+
+ALTER TABLE forms ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+CREATE TABLE form_uploads (
+    id BIGSERIAL PRIMARY KEY,
+    public_id TEXT NOT NULL,
+    form_id BIGINT NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
+    question_id BIGINT REFERENCES form_questions(id) ON DELETE SET NULL,
+    submission_id BIGINT REFERENCES form_submissions(id) ON DELETE CASCADE,
+    file_id BIGINT REFERENCES files(id) ON DELETE SET NULL,
+    storage_key TEXT NOT NULL,
+    name TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    size BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    claimed_at TIMESTAMPTZ,
+    CONSTRAINT chk_form_uploads_size CHECK (size > 0),
+    CONSTRAINT chk_form_uploads_claim CHECK ((claimed_at IS NULL) = (submission_id IS NULL))
+);
+CREATE UNIQUE INDEX uq_form_uploads_public_id ON form_uploads (public_id);
+CREATE UNIQUE INDEX uq_form_uploads_storage_key ON form_uploads (storage_key);
+CREATE INDEX idx_form_uploads_pending ON form_uploads (form_id) WHERE claimed_at IS NULL;
+CREATE INDEX idx_form_uploads_expiry ON form_uploads (expires_at) WHERE claimed_at IS NULL;
+CREATE INDEX idx_form_uploads_submission ON form_uploads (submission_id) WHERE submission_id IS NOT NULL;
 
 CREATE FUNCTION validate_form_task_config_workspace()
 RETURNS TRIGGER AS $$

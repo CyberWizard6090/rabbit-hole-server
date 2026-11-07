@@ -75,7 +75,9 @@ type NotificationConfig struct {
 }
 
 type FormsConfig struct {
-	SubmissionsPerHour int `env:"FORM_SUBMISSIONS_PER_HOUR" envDefault:"200" validate:"gt=0"`
+	SubmissionsPerHour int           `env:"FORM_SUBMISSIONS_PER_HOUR" envDefault:"200" validate:"gt=0"`
+	UploadMaxBytes     int64         `env:"FORM_UPLOAD_MAX_BYTES" envDefault:"10485760" validate:"gt=0"`
+	UploadTTL          time.Duration `env:"FORM_UPLOAD_TTL" envDefault:"24h" validate:"gt=0"`
 }
 
 type S3Config struct {

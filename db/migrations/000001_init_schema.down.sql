@@ -1,12 +1,14 @@
 DROP TRIGGER trg_validate_form_task_config_workspace ON form_task_configs;
 DROP FUNCTION validate_form_task_config_workspace();
 DROP TABLE outbox_events;
+DROP TABLE form_uploads;
 DROP TABLE form_submission_tasks;
 DROP TABLE form_task_configs;
 ALTER TABLE form_submissions DROP CONSTRAINT chk_form_submission_task_status;
 ALTER TABLE form_submissions DROP COLUMN task_creation_error;
 ALTER TABLE form_submissions DROP COLUMN task_creation_status;
 ALTER TABLE forms DROP COLUMN task_config;
+ALTER TABLE forms DROP COLUMN settings;
 
 DROP TABLE task_template_versions;
 DROP TABLE task_templates;

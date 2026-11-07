@@ -251,6 +251,7 @@ type Form struct {
 	CurrentVersionID *uint
 	CreatedBy        uint            `gorm:"not null"`
 	TaskConfig       json.RawMessage `gorm:"type:jsonb;serializer:json;not null;default:'{}'"`
+	Settings         json.RawMessage `gorm:"type:jsonb;serializer:json;not null;default:'{}'"`
 }
 
 type FormVersion struct {

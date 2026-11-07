@@ -38,6 +38,8 @@ type TestContext struct {
 	Mail   *mail.Memory
 
 	Notifications *service.NotificationDispatcher
+	FormUploads   service.FormUploadService
+	StorageDir    string
 }
 
 func TestMain(m *testing.M) {
@@ -161,6 +163,8 @@ func newTestContextWith(t *testing.T, adjust func(cfg *config.Config), opts ...a
 		Router:        app.SetupRouter(container, &cfg),
 		Mail:          outbox,
 		Notifications: container.Notifications,
+		FormUploads:   container.FormUploads,
+		StorageDir:    cfg.Storage.LocalDir,
 	}
 }
 

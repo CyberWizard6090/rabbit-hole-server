@@ -22,6 +22,8 @@ type notificationPlan struct {
 	Direct      []directTarget
 	WatcherType string
 	Payload     map[string]any
+	WorkspaceID uint
+	Title       string
 }
 
 type eventMapper func(ctx context.Context, d *NotificationDispatcher, e domain.ActivityEntry) (*notificationPlan, error)
@@ -32,6 +34,7 @@ func defaultEventMappers() map[string]eventMapper {
 		domain.ActivityTaskCreated:           mapTaskCreated,
 		domain.ActivityTaskUpdated:           mapTaskUpdated,
 		domain.ActivityChecklistItemAssigned: mapChecklistItemAssigned,
+		domain.ActivityFormSubmissionCreated: mapFormSubmissionCreated,
 	}
 }
 

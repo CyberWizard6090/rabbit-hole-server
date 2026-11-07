@@ -217,6 +217,9 @@ func effectiveEnabled(t domain.NotificationType, kind string, prefs map[[2]strin
 }
 
 func (d *NotificationDispatcher) process(ctx context.Context, plan *notificationPlan) error {
+	if plan.TaskID == 0 {
+		return d.processWorkspaceEvent(ctx, plan)
+	}
 	if err := d.watchers.AutoWatch(ctx, plan.TaskID, plan.AutoWatch); err != nil {
 		d.logger.Warn("notifications: cannot auto-watch", "task_id", plan.TaskID, "error", err)
 	}
