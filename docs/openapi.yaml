@@ -2401,7 +2401,7 @@ paths:
     get:
       tags: [notifications]
       summary: "Delivery destinations"
-      description: "The implicit `in_app` and account `email` entries (`implicit: true`; the account address is read from the account and is usable only while verified) followed by the extra addresses the caller added."
+      description: "The implicit `in_app` and account `email` entries (`implicit: true`; the account address is read from the account and is usable only while verified) followed by the extra destinations the caller added. A `webhook` entry also carries `disabled_at` (set once the channel was switched off after too many consecutive failed deliveries) and `last_error` (a short sanitized reason of the latest failure); the signing secret is never listed."
       security:
         - bearerAuth: []
       responses:
@@ -2414,6 +2414,24 @@ paths:
         Body `{"kind": "email", "destination": "..."}`. A confirmation mail with a single-use token (valid 48 hours,
         language from Accept-Language) goes to that address; nothing else is ever sent to it before it is confirmed.
         At most 5 extra addresses per user (422). The same mailbox may be confirmed by different users. Rate limited.
+
+        Kind `webhook` takes an `https` URL as `destination` (plain `http` only when `APP_ENV=development`; at most 2048
+        characters, no credentials in the URL, ports 80 and 443 only, never a private, loopback or link-local address;
+        all requests go through the SSRF-safe client and redirects are never followed). The response carries a
+        `secret` exactly once. One signed confirmation request is POSTed to the URL right away with the JSON body
+        `{"type": "webhook.confirmation", "delivery_id", "created_at", "confirmation_token", "confirm_url", "expires_at"}`;
+        the owner confirms by calling `POST /notifications/channels/confirm` with that token (valid 48 hours, single use).
+        Nothing else is sent before that. If the endpoint cannot be reached the channel is not kept (503); a forbidden
+        destination is 400.
+
+        Every delivery is a `POST` with `Content-Type: application/json` and the headers `X-Rabbit-Hole-Event` (the
+        notification type, or `webhook.confirmation`), `X-Rabbit-Hole-Delivery` (uuid, stable across retries),
+        `X-Rabbit-Hole-Timestamp` (unix seconds) and `X-Rabbit-Hole-Signature: sha256=<hex>`, the HMAC-SHA256 of
+        `<timestamp>.<raw body>` with the channel secret. The body is
+        `{"type", "delivery_id", "created_at", "summary", "detail", "task": {"id", "title", "workspace_id"}, "actor": {"display_name"}, "link"}`
+        and never contains e-mail addresses. Any 2xx answer is success; 5xx, 429 and timeouts are retried twice with
+        exponential backoff, other answers are not. After `NOTIFICATION_WEBHOOK_MAX_FAILURES` (default 10) consecutive failed
+        deliveries the channel is disabled (`disabled_at`) until its secret is rotated.
       security:
         - bearerAuth: []
       responses:
@@ -2448,6 +2466,21 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /notifications/channels/{channel_id}/rotate-secret:
+    post:
+      tags: [notifications]
+      summary: "Rotate the signing secret of a webhook"
+      description: "Returns a new `secret` exactly once; the previous one stops being used immediately. Also clears `disabled_at` and `last_error`, so a disabled webhook starts receiving events again. 400 `CHANNEL_HAS_NO_SECRET` for channels that are not webhooks; 404 for channels of other users. Rate limited."
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: channel_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
   /notifications/channels/{channel_id}:
     delete:

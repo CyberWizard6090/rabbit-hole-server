@@ -94,6 +94,11 @@ type ContainerOption func(*containerOptions)
 
 type containerOptions struct {
 	remoteFetcher service.RemoteFetcher
+	webhookClient service.WebhookClient
+}
+
+func WithWebhookClient(client service.WebhookClient) ContainerOption {
+	return func(o *containerOptions) { o.webhookClient = client }
 }
 
 func WithRemoteFetcher(fetcher service.RemoteFetcher) ContainerOption {
@@ -101,7 +106,12 @@ func WithRemoteFetcher(fetcher service.RemoteFetcher) ContainerOption {
 }
 
 func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender, opts ...ContainerOption) (*Container, error) {
-	options := containerOptions{remoteFetcher: safehttp.New()}
+	options := containerOptions{
+		remoteFetcher: safehttp.New(),
+		webhookClient: safehttp.New(
+			safehttp.WithTimeout(webhookRequestTimeout), safehttp.WithMaxRedirects(0), safehttp.WithUserAgent(webhookUserAgent),
+		),
+	}
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -145,7 +155,10 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	permissionChecker := repository.NewPermissionChecker(db)
 	hub := realtime.NewHub(realtime.DefaultMaxConnectionsPerUser, slog.Default())
 	tickets := realtime.NewTicketStore(realtime.DefaultTicketTTL)
-	notifications := newNotifications(db, cfg, sender, permissionChecker, hub)
+	notifications, err := newNotifications(db, cfg, sender, permissionChecker, hub, options.webhookClient)
+	if err != nil {
+		return nil, err
+	}
 	activityRecorder := service.NewNotifyingRecorder(activityService, notifications.dispatcher)
 	taskService := service.NewTaskService(taskRepo, spaceRepo, tagService, cursorCodec, activityRecorder)
 	taskProcessor := service.NewSubmissionTaskProcessor(formRepo, taskService, templateRepo, customFieldService)
@@ -221,7 +234,19 @@ type notificationParts struct {
 	handler    *handler.NotificationHandler
 }
 
-func newNotifications(db *gorm.DB, cfg *config.Config, sender mail.Sender, permissions service.PermissionChecker, publisher service.NotificationPublisher) notificationParts {
+const (
+	webhookRequestTimeout = 5 * time.Second
+	webhookUserAgent      = "RabbitHole-Webhook/1.0"
+)
+
+func newNotifications(
+	db *gorm.DB, cfg *config.Config, sender mail.Sender, permissions service.PermissionChecker,
+	publisher service.NotificationPublisher, webhookClient service.WebhookClient,
+) (notificationParts, error) {
+	secretBox, err := service.NewSecretBox(cfg.JWT.Secret)
+	if err != nil {
+		return notificationParts{}, fmt.Errorf("create webhook secret box: %w", err)
+	}
 	inbox := repository.NewNotificationRepository(db)
 	source := repository.NewNotificationSourceRepository(db)
 	settings := repository.NewNotificationSettingsRepository(db)
@@ -232,6 +257,11 @@ func newNotifications(db *gorm.DB, cfg *config.Config, sender mail.Sender, permi
 	registry := service.NewChannelRegistry(
 		service.NewInAppChannel(inbox, cfg.Notifications.MaxPerUser, publisher),
 		service.NewEmailChannel(source, channelRepo, sender, cfg.Mail.FrontendURL, throttle),
+		service.NewWebhookChannel(service.WebhookConfig{
+			Client: webhookClient, Repo: repository.NewWebhookChannelRepository(db), Channels: channelRepo, Box: secretBox,
+			FrontendURL: cfg.Mail.FrontendURL, AllowHTTP: cfg.Environment == "development",
+			MaxFailures: cfg.Notifications.WebhookMaxFailures,
+		}),
 	)
 	dispatcher := service.NewNotificationDispatcher(service.NotificationDispatcherDeps{
 		Source: source, Watchers: watchers, Settings: settings, Comments: repository.NewCommentRepository(db),
@@ -243,5 +273,5 @@ func newNotifications(db *gorm.DB, cfg *config.Config, sender mail.Sender, permi
 			service.NewNotificationService(inbox, settings, watchers, registry).WithPublisher(publisher),
 			service.NewNotificationChannelService(channelRepo, source, registry),
 		),
-	}
+	}, nil
 }

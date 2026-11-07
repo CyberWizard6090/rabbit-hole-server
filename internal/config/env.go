@@ -74,6 +74,8 @@ type MailConfig struct {
 type NotificationConfig struct {
 	EmailPerHour int `env:"NOTIFICATION_EMAIL_PER_HOUR" envDefault:"30" validate:"gt=0"`
 	MaxPerUser   int `env:"NOTIFICATION_MAX_PER_USER" envDefault:"1000" validate:"gt=0"`
+
+	WebhookMaxFailures int `env:"NOTIFICATION_WEBHOOK_MAX_FAILURES" envDefault:"10" validate:"gt=0"`
 }
 
 type FormsConfig struct {

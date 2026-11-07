@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -136,7 +137,14 @@ func (d *NotificationDispatcher) Enqueue(entries []domain.ActivityEntry) {
 	}
 }
 
-func (d *NotificationDispatcher) Wait() { d.pending.Wait() }
+func (d *NotificationDispatcher) Wait() {
+	d.pending.Wait()
+	for _, ch := range d.channels.All() {
+		if w, ok := ch.(interface{ Wait() }); ok {
+			w.Wait()
+		}
+	}
+}
 
 func (d *NotificationDispatcher) Close() {
 	if err := d.Shutdown(context.Background()); err != nil {
@@ -155,11 +163,17 @@ func (d *NotificationDispatcher) Shutdown(ctx context.Context) error {
 	select {
 	case <-d.done:
 		d.cancel()
-		return nil
 	case <-ctx.Done():
 		d.cancel()
 		return ctx.Err()
 	}
+	var shutdownErr error
+	for _, ch := range d.channels.All() {
+		if s, ok := ch.(interface{ Shutdown(context.Context) error }); ok {
+			shutdownErr = errors.Join(shutdownErr, s.Shutdown(ctx))
+		}
+	}
+	return shutdownErr
 }
 
 func stronger(current string, candidate string) bool {

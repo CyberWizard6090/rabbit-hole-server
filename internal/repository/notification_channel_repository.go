@@ -25,10 +25,25 @@ type channelRow struct {
 	Destination string
 	VerifiedAt  *time.Time
 	CreatedAt   time.Time
+	DisabledAt  *time.Time
+	LastError   *string
+	SecretEnc   *string
 }
 
+const channelColumns = "id, kind, destination, verified_at, created_at, disabled_at, last_error, secret_enc"
+
 func (c channelRow) toDomain() domain.NotificationChannel {
-	return domain.NotificationChannel{ID: c.ID, Kind: c.Kind, Destination: c.Destination, VerifiedAt: c.VerifiedAt, CreatedAt: c.CreatedAt}
+	out := domain.NotificationChannel{
+		ID: c.ID, Kind: c.Kind, Destination: c.Destination, VerifiedAt: c.VerifiedAt, CreatedAt: c.CreatedAt,
+		DisabledAt: c.DisabledAt,
+	}
+	if c.LastError != nil {
+		out.LastError = *c.LastError
+	}
+	if c.SecretEnc != nil {
+		out.SecretEnc = *c.SecretEnc
+	}
+	return out
 }
 
 func (r *notificationChannelRepository) Create(
@@ -51,7 +66,7 @@ func (r *notificationChannelRepository) Create(
 		var rows []channelRow
 		if err := tx.Raw(
 			"INSERT INTO notification_channels (user_id, kind, destination) VALUES (?, ?, ?) "+
-				"RETURNING id, kind, destination, verified_at, created_at", userID, kind, destination,
+				"RETURNING "+channelColumns, userID, kind, destination,
 		).Scan(&rows).Error; err != nil {
 			return err
 		}
@@ -72,7 +87,7 @@ func (r *notificationChannelRepository) Create(
 func (r *notificationChannelRepository) List(ctx context.Context, userID uint) ([]domain.NotificationChannel, error) {
 	var rows []channelRow
 	err := r.db.WithContext(ctx).Raw(
-		"SELECT id, kind, destination, verified_at, created_at FROM notification_channels WHERE user_id = ? ORDER BY id", userID,
+		"SELECT "+channelColumns+" FROM notification_channels WHERE user_id = ? ORDER BY id", userID,
 	).Scan(&rows).Error
 	if err != nil {
 		return nil, mapErr(err)
@@ -87,7 +102,7 @@ func (r *notificationChannelRepository) List(ctx context.Context, userID uint) (
 func (r *notificationChannelRepository) Get(ctx context.Context, userID, id uint) (*domain.NotificationChannel, error) {
 	var rows []channelRow
 	err := r.db.WithContext(ctx).Raw(
-		"SELECT id, kind, destination, verified_at, created_at FROM notification_channels WHERE id = ? AND user_id = ?", id, userID,
+		"SELECT "+channelColumns+" FROM notification_channels WHERE id = ? AND user_id = ?", id, userID,
 	).Scan(&rows).Error
 	if err != nil {
 		return nil, mapErr(err)
@@ -113,7 +128,7 @@ func (r *notificationChannelRepository) Delete(ctx context.Context, userID, id u
 func (r *notificationChannelRepository) VerifiedDestinations(ctx context.Context, userID uint, kind string) ([]string, error) {
 	var out []string
 	err := r.db.WithContext(ctx).Raw(
-		"SELECT destination FROM notification_channels WHERE user_id = ? AND kind = ? AND verified_at IS NOT NULL ORDER BY id",
+		"SELECT destination FROM notification_channels WHERE user_id = ? AND kind = ? AND verified_at IS NOT NULL AND disabled_at IS NULL ORDER BY id",
 		userID, kind,
 	).Scan(&out).Error
 	return out, mapErr(err)
