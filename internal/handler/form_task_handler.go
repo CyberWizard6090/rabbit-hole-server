@@ -137,7 +137,7 @@ func (h *FormTaskHandler) authorizeSubmission(c *gin.Context, submissionID uint,
 		return false
 	}
 	if !allowed {
-		response.Forbidden(c, "")
+		response.Forbidden(c)
 		return false
 	}
 	return true

@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"math"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -48,10 +50,16 @@ func RateLimiter(max int, period time.Duration) gin.HandlerFunc {
 
 		cl.count++
 		exceeded := cl.count > max
+		resetAt := cl.resetTime
 		mu.Unlock()
 
 		if exceeded {
-			response.Error(c, http.StatusTooManyRequests, "too many requests")
+			retryAfter := int(math.Ceil(resetAt.Sub(now).Seconds()))
+			if retryAfter < 1 {
+				retryAfter = 1
+			}
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+			response.Fail(c, http.StatusTooManyRequests, "RATE_LIMIT_EXCEEDED", map[string]any{"retry_after": retryAfter})
 			c.Abort()
 			return
 		}

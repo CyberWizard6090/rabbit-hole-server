@@ -3,7 +3,10 @@ info:
   title: Rabbit Hole API
   version: 0.1.0
   description: |
-    All responses use the envelope `{ "data": ..., "error": {code,message,fields}, "pagination": {...} }`.
+    All responses use the envelope `{ "data": ..., "error": {code,params,details,request_id}, "pagination": {...} }`.
+    Errors carry no human readable text: the client translates `error.code` and fills the translation with
+    `error.params`; `error.details` lists the invalid inputs of a request (`field`, `code`, `params`) and
+    `error.request_id` matches the `X-Request-ID` header. All codes and params are listed in `docs/error-codes.md`.
     Authenticated routes need `Authorization: Bearer <access_token>`. The refresh token lives in an
     HttpOnly `refresh_token` cookie scoped to `/api/v1/auth`.
     Resource routes additionally require a workspace permission (shown as `x-permission`); callers
@@ -785,7 +788,7 @@ paths:
       description: |
         Creates the form in status `draft`. `questions` and `task_config` are optional; when either is sent, the form,
         every question (with options and settings) and the task configuration are created in ONE database transaction:
-        any validation error rolls everything back and nothing is stored. The `fields` map of the 400 response names the
+        any validation error rolls everything back and nothing is stored. The `details` of the 400 response name the
         failing item with its path, for example `questions[2].type`, `questions[0].settings.max`,
         `questions[1].options[0].value`, `task_config.mappings[1].question_index` or `task_config.task_defaults.status_id`.
         The response is the created form including `questions` (with ids) and `task_config`.
@@ -930,10 +933,10 @@ paths:
         - `position` omitted: the question is appended with `max(position) + 1` over the non-deleted questions of the form (`0` for the first one);
         - `position` set and free: the question gets exactly that position (gaps are allowed);
         - `position` set and already taken: the question is inserted there and every question with a position greater than or equal to it is shifted by +1, keeping their order;
-        - a negative `position` is a 400 (`fields.position`).
+        - a negative `position` is a 400 (`details`: `position`).
         The response contains the stored `position`. `PUT .../questions/reorder` still renumbers all questions to 0..n-1.
         `PATCH .../questions/{question_id}` without `position` keeps the current position; with `position` it sets that value without shifting the others (use reorder to move a question).
-        Validation errors name the failing key in `fields`, for example `type`, `title`, `options[1].value`, `settings.max`.
+        Validation errors name the failing key in `details[].field`, for example `type`, `title`, `options[1].value`, `settings.max`.
         Allowed `settings` per question type are listed in the FormQuestionRequest schema.
       x-permission: workspace.update
       security:
@@ -1021,7 +1024,7 @@ paths:
         `{total, page, limit, pages}`; `total` counts all submissions that match the filters. Default `limit` is 20
         (maximum 100), default `page` is 1. Ordering is newest first (`submitted_at` descending, then `id` descending).
         A page past the end returns an empty array. Invalid `page`, `limit`, `status` or `task_creation_status` return 400
-        (`INVALID_PAGINATION` for page and limit, `INVALID_FORM` with the parameter name in `fields` for the filters).
+        (`INVALID_PAGINATION` for page and limit, `INVALID_FORM` with the parameter name in `details[].field` for the filters).
         Filters combine with AND.
       x-permission: workspace.read
       security:
@@ -1105,9 +1108,9 @@ paths:
         3. otherwise **`task_defaults`** (`priority`, `status_id`, `assignee_id`).
         So the order is `mappings > template > task_defaults`. Notes: a template always carries a priority (`normal` when it was saved without one), so with a template `task_defaults.priority` is never used; `task_defaults.priority` defaults to `normal` and applies without a template. Mapped custom fields override template custom fields with the same `field_id`. Without a title from a mapping or the template the configuration is rejected (the task title must come from somewhere); if the title is empty at submission time the task is called `Form submission {id}`.
 
-        **`template.version_id`.** Optional. When omitted, the latest version of the template **at the time this request is saved** is used and stored in the configuration (the response shows it), and it is the version snapshotted into the published form version. Creating a newer template version later does not change the saved configuration; send the new `version_id` (or repeat the request without it) to move to it. An explicit `version_id` must belong to `template_id`. The template must belong to the workspace and must not be archived, otherwise 400 `FORM_TASK_TEMPLATE_INVALID` (`fields`: `template.template_id` or `template.version_id`). `template` is only validated and resolved when `enabled` is true.
+        **`template.version_id`.** Optional. When omitted, the latest version of the template **at the time this request is saved** is used and stored in the configuration (the response shows it), and it is the version snapshotted into the published form version. Creating a newer template version later does not change the saved configuration; send the new `version_id` (or repeat the request without it) to move to it. An explicit `version_id` must belong to `template_id`. The template must belong to the workspace and must not be archived, otherwise 400 `FORM_TASK_TEMPLATE_INVALID` (`details[].field`: `template.template_id` or `template.version_id`). `template` is only validated and resolved when `enabled` is true.
 
-        **Lists and statuses.** The task is created in `target.list_id`, which must belong to a space of the form's workspace. Every status that can end up on the task must belong to that list, otherwise 400 `FORM_TASK_STATUS_NOT_IN_LIST` with the offending path in `fields`: `task_defaults.status_id`, `template.template_id` (the template version has a `status_id` of another list), `mappings[i].transform.values` (a `status_id` mapping value). At least one status must be known: `task_defaults.status_id` or a template status (`INVALID_FORM_TASK_CONFIG`, `fields.task_defaults.status_id`). Template tags must belong to the space of the target list, template custom fields and assignees to the workspace.
+        **Lists and statuses.** The task is created in `target.list_id`, which must belong to a space of the form's workspace. Every status that can end up on the task must belong to that list, otherwise 400 `FORM_TASK_STATUS_NOT_IN_LIST` with the offending path in `details[].field`: `task_defaults.status_id`, `template.template_id` (the template version has a `status_id` of another list), `mappings[i].transform.values` (a `status_id` mapping value). At least one status must be known: `task_defaults.status_id` or a template status (`INVALID_FORM_TASK_CONFIG`, `details[].field` `task_defaults.status_id`). Template tags must belong to the space of the target list, template custom fields and assignees to the workspace.
 
         **Mappings.** `question_id` must be an answerable question of this form (not a section, description or divider), each question and each target is used at most once. Targets: `task_field` with `field` in `title`, `description` (text, email, phone or url questions, no transform), `priority` (choice question + enum transform whose values are priority names, see TaskPriorityName), `status_id` and `assignee_id` (choice question + enum transform whose values are ids as strings), `due_date` (date question); or `custom_field` with `field_id` of a compatible type. An enum transform must contain an entry for every option value of the question. Errors name the failing key, for example `mappings[2].target`.
 
@@ -1282,7 +1285,7 @@ paths:
         `status` is a TaskCreationStatus. `error` is the diagnostic text of the last failed attempt (at most 2000 bytes; not a stable code, for display and logs only).
         Error responses use the usual envelope:
         ```json
-        {"error": {"code": "SUBMISSION_OR_FORM_NOT_FOUND", "message": "submission or form not found"}}
+        {"error": {"code": "SUBMISSION_OR_FORM_NOT_FOUND", "request_id": "9f1c2a7b4d3e8a105c6b7d2e"}}
         ```
         `404 SUBMISSION_OR_FORM_NOT_FOUND` for an unknown submission, `403 FORBIDDEN` (`"forbidden"`) without workspace read permission, `400 INVALID_ID` (`"invalid submission_id"`) for a malformed id.
       security:
@@ -1818,7 +1821,7 @@ paths:
 
         **Filters** are combined with AND; list values are comma separated (or repeated parameters), at most
         100 values. Dates are `YYYY-MM-DD`, interpreted as UTC calendar days and inclusive on both ends.
-        Invalid values return `400 INVALID_FILTER` with `fields` keyed by parameter name. A `status_id` that does
+        Invalid values return `400 INVALID_FILTER` with `details` naming each offending parameter. A `status_id` that does
         not belong to the list simply matches nothing. `has_open_checklist_items=true` keeps tasks with at least
         one unresolved checklist item; `false` keeps tasks without any (including tasks without checklists).
 
@@ -2718,10 +2721,24 @@ components:
         data: {}
         error:
           type: object
+          required: [code]
           properties:
-            code: {type: string}
-            message: {type: string}
-            fields: {type: object, additionalProperties: {type: string}}
+            code: {type: string, description: "Stable identifier the client translates; see docs/error-codes.md"}
+            params:
+              type: object
+              additionalProperties: true
+              description: "Values for the translation, e.g. {retry_after: 30}"
+            details:
+              type: array
+              description: "One entry per invalid input of the request"
+              items:
+                type: object
+                required: [field, code]
+                properties:
+                  field: {type: string, description: "JSON path of the input, e.g. items[2].text"}
+                  code: {type: string}
+                  params: {type: object, additionalProperties: true}
+            request_id: {type: string, description: "Equals the X-Request-ID response header"}
         pagination:
           type: object
           properties:

@@ -78,8 +78,14 @@ func TestParseErrors(t *testing.T) {
 			if err == nil || err.Code != tc.code || err.Status != 400 {
 				t.Fatalf("err = %+v, want code %s", err, tc.code)
 			}
-			if _, ok := err.Fields[tc.field]; !ok {
-				t.Fatalf("fields = %v, want %q", err.Fields, tc.field)
+			found := false
+			for _, d := range err.Details {
+				if d.Field == tc.field && d.Code != "" {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("details = %+v, want an entry for %q", err.Details, tc.field)
 			}
 		})
 	}

@@ -1,7 +1,6 @@
 package taskquery
 
 import (
-	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -26,24 +25,23 @@ const (
 func Parse(values url.Values) (domain.TaskQuery, *httperrors.AppError) {
 	var query domain.TaskQuery
 
-	sortKeys, err := parseSort(values.Get("sort"))
-	if err != nil {
+	sortKeys, sortErr := parseSort(values.Get("sort"))
+	if sortErr != nil {
 		return query, &httperrors.AppError{
 			Code:    CodeInvalidSort,
 			Message: "invalid sort",
 			Status:  http.StatusBadRequest,
-			Fields:  map[string]string{"sort": err.Error()},
-			Err:     err,
+			Details: []httperrors.Detail{*sortErr},
 		}
 	}
 	query.Sort = sortKeys
 
-	p := &filterParser{values: values, fields: map[string]string{}}
+	p := &filterParser{values: values}
 	f := &query.Filter
 
 	if q := strings.TrimSpace(values.Get("q")); q != "" {
 		if utf8.RuneCountInString(q) > maxSearchLength {
-			p.fail("q", fmt.Sprintf("must be at most %d characters", maxSearchLength))
+			p.fail("q", "TOO_LONG", map[string]any{"max": maxSearchLength})
 		} else {
 			f.Query = q
 		}
@@ -61,25 +59,28 @@ func Parse(values url.Values) (domain.TaskQuery, *httperrors.AppError) {
 	f.HasOpenChecklistItems = p.optionalBool("has_open_checklist_items")
 	query.WithTotal = p.boolean("with_total")
 
-	if len(p.fields) > 0 {
+	if len(p.details) > 0 {
 		return query, &httperrors.AppError{
 			Code:    CodeInvalidFilter,
 			Message: "invalid filter parameters",
 			Status:  http.StatusBadRequest,
-			Fields:  p.fields,
+			Details: p.details,
 		}
 	}
 	return query, nil
 }
 
-func parseSort(raw string) ([]domain.TaskSortKey, error) {
+func parseSort(raw string) ([]domain.TaskSortKey, *httperrors.Detail) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, nil
 	}
+	fail := func(code string, params map[string]any) *httperrors.Detail {
+		return &httperrors.Detail{Field: "sort", Code: code, Params: params}
+	}
 	parts := strings.Split(raw, ",")
 	if len(parts) > domain.MaxTaskSortKeys {
-		return nil, fmt.Errorf("at most %d fields are allowed", domain.MaxTaskSortKeys)
+		return nil, fail("TOO_MANY", map[string]any{"max": domain.MaxTaskSortKeys})
 	}
 	seen := map[domain.TaskSortField]struct{}{}
 	keys := make([]domain.TaskSortKey, 0, len(parts))
@@ -88,10 +89,10 @@ func parseSort(raw string) ([]domain.TaskSortKey, error) {
 		desc := strings.HasPrefix(part, "-")
 		field := domain.TaskSortField(strings.TrimPrefix(part, "-"))
 		if !domain.IsValidTaskSortField(field) {
-			return nil, fmt.Errorf("unsupported sort field %q", part)
+			return nil, fail("INVALID_CHOICE", map[string]any{"value": string(field)})
 		}
 		if _, dup := seen[field]; dup {
-			return nil, fmt.Errorf("duplicate sort field %q", field)
+			return nil, fail("DUPLICATE", map[string]any{"value": string(field)})
 		}
 		seen[field] = struct{}{}
 		keys = append(keys, domain.TaskSortKey{Field: field, Desc: desc})
@@ -100,14 +101,18 @@ func parseSort(raw string) ([]domain.TaskSortKey, error) {
 }
 
 type filterParser struct {
-	values url.Values
-	fields map[string]string
+	values  url.Values
+	details []httperrors.Detail
 }
 
-func (p *filterParser) fail(name, msg string) {
-	if _, exists := p.fields[name]; !exists {
-		p.fields[name] = msg
+// fail records the first problem found for a query parameter.
+func (p *filterParser) fail(name, code string, params map[string]any) {
+	for _, d := range p.details {
+		if d.Field == name {
+			return
+		}
 	}
+	p.details = append(p.details, httperrors.Detail{Field: name, Code: code, Params: params})
 }
 
 func (p *filterParser) list(name string) ([]string, bool) {
@@ -123,14 +128,14 @@ func (p *filterParser) list(name string) ([]string, bool) {
 				if strings.TrimSpace(chunk) == "" {
 					continue
 				}
-				p.fail(name, "empty list item")
+				p.fail(name, "INVALID_VALUE", nil)
 				return nil, false
 			}
 			items = append(items, item)
 		}
 	}
 	if len(items) > maxListValues {
-		p.fail(name, fmt.Sprintf("at most %d values are allowed", maxListValues))
+		p.fail(name, "TOO_MANY", map[string]any{"max": maxListValues})
 		return nil, false
 	}
 	return items, len(items) > 0
@@ -146,7 +151,7 @@ func (p *filterParser) ids(name string) []uint {
 	for _, item := range items {
 		n, err := strconv.ParseUint(item, 10, 63)
 		if err != nil || n == 0 {
-			p.fail(name, "must be a list of positive integers")
+			p.fail(name, "INVALID_VALUE", nil)
 			return nil
 		}
 		if _, dup := seen[uint(n)]; !dup {
@@ -168,7 +173,7 @@ func (p *filterParser) priorities(name string) []int {
 	for _, item := range items {
 		n, err := strconv.Atoi(item)
 		if err != nil || n < 1 || n > 5 {
-			p.fail(name, "must be a list of integers from 1 to 5")
+			p.fail(name, "INVALID_RANGE", map[string]any{"min": 1, "max": 5})
 			return nil
 		}
 		if _, dup := seen[n]; !dup {
@@ -193,7 +198,7 @@ func (p *filterParser) optionalBool(name string) *bool {
 		v := false
 		return &v
 	}
-	p.fail(name, "must be true or false")
+	p.fail(name, "INVALID_BOOLEAN", nil)
 	return nil
 }
 
@@ -209,7 +214,7 @@ func (p *filterParser) date(name string) *time.Time {
 	}
 	t, err := time.Parse(dateLayout, raw)
 	if err != nil {
-		p.fail(name, "must be a date in YYYY-MM-DD format")
+		p.fail(name, "INVALID_DATE", map[string]any{"format": "YYYY-MM-DD"})
 		return nil
 	}
 	return &t
@@ -218,7 +223,7 @@ func (p *filterParser) date(name string) *time.Time {
 func (p *filterParser) dateRange(fromName, toName string) (*time.Time, *time.Time) {
 	from, to := p.date(fromName), p.date(toName)
 	if from != nil && to != nil && from.After(*to) {
-		p.fail(fromName, "must not be after "+toName)
+		p.fail(fromName, "AFTER_FIELD", map[string]any{"other": toName})
 	}
 	return from, to
 }

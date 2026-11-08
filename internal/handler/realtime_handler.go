@@ -163,7 +163,7 @@ func (h *RealtimeHandler) connect(
 		return
 	}
 	if !allowed {
-		response.Forbidden(c, "")
+		response.Forbidden(c)
 		return
 	}
 

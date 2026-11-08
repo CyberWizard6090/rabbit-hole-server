@@ -73,9 +73,9 @@ func fcExpectError(t *testing.T, rec *httptest.ResponseRecorder, status int, cod
 		t.Fatalf("error code = %v, want %s: %s", body["code"], code, rec.Body.String())
 	}
 	if field != "" {
-		fields, _ := body["fields"].(map[string]any)
-		if _, ok := fields[field]; !ok {
-			t.Fatalf("error fields %v do not name %q: %s", fields, field, rec.Body.String())
+		detail := errorDetail(body, field)
+		if detail == nil || detail["code"] == "" {
+			t.Fatalf("error details %v do not name %q: %s", body["details"], field, rec.Body.String())
 		}
 	}
 }

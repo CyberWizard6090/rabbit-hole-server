@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -36,6 +38,22 @@ func TestRateLimiterReturns429AndStopsChain(t *testing.T) {
 	}
 	if second.Body.String() == "" {
 		t.Fatal("429 response body is empty")
+	}
+	var body struct {
+		Error struct {
+			Code   string         `json:"code"`
+			Params map[string]any `json:"params"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(second.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	retryAfter, _ := body.Error.Params["retry_after"].(float64)
+	if body.Error.Code != "RATE_LIMIT_EXCEEDED" || retryAfter < 1 || retryAfter > 3600 {
+		t.Fatalf("body = %s", second.Body.String())
+	}
+	if second.Header().Get("Retry-After") != strconv.Itoa(int(retryAfter)) {
+		t.Fatalf("Retry-After = %q, params = %v", second.Header().Get("Retry-After"), body.Error.Params)
 	}
 }
 

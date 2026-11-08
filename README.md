@@ -35,7 +35,7 @@ wrong, how to fix it); secret values are never printed. `go run ./cmd/migrate` c
 The contract lives in [`docs/openapi.yaml`](docs/openapi.yaml). Summary of behaviour the frontend
 relies on:
 
-- **Envelope**: `{ data, error: {code, message, fields}, pagination: {total,page,limit,pages} }`.
+- **Envelope**: `{ data, error: {code, params, details, request_id}, pagination: {total,page,limit,pages} }`; errors carry no text, the client translates `code` (see `docs/error-codes.md`).
 - **Auth**: `POST /auth/login` returns `access_token` and sets an HttpOnly `refresh_token` cookie
   (path `/api/v1/auth`). Call `/auth/refresh` (cookie, `credentials: 'include'`) to rotate.
   `/auth/logout` needs only the cookie, so it works after the access token expired.

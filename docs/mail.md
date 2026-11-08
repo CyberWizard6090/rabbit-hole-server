@@ -91,7 +91,7 @@ A link is always `FRONTEND_URL` + path + `?token=<token>`. The token is 32 rando
 it needs no escaping. The frontend page reads `token` from the query string and calls the API below. Only a hash of the
 token is stored, a token works once, and a new request for the same purpose replaces the previous token.
 
-All paths below are under `/api/v1`. Responses use the usual envelope (`data` or `error.code`/`error.message`).
+All paths below are under `/api/v1`. Responses use the usual envelope (`data` or `error.code` with `error.params`/`error.details`, see `docs/error-codes.md`).
 
 | Flow | Trigger | Link in the message | Frontend call |
 | --- | --- | --- | --- |

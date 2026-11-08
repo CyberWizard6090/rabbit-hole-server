@@ -21,7 +21,7 @@ func TestParseHasOpenChecklistItems(t *testing.T) {
 	if open.FilterSignature() == "" || open.FilterSignature() == closed.FilterSignature() {
 		t.Fatal("the filter must be part of the cursor signature")
 	}
-	if _, err := Parse(url.Values{"has_open_checklist_items": {"maybe"}}); err == nil || err.Fields["has_open_checklist_items"] == "" {
+	if _, err := Parse(url.Values{"has_open_checklist_items": {"maybe"}}); err == nil || len(err.Details) != 1 || err.Details[0].Field != "has_open_checklist_items" || err.Details[0].Code != "INVALID_BOOLEAN" {
 		t.Fatalf("invalid value accepted: %v", err)
 	}
 }

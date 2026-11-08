@@ -609,9 +609,9 @@ func TestTaskListInvalidSortAndFilterPostgres(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec, _ := env.get(t, tc.query)
 			assertErrorCode(t, rec, http.StatusBadRequest, tc.code)
-			fields, _ := decodeJSON(t, rec)["error"].(map[string]any)["fields"].(map[string]any)
-			if _, ok := fields[tc.field]; !ok {
-				t.Fatalf("error fields = %v, want key %q", fields, tc.field)
+			errBody, _ := decodeJSON(t, rec)["error"].(map[string]any)
+			if errorDetail(errBody, tc.field) == nil {
+				t.Fatalf("error details = %v, want an entry for %q", errBody["details"], tc.field)
 			}
 		})
 	}
