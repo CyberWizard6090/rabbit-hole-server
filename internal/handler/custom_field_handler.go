@@ -125,10 +125,8 @@ func (h *CustomFieldHandler) SetTaskValue(c *gin.Context) {
 		response.HandleError(c, httperrors.BadRequest("INVALID_CUSTOM_FIELD", "value is required", nil))
 		return
 	}
-	var value any
-	decoder := json.NewDecoder(bytes.NewReader(req.Value))
-	decoder.UseNumber()
-	if err := decoder.Decode(&value); err != nil {
+	value, err := decodeCustomFieldValue(req.Value)
+	if err != nil {
 		response.HandleError(c, httperrors.BadRequest("INVALID_CUSTOM_FIELD", "invalid value", err))
 		return
 	}
@@ -151,7 +149,67 @@ func (h *CustomFieldHandler) DeleteTaskValue(c *gin.Context) {
 	response.Success(c, http.StatusOK, gin.H{"message": "custom field value deleted"})
 }
 
+func decodeCustomFieldValue(raw json.RawMessage) (any, error) {
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func decodeCustomFieldValues(raw map[uint]json.RawMessage) (map[uint]any, error) {
+	values := make(map[uint]any, len(raw))
+	for fieldID, item := range raw {
+		value, err := decodeCustomFieldValue(item)
+		if err != nil {
+			return nil, err
+		}
+		values[fieldID] = value
+	}
+	return values, nil
+}
+
+func requiredCustomFieldError(err error) (*httperrors.AppError, bool) {
+	var required *domain.CustomFieldRequiredError
+	if !errors.As(err, &required) {
+		return nil, false
+	}
+	details := make([]httperrors.Detail, len(required.FieldIDs))
+	for i, id := range required.FieldIDs {
+		details[i] = httperrors.Detail{
+			Field:  "custom_fields." + strconv.FormatUint(uint64(id), 10),
+			Code:   "REQUIRED",
+			Params: map[string]any{"field_id": id},
+		}
+	}
+	return httperrors.ValidationFailed(details, err), true
+}
+
+func customFieldEditError(err error) (*httperrors.AppError, bool) {
+	var edit *domain.CustomFieldEditError
+	if !errors.As(err, &edit) {
+		return nil, false
+	}
+	code := "CUSTOM_FIELD_IN_USE"
+	if errors.Is(edit.Cause, domain.ErrCustomFieldValueOutOfRange) {
+		code = "CUSTOM_FIELD_VALUE_OUT_OF_RANGE"
+	}
+	appErr := httperrors.Conflict(code, err.Error(), err)
+	appErr.Details = []httperrors.Detail{{Field: edit.Field, Code: edit.Code, Params: edit.Params}}
+	return appErr, true
+}
+
 func (h *CustomFieldHandler) writeError(c *gin.Context, code string, err error) {
+	if appErr, ok := requiredCustomFieldError(err); ok {
+		response.HandleError(c, appErr)
+		return
+	}
+	if appErr, ok := customFieldEditError(err); ok {
+		response.HandleError(c, appErr)
+		return
+	}
 	switch {
 	case errors.Is(err, domain.ErrInvalidCustomField):
 		response.HandleError(c, httperrors.BadRequest("INVALID_CUSTOM_FIELD", err.Error(), err))

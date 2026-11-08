@@ -68,6 +68,7 @@ type CreateTaskParams struct {
 	StartDate    *time.Time
 	DueDate      *time.Time
 	TimeEstimate int
+	CustomFields map[uint]any
 }
 
 type UpdateTaskParams struct {
@@ -82,6 +83,7 @@ type UpdateTaskParams struct {
 	AssigneeIDs  *[]uint
 	AddTagIDs    []uint
 	AddTagNames  []string
+	RemoveTagIDs []uint
 }
 
 func checkDateRange(start, due *time.Time) error {
@@ -97,6 +99,8 @@ type taskService struct {
 	tagService  TagService
 	cursorCodec *pagination.Codec
 	activity    ActivityRecorder
+	fields      CustomFieldService
+	tx          TransactionRunner
 }
 
 func NewTaskService(
@@ -105,6 +109,8 @@ func NewTaskService(
 	tagService TagService,
 	cursorCodec *pagination.Codec,
 	activity ActivityRecorder,
+	fields CustomFieldService,
+	tx TransactionRunner,
 ) TaskModule {
 	return &taskService{
 		repo:        repo,
@@ -112,6 +118,8 @@ func NewTaskService(
 		tagService:  tagService,
 		cursorCodec: cursorCodec,
 		activity:    activity,
+		fields:      fields,
+		tx:          tx,
 	}
 }
 
@@ -179,16 +187,43 @@ func (s *taskService) createTask(
 	if err != nil {
 		return nil, fmt.Errorf("get list by id: %w", err)
 	}
+	newTagIDs, err := s.resolveNewTags(ctx, list.SpaceID, input.NewTagNames)
+	if err != nil {
+		return nil, err
+	}
+	input.TagIDs = append(append([]uint{}, input.TagIDs...), newTagIDs...)
+	input.NewTagNames = nil
+	if s.tx == nil {
+		return s.createTaskInTx(ctx, userID, input, origin, list)
+	}
+	var created *domain.Task
+	err = s.tx.Run(ctx, func(txCtx context.Context) error {
+		var err error
+		created, err = s.createTaskInTx(txCtx, userID, input, origin, list)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+func (s *taskService) createTaskInTx(
+	ctx context.Context,
+	userID uint,
+	input CreateTaskParams,
+	origin taskOrigin,
+	list *domain.List,
+) (*domain.Task, error) {
+	if err := s.checkCustomFields(ctx, list.SpaceID, input.CustomFields); err != nil {
+		return nil, err
+	}
 
 	if input.Priority == 0 {
 		input.Priority = 2
 	}
 
-	newTagIDs, err := s.resolveNewTags(ctx, list.SpaceID, input.NewTagNames)
-	if err != nil {
-		return nil, err
-	}
-	allTagIDs := append(append([]uint{}, input.TagIDs...), newTagIDs...)
+	allTagIDs := input.TagIDs
 
 	taskTags := make([]domain.Tag, len(allTagIDs))
 	for i, tagID := range allTagIDs {
@@ -217,11 +252,50 @@ func (s *taskService) createTask(
 	if err := s.repo.Create(ctx, task, input.AssigneeIDs, allTagIDs); err != nil {
 		return nil, err
 	}
+	for fieldID, value := range input.CustomFields {
+		if isEmptyCustomFieldValue(value) {
+			continue
+		}
+		if err := s.fields.SetTaskValue(ctx, task.ID, fieldID, value); err != nil {
+			return nil, err
+		}
+	}
 	recordActivity(ctx, s.activity, domain.ActivityEntry{
 		TaskID: task.ID, Actor: origin.actor.Normalized(), Action: domain.ActivityTaskCreated,
 		NewValue: createdTaskActivity(task.Title, input.AssigneeIDs, ownerForActivity(origin.actor, userID)),
 	})
 	return task, nil
+}
+
+func (s *taskService) checkCustomFields(ctx context.Context, spaceID uint, values map[uint]any) error {
+	if s.fields == nil {
+		return nil
+	}
+	space, err := s.spaceRepo.GetByID(ctx, spaceID)
+	if err != nil {
+		return fmt.Errorf("get task space: %w", err)
+	}
+	fields, err := s.fields.List(ctx, space.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	known := make(map[uint]struct{}, len(fields))
+	var missing []uint
+	for _, field := range fields {
+		known[field.ID] = struct{}{}
+		if field.Required && isEmptyCustomFieldValue(values[field.ID]) {
+			missing = append(missing, field.ID)
+		}
+	}
+	for fieldID := range values {
+		if _, ok := known[fieldID]; !ok {
+			return fmt.Errorf("%w: unknown custom field %d", domain.ErrInvalidCustomField, fieldID)
+		}
+	}
+	if len(missing) > 0 {
+		return &domain.CustomFieldRequiredError{FieldIDs: missing}
+	}
+	return nil
 }
 
 func (s *taskService) ListTasks(ctx context.Context, listID uint, params pagination.Params, query domain.TaskQuery) (pagination.Response[domain.Task], error) {
@@ -295,6 +369,9 @@ func (s *taskService) UpdateTask(ctx context.Context, userID, id uint, params Up
 		return nil, err
 	}
 	tagIDsToAdd := append(append([]uint{}, params.AddTagIDs...), newTagIDs...)
+	if overlapsIDs(tagIDsToAdd, params.RemoveTagIDs) {
+		return nil, domain.ErrConflictingTagChange
+	}
 
 	apply := func(task *domain.Task) error {
 		if params.Title != nil {
@@ -330,7 +407,7 @@ func (s *taskService) UpdateTask(ctx context.Context, userID, id uint, params Up
 		return nil
 	}
 
-	before, updated, err := s.repo.Update(ctx, id, apply, tagIDsToAdd, params.AssigneeIDs)
+	before, updated, err := s.repo.Update(ctx, id, apply, tagIDsToAdd, params.RemoveTagIDs, params.AssigneeIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -379,6 +456,19 @@ func (s *taskService) MoveTask(ctx context.Context, userID, taskID uint, params 
 	}
 	recordActivity(ctx, s.activity, diffTask(moved.ID, userID, before, snapshotTask(moved))...)
 	return moved, nil
+}
+
+func overlapsIDs(a, b []uint) bool {
+	seen := make(map[uint]struct{}, len(a))
+	for _, id := range a {
+		seen[id] = struct{}{}
+	}
+	for _, id := range b {
+		if _, ok := seen[id]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 type taskOrigin struct {

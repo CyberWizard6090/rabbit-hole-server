@@ -9,8 +9,8 @@ type TaskTemplateRequest struct {
 }
 
 type UpdateTaskTemplateRequest struct {
-	Name        string `json:"name" binding:"required"`
-	Description string `json:"description"`
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
 }
 
 type TaskTemplateVersionRequest struct {
@@ -18,10 +18,11 @@ type TaskTemplateVersionRequest struct {
 }
 
 type ApplyTaskTemplateRequest struct {
-	ListID      uint   `json:"list_id" binding:"required,gt=0"`
-	StatusID    uint   `json:"status_id" binding:"omitempty,gt=0"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	ListID       uint                     `json:"list_id" binding:"required,gt=0"`
+	StatusID     uint                     `json:"status_id" binding:"omitempty,gt=0"`
+	Title        string                   `json:"title"`
+	Description  string                   `json:"description"`
+	CustomFields map[uint]json.RawMessage `json:"custom_fields"`
 }
 
 type FormTaskConfigurationRequest struct {

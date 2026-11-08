@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"encoding/json"
 	"time"
 
 	"rabbit-hole-server/internal/domain"
@@ -18,6 +19,8 @@ type CreateTaskRequest struct {
 	StartDate    *time.Time `json:"start_date,omitempty"`
 	DueDate      *time.Time `json:"due_date,omitempty"`
 	TimeEstimate int        `json:"time_estimate" binding:"gte=0"`
+
+	CustomFields map[uint]json.RawMessage `json:"custom_fields"`
 }
 
 type UpdateTaskRequest struct {
@@ -32,4 +35,5 @@ type UpdateTaskRequest struct {
 	AssigneeIDs  *[]uint                    `json:"assignee_ids,omitempty"`
 	AddTagIDs    []uint                     `json:"add_tag_ids,omitempty"`
 	AddTagNames  []string                   `json:"add_tag_names,omitempty"`
+	RemoveTagIDs []uint                     `json:"remove_tag_ids,omitempty" binding:"dive,gt=0"`
 }

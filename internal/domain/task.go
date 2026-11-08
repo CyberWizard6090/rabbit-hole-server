@@ -19,6 +19,7 @@ var (
 	ErrInvalidMoveAnchor        = errors.New("anchor task does not belong to the target list")
 	ErrConcurrentMove           = errors.New("task was changed by another request, retry the move")
 	ErrTaskHasSubtasks          = errors.New("task with subtasks cannot be moved to another list")
+	ErrConflictingTagChange     = errors.New("a tag cannot be added and removed in the same request")
 )
 
 type Task struct {
@@ -44,6 +45,8 @@ type Task struct {
 	CreatedBy         ActorView     `json:"created_by"`
 	RequesterInfo     *Requester    `json:"-"`
 	Requester         *Requester    `json:"requester,omitempty"`
+
+	SubtaskCount int `json:"subtask_count"`
 
 	ChecklistItemsTotal    int `json:"checklist_items_total"`
 	ChecklistItemsResolved int `json:"checklist_items_resolved"`
@@ -71,7 +74,7 @@ type TaskRepository interface {
 	List(ctx context.Context, listID uint, query TaskQuery, params pagination.Params) ([]Task, bool, bool, error)
 	Count(ctx context.Context, listID uint, filter TaskFilter) (int64, error)
 	GetByID(ctx context.Context, id uint) (*Task, error)
-	Update(ctx context.Context, id uint, apply func(*Task) error, addTagIDs []uint, replaceAssigneeIDs *[]uint) (before, after *Task, err error)
+	Update(ctx context.Context, id uint, apply func(*Task) error, addTagIDs, removeTagIDs []uint, replaceAssigneeIDs *[]uint) (before, after *Task, err error)
 	Delete(ctx context.Context, id uint) error
 	Move(ctx context.Context, id uint, target TaskMove) (*Task, error)
 }

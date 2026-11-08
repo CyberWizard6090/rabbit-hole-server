@@ -152,8 +152,13 @@ func (h *TaskTemplateHandler) Apply(c *gin.Context) {
 		response.Unauthorized(c)
 		return
 	}
+	customFields, err := decodeCustomFieldValues(req.CustomFields)
+	if err != nil {
+		response.HandleError(c, httperrors.BadRequest("INVALID_CUSTOM_FIELD", "invalid custom field value", err))
+		return
+	}
 	task, err := h.applier.Apply(c.Request.Context(), userID, template.ID, req.ListID, req.StatusID,
-		req.Title, req.Description)
+		req.Title, req.Description, customFields)
 	if err != nil {
 		h.writeError(c, err)
 		return
@@ -189,6 +194,10 @@ func (h *TaskTemplateHandler) authorizedTemplate(c *gin.Context, permission stri
 }
 
 func (h *TaskTemplateHandler) writeError(c *gin.Context, err error) {
+	if appErr, ok := requiredCustomFieldError(err); ok {
+		response.HandleError(c, appErr)
+		return
+	}
 	switch {
 	case errors.Is(err, domain.ErrInvalidTaskTemplate):
 		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_TEMPLATE", err.Error(), err))

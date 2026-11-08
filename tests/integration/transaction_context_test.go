@@ -31,7 +31,7 @@ func TestTransactionRunner_AllRepositoriesJoinTheTransaction(t *testing.T) {
 			tk.Title = "renamed inside tx"
 			return nil
 		}
-		if _, _, err := tasks.Update(ctx, task.ID, rename, nil, nil); err != nil {
+		if _, _, err := tasks.Update(ctx, task.ID, rename, nil, nil, nil); err != nil {
 			return err
 		}
 		folder := &domain.Folder{Name: "inside tx", SpaceID: e.owner.spaceID}

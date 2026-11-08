@@ -21,7 +21,7 @@ func newTestTaskService(
 	if err != nil {
 		panic(err)
 	}
-	return NewTaskService(repo, spaceRepo, tagService, codec, nil)
+	return NewTaskService(repo, spaceRepo, tagService, codec, nil, nil, nil)
 }
 
 func TestTaskServiceCreateTaskUsesDefaultsAndResolvesNewTags(t *testing.T) {
@@ -85,7 +85,7 @@ func TestTaskServiceCreateTaskFromSubmissionSetsSource(t *testing.T) {
 		list:  &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55},
 		space: &domain.Space{Model: domain.Model{ID: 55}, WorkspaceID: 99},
 	}
-	svc := NewTaskService(taskRepo, spaceRepo, &tagServiceMock{}, nil, nil)
+	svc := NewTaskService(taskRepo, spaceRepo, &tagServiceMock{}, nil, nil, nil, nil)
 
 	task, err := svc.CreateTaskFromSubmission(context.Background(), 42, CreateTaskFromSubmissionParams{
 		WorkspaceID:  99,
@@ -109,7 +109,7 @@ func TestTaskServiceCreateTaskFromSubmissionRejectsDifferentWorkspace(t *testing
 		list:  &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55},
 		space: &domain.Space{Model: domain.Model{ID: 55}, WorkspaceID: 100},
 	}
-	svc := NewTaskService(taskRepo, spaceRepo, &tagServiceMock{}, nil, nil)
+	svc := NewTaskService(taskRepo, spaceRepo, &tagServiceMock{}, nil, nil, nil, nil)
 
 	_, err := svc.CreateTaskFromSubmission(context.Background(), 42, CreateTaskFromSubmissionParams{
 		WorkspaceID:  99,

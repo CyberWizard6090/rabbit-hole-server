@@ -1,5 +1,7 @@
 package dto
 
+import "rabbit-hole-server/internal/domain"
+
 type CreateSpaceRequest struct {
 	Name     string `json:"name" binding:"required,min=1"`
 	Currency string `json:"currency"`
@@ -8,6 +10,11 @@ type CreateSpaceRequest struct {
 type CreateListRequest struct {
 	Name           string `json:"name" binding:"required,min=1"`
 	ParentStatusID *uint  `json:"parent_status_id"`
+}
+
+type UpdateListRequest struct {
+	Name     *string               `json:"name" binding:"omitempty,min=1"`
+	FolderID domain.Nullable[uint] `json:"folder_id"`
 }
 
 type UpdateSpaceRequest struct {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"rabbit-hole-server/internal/domain"
 )
@@ -13,7 +14,7 @@ type TaskTemplateService interface {
 	Create(ctx context.Context, workspaceID, userID uint, name, description string, config json.RawMessage) (*domain.TaskTemplate, error)
 	List(ctx context.Context, workspaceID uint) ([]domain.TaskTemplate, error)
 	Get(ctx context.Context, templateID uint) (*domain.TaskTemplate, error)
-	Update(ctx context.Context, templateID uint, name, description string) (*domain.TaskTemplate, error)
+	Update(ctx context.Context, templateID uint, name, description *string) (*domain.TaskTemplate, error)
 	Archive(ctx context.Context, templateID uint) error
 	CreateVersion(ctx context.Context, templateID uint, config json.RawMessage) (*domain.TaskTemplateVersion, error)
 	ListVersions(ctx context.Context, templateID uint) ([]domain.TaskTemplateVersion, error)
@@ -46,6 +47,7 @@ type TaskTemplateConfiguration struct {
 		StatusID    *uint   `json:"status_id"`
 		AssigneeID  *uint   `json:"assignee_id"`
 		DueDate     *string `json:"due_date"`
+		DueInDays   *int    `json:"due_in_days"`
 	} `json:"task"`
 	CustomFields []TaskTemplateCustomField `json:"custom_fields"`
 	Tags         []uint                    `json:"tags"`
@@ -85,6 +87,9 @@ func NormalizeTaskTemplateConfiguration(raw json.RawMessage) (json.RawMessage, e
 		config.Task.AssigneeID != nil && *config.Task.AssigneeID == 0 {
 		return nil, domain.ErrInvalidTaskTemplate
 	}
+	if _, err := templateDueDate(config, time.Now()); err != nil {
+		return nil, err
+	}
 	if config.Task.Title != nil {
 		value := strings.TrimSpace(*config.Task.Title)
 		config.Task.Title = &value
@@ -98,6 +103,30 @@ func NormalizeTaskTemplateConfiguration(raw json.RawMessage) (json.RawMessage, e
 		return nil, fmt.Errorf("encode task template configuration: %w", err)
 	}
 	return normalized, nil
+}
+
+const maxTemplateDueInDays = 3650
+
+func templateDueDate(config TaskTemplateConfiguration, reference time.Time) (*time.Time, error) {
+	switch {
+	case config.Task.DueDate != nil && config.Task.DueInDays != nil:
+		return nil, domain.ErrInvalidTaskTemplate
+	case config.Task.DueDate != nil:
+		date, err := time.Parse("2006-01-02", *config.Task.DueDate)
+		if err != nil {
+			return nil, domain.ErrInvalidTaskTemplate
+		}
+		return &date, nil
+	case config.Task.DueInDays != nil:
+		days := *config.Task.DueInDays
+		if days < 0 || days > maxTemplateDueInDays {
+			return nil, domain.ErrInvalidTaskTemplate
+		}
+		day := reference.UTC()
+		date := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, days)
+		return &date, nil
+	}
+	return nil, nil
 }
 
 func (s *taskTemplateService) Create(
@@ -140,17 +169,25 @@ func (s *taskTemplateService) Get(ctx context.Context, templateID uint) (*domain
 }
 
 func (s *taskTemplateService) Update(
-	ctx context.Context, templateID uint, name, description string,
+	ctx context.Context, templateID uint, name, description *string,
 ) (*domain.TaskTemplate, error) {
 	template, err := s.Get(ctx, templateID)
 	if err != nil {
 		return nil, err
 	}
-	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 255 || len(description) > 10000 {
-		return nil, domain.ErrInvalidTaskTemplate
+	if name != nil {
+		trimmed := strings.TrimSpace(*name)
+		if trimmed == "" || len(trimmed) > 255 {
+			return nil, domain.ErrInvalidTaskTemplate
+		}
+		template.Name = trimmed
 	}
-	template.Name, template.Description = name, strings.TrimSpace(description)
+	if description != nil {
+		if len(*description) > 10000 {
+			return nil, domain.ErrInvalidTaskTemplate
+		}
+		template.Description = strings.TrimSpace(*description)
+	}
 	if err := s.repo.Update(ctx, template); err != nil {
 		return nil, err
 	}

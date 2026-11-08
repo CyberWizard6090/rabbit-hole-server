@@ -263,6 +263,9 @@ func TestSpaceRepository_DashboardLoadsListsStatusesInOrder(t *testing.T) {
 	if err := spaces.CreateList(context.Background(), list); err != nil {
 		t.Fatal(err)
 	}
+	if err := tc.DB.Exec("DELETE FROM task_statuses WHERE list_id = ?", list.ID).Error; err != nil {
+		t.Fatal(err)
+	}
 	for _, st := range []domain.TaskStatus{
 		{SpaceID: space.ID, ListID: list.ID, Name: "third", Color: "#000003", Position: 3, Type: domain.StatusDone},
 		{SpaceID: space.ID, ListID: list.ID, Name: "first", Color: "#000001", Position: 1, Type: domain.StatusTodo},
@@ -354,6 +357,9 @@ func TestStatusRepository_PositionsStayContiguous(t *testing.T) {
 	}
 	list := &domain.List{SpaceID: space.ID, Name: "L"}
 	if err := spaces.CreateList(context.Background(), list); err != nil {
+		t.Fatal(err)
+	}
+	if err := tc.DB.Exec("DELETE FROM task_statuses WHERE list_id = ?", list.ID).Error; err != nil {
 		t.Fatal(err)
 	}
 
