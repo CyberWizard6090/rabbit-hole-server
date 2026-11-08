@@ -31,8 +31,6 @@ func AuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
 
 		claims, err := authService.Authenticate(c.Request.Context(), tokenString)
 		if err != nil {
-			// An expired token is the signal to refresh quietly; anything else
-			// means the session is gone and the user must log in again.
 			code := "ACCESS_TOKEN_INVALID"
 			if errors.Is(err, jwt.ErrTokenExpired) {
 				code = "ACCESS_TOKEN_EXPIRED"

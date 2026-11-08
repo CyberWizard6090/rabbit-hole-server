@@ -5,10 +5,6 @@ const (
 	FormErrorTaskTemplateInvalid = "FORM_TASK_TEMPLATE_INVALID"
 )
 
-// FormValidationError reports one invalid input of a form. Reason is a stable
-// machine readable code the client translates ("TOO_LONG", "DUPLICATE"), and
-// Params carry the values the translation needs. Code, when set, replaces the
-// top level error code of the response.
 type FormValidationError struct {
 	Code   string
 	Field  string
