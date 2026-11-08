@@ -11,6 +11,8 @@ const (
 	FileKindImage      = "image"
 	FileKindAvatar     = "avatar"
 
+	FileKindWorkspaceAvatar = "workspace_avatar"
+
 	MaxAttachmentsPerTask = 100
 )
 
@@ -59,6 +61,8 @@ type FileRepository interface {
 	Delete(ctx context.Context, id uint) error
 	ReplaceAvatar(ctx context.Context, file NewFile, avatarURL string) (created *File, replaced []File, err error)
 	ClearAvatar(ctx context.Context, userID uint) (replaced []File, err error)
+	ReplaceWorkspaceAvatar(ctx context.Context, file NewFile, avatarURL string) (created *File, replaced []File, err error)
+	ClearWorkspaceAvatar(ctx context.Context, workspaceID uint) (replaced []File, err error)
 }
 
 var safeServedTypes = map[string]struct{}{

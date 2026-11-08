@@ -38,6 +38,7 @@ type Workspace struct {
 	Name        string `gorm:"size:255;not null"`
 	OwnerID     uint   `gorm:"not null"`
 	Description string `gorm:"type:text"`
+	AvatarURL   string `gorm:"type:text;not null;default:''"`
 
 	Members []Member `gorm:"foreignKey:WorkspaceID;constraint:OnDelete:CASCADE;"`
 	Spaces  []Space  `gorm:"foreignKey:WorkspaceID;constraint:OnDelete:CASCADE;"`

@@ -125,3 +125,17 @@ func TestLocalPing(t *testing.T) {
 		t.Fatal("Ping must fail when the directory is gone")
 	}
 }
+
+func TestLocalAcceptsUnderscoreInTheKeyKind(t *testing.T) {
+	store, err := NewLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := "workspace_avatar/0123456789abcdef0123456789abcdef"
+	if err := store.Put(context.Background(), key, strings.NewReader("x"), 1, ""); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if got := readAll(t, store, key); got != "x" {
+		t.Fatalf("got %q", got)
+	}
+}

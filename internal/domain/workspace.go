@@ -11,6 +11,7 @@ type Workspace struct {
 	Name        string `json:"name"`
 	OwnerID     uint   `json:"owner_id"`
 	Description string `json:"description"`
+	AvatarURL   string `json:"avatar_url"`
 
 	Members []Member `json:"-"`
 	Spaces  []Space  `json:"-"`

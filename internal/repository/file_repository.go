@@ -161,7 +161,7 @@ func (r *fileRepository) GetAttachment(ctx context.Context, taskID, id uint) (*d
 
 func (r *fileRepository) GetPublic(ctx context.Context, publicID string) (*domain.File, error) {
 	file, err := oneFile(database.DBFromContext(ctx, r.db),
-		"SELECT "+fileColumns+" FROM files WHERE kind IN ('image', 'avatar') AND public_id = ? AND "+
+		"SELECT "+fileColumns+" FROM files WHERE kind IN ('image', 'avatar', 'workspace_avatar') AND public_id = ? AND "+
 			"(workspace_id IS NULL OR "+liveWorkspacePredicate("files.workspace_id")+")", publicID)
 	return file, mapErr(err)
 }
@@ -222,6 +222,70 @@ func (r *fileRepository) ClearAvatar(ctx context.Context, userID uint) ([]domain
 			return err
 		}
 		return tx.Exec("UPDATE users SET avatar_url = '' WHERE id = ?", userID).Error
+	})
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return replaced, nil
+}
+
+func takeWorkspaceAvatars(tx *gorm.DB, workspaceID uint) ([]domain.File, error) {
+	var rows []fileRow
+	if err := tx.Raw(
+		"DELETE FROM files WHERE kind = 'workspace_avatar' AND workspace_id = ? RETURNING "+fileColumns, workspaceID,
+	).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return hydrateFiles(tx, rows)
+}
+
+func (r *fileRepository) ReplaceWorkspaceAvatar(ctx context.Context, file domain.NewFile, avatarURL string) (*domain.File, []domain.File, error) {
+	if file.WorkspaceID == nil {
+		return nil, nil, domain.ErrNotFound
+	}
+	var (
+		created  *domain.File
+		replaced []domain.File
+	)
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		var workspaceIDs []uint
+		if err := tx.Raw(
+			"SELECT id FROM workspaces WHERE id = ? AND deleted_at IS NULL FOR UPDATE", *file.WorkspaceID,
+		).Scan(&workspaceIDs).Error; err != nil {
+			return err
+		}
+		if len(workspaceIDs) == 0 {
+			return domain.ErrNotFound
+		}
+		var err error
+		if replaced, err = takeWorkspaceAvatars(tx, *file.WorkspaceID); err != nil {
+			return err
+		}
+		row, err := insertFile(tx, file)
+		if err != nil {
+			return err
+		}
+		files, err := hydrateFiles(tx, []fileRow{row})
+		if err != nil {
+			return err
+		}
+		created = &files[0]
+		return tx.Exec("UPDATE workspaces SET avatar_url = ? WHERE id = ?", avatarURL, *file.WorkspaceID).Error
+	})
+	if err != nil {
+		return nil, nil, mapErr(err)
+	}
+	return created, replaced, nil
+}
+
+func (r *fileRepository) ClearWorkspaceAvatar(ctx context.Context, workspaceID uint) ([]domain.File, error) {
+	var replaced []domain.File
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		var err error
+		if replaced, err = takeWorkspaceAvatars(tx, workspaceID); err != nil {
+			return err
+		}
+		return tx.Exec("UPDATE workspaces SET avatar_url = '' WHERE id = ? AND avatar_url <> ''", workspaceID).Error
 	})
 	if err != nil {
 		return nil, mapErr(err)
