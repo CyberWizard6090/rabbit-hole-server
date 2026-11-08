@@ -185,7 +185,7 @@ func (s *formService) createFormWithContent(
 		return nil
 	}
 	if s.taskConfig == nil {
-		return domain.NewFormValidationError("task_config", "task creation is not available")
+		return domain.NewFormValidationError("task_config", "TASK_CREATION_UNAVAILABLE")
 	}
 	resolved, err := resolveQuestionIndexes(*taskConfig, created)
 	if err != nil {
@@ -199,8 +199,7 @@ func (s *formService) createFormWithContent(
 
 func normalizeFormQuestions(inputs []QuestionInput) ([]domain.FormQuestion, error) {
 	if len(inputs) > domain.MaxFormQuestions {
-		return nil, domain.NewFormValidationError("questions",
-			fmt.Sprintf("at most %d questions are allowed", domain.MaxFormQuestions))
+		return nil, domain.NewFormValidationError("questions", "TOO_MANY").WithParams(map[string]any{"max": domain.MaxFormQuestions})
 	}
 	questions := make([]domain.FormQuestion, len(inputs))
 	for i, input := range inputs {
@@ -228,17 +227,15 @@ func resolveQuestionIndexes(
 		field := fmt.Sprintf("task_config.mappings[%d]", i)
 		switch {
 		case mapping.QuestionIndex != nil && mapping.QuestionID != 0:
-			return config, domain.NewFormValidationError(field, "set either question_id or question_index, not both")
+			return config, domain.NewFormValidationError(field, "EXCLUSIVE_FIELDS").WithParams(map[string]any{"fields": []string{"question_id", "question_index"}})
 		case mapping.QuestionIndex != nil:
 			index := *mapping.QuestionIndex
 			if index < 0 || index >= len(questions) {
-				return config, domain.NewFormValidationError(field+".question_index",
-					"does not reference an item of questions")
+				return config, domain.NewFormValidationError(field+".question_index", "INVALID_REFERENCE")
 			}
 			mapping.QuestionID, mapping.QuestionIndex = questions[index].ID, nil
 		default:
-			return config, domain.NewFormValidationError(field+".question_index",
-				"is required because new forms have no question ids yet")
+			return config, domain.NewFormValidationError(field+".question_index", "REQUIRED_FOR_NEW_FORM")
 		}
 		mappings[i] = mapping
 	}
@@ -252,7 +249,7 @@ func prefixTaskConfigError(err error) error {
 		return validation.WithPrefix("task_config.")
 	}
 	if errors.Is(err, domain.ErrInvalidForm) {
-		return domain.NewFormValidationError("task_config", "is invalid")
+		return domain.NewFormValidationError("task_config", "INVALID_VALUE")
 	}
 	return err
 }
@@ -543,11 +540,10 @@ func (s *formService) ListSubmissions(
 		return nil, 0, err
 	}
 	if filter.Status != "" && !domain.ValidSubmissionStatus(filter.Status) {
-		return nil, 0, domain.NewFormValidationError("status", "must be one of submitted, processing, processed, failed")
+		return nil, 0, domain.NewFormValidationError("status", "INVALID_CHOICE").WithParams(map[string]any{"allowed": []string{"submitted", "processing", "processed", "failed"}})
 	}
 	if filter.TaskCreationStatus != "" && !domain.ValidTaskCreationStatus(filter.TaskCreationStatus) {
-		return nil, 0, domain.NewFormValidationError("task_creation_status",
-			"must be one of pending, processing, succeeded, failed, skipped")
+		return nil, 0, domain.NewFormValidationError("task_creation_status", "INVALID_CHOICE").WithParams(map[string]any{"allowed": []string{"pending", "processing", "succeeded", "failed", "skipped"}})
 	}
 	submissions, total, err := s.repo.ListSubmissions(ctx, formID, filter, limit, offset)
 	if err != nil {
@@ -576,13 +572,14 @@ func normalizeFormInput(input FormInput) (FormInput, error) {
 	input.Description = strings.TrimSpace(input.Description)
 	input.Slug = strings.TrimSpace(strings.ToLower(input.Slug))
 	switch {
-	case input.Name == "" || len(input.Name) > 255:
-		return FormInput{}, domain.NewFormValidationError("name", "is required and must be at most 255 characters")
+	case input.Name == "":
+		return FormInput{}, domain.NewFormValidationError("name", "REQUIRED")
+	case len(input.Name) > 255:
+		return FormInput{}, domain.NewFormValidationError("name", "TOO_LONG").WithParams(map[string]any{"max": 255})
 	case len(input.Description) > 10000:
-		return FormInput{}, domain.NewFormValidationError("description", "must be at most 10000 characters")
+		return FormInput{}, domain.NewFormValidationError("description", "TOO_LONG").WithParams(map[string]any{"max": 10000})
 	case !formSlugPattern.MatchString(input.Slug):
-		return FormInput{}, domain.NewFormValidationError("slug",
-			"must contain lowercase letters, digits and hyphens and start with a letter or digit")
+		return FormInput{}, domain.NewFormValidationError("slug", "INVALID_SLUG")
 	}
 	return input, nil
 }
@@ -598,27 +595,32 @@ func normalizeQuestion(formID uint, input QuestionInput) (*domain.FormQuestion, 
 	case formID == 0:
 		return nil, domain.ErrInvalidForm
 	case !supportedQuestionType(input.Type):
-		return nil, domain.NewFormValidationError("type", "is not a supported question type")
-	case input.Title == "" || len(input.Title) > 1000:
-		return nil, domain.NewFormValidationError("title", "is required and must be at most 1000 characters")
+		return nil, domain.NewFormValidationError("type", "INVALID_CHOICE")
+	case input.Title == "":
+		return nil, domain.NewFormValidationError("title", "REQUIRED")
+	case len(input.Title) > 1000:
+		return nil, domain.NewFormValidationError("title", "TOO_LONG").WithParams(map[string]any{"max": 1000})
 	case len(input.Description) > 5000:
-		return nil, domain.NewFormValidationError("description", "must be at most 5000 characters")
+		return nil, domain.NewFormValidationError("description", "TOO_LONG").WithParams(map[string]any{"max": 5000})
 	case input.Position != nil && position < 0:
-		return nil, domain.NewFormValidationError("position", "must not be negative")
+		return nil, domain.NewFormValidationError("position", "TOO_SMALL").WithParams(map[string]any{"min": 0})
 	}
 	if len(input.Settings) == 0 || string(input.Settings) == "null" {
 		input.Settings = json.RawMessage(`{}`)
 	}
-	if !json.Valid(input.Settings) || len(input.Settings) > 16384 {
-		return nil, domain.NewFormValidationError("settings", "must be a JSON object of at most 16384 bytes")
+	if !json.Valid(input.Settings) {
+		return nil, domain.NewFormValidationError("settings", "INVALID_TYPE").WithParams(map[string]any{"expected": "object"})
+	}
+	if len(input.Settings) > 16384 {
+		return nil, domain.NewFormValidationError("settings", "TOO_LARGE").WithParams(map[string]any{"max_bytes": 16384})
 	}
 	options := append([]domain.QuestionOption(nil), input.Options...)
 	choice := isChoiceQuestion(input.Type)
 	if choice && (len(options) < 1 || len(options) > 100) {
-		return nil, domain.NewFormValidationError("options", "choice questions need between 1 and 100 options")
+		return nil, domain.NewFormValidationError("options", "INVALID_COUNT").WithParams(map[string]any{"min": 1, "max": 100})
 	}
 	if !choice && len(options) != 0 {
-		return nil, domain.NewFormValidationError("options", "are only allowed for choice questions")
+		return nil, domain.NewFormValidationError("options", "NOT_ALLOWED")
 	}
 	seen := make(map[string]struct{}, len(options))
 	for i := range options {
@@ -628,10 +630,10 @@ func normalizeQuestion(formID uint, input QuestionInput) (*domain.FormQuestion, 
 		field := fmt.Sprintf("options[%d]", i)
 		if options[i].Label == "" || options[i].Value == "" ||
 			len(options[i].Label) > 255 || len(options[i].Value) > 255 {
-			return nil, domain.NewFormValidationError(field, "label and value are required and at most 255 characters")
+			return nil, domain.NewFormValidationError(field, "INVALID_OPTION").WithParams(map[string]any{"max": 255})
 		}
 		if _, exists := seen[options[i].Value]; exists {
-			return nil, domain.NewFormValidationError(field+".value", "must be unique within the question")
+			return nil, domain.NewFormValidationError(field+".value", "DUPLICATE")
 		}
 		seen[options[i].Value] = struct{}{}
 	}
@@ -639,7 +641,7 @@ func normalizeQuestion(formID uint, input QuestionInput) (*domain.FormQuestion, 
 		return nil, err
 	}
 	if isStaticQuestion(input.Type) && input.Required {
-		return nil, domain.NewFormValidationError("required", "is not allowed for section, description and divider questions")
+		return nil, domain.NewFormValidationError("required", "NOT_ALLOWED")
 	}
 	if err := validateFileQuestionSettings(input.Type, input.Settings); err != nil {
 		return nil, err

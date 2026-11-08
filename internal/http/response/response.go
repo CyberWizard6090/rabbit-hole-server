@@ -2,10 +2,11 @@ package response
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
@@ -22,10 +23,15 @@ type Pagination struct {
 	Pages int `json:"pages"`
 }
 
+// ErrorPayload is the error body of every failed response. It carries no
+// human readable text: the client translates Code and fills the translation
+// with Params. Details lists per-field problems of an invalid request.
+// RequestID matches the X-Request-ID header and the server log line.
 type ErrorPayload struct {
-	Code    string            `json:"code"`
-	Message string            `json:"message"`
-	Fields  map[string]string `json:"fields,omitempty"`
+	Code      string              `json:"code"`
+	Params    map[string]any      `json:"params,omitempty"`
+	Details   []httperrors.Detail `json:"details,omitempty"`
+	RequestID string              `json:"request_id,omitempty"`
 }
 
 type APIResponse struct {
@@ -42,31 +48,37 @@ func SuccessWithPagination(c *gin.Context, status int, data interface{}, paginat
 	c.JSON(status, APIResponse{Data: data, Pagination: pagination})
 }
 
-func ErrorWithCode(c *gin.Context, status int, code, message string, fields map[string]string) {
+func write(c *gin.Context, status int, code string, params map[string]any, details []httperrors.Detail) {
 	c.JSON(status, APIResponse{
-		Error: &ErrorPayload{Code: code, Message: message, Fields: fields},
+		Error: &ErrorPayload{
+			Code:      code,
+			Params:    params,
+			Details:   details,
+			RequestID: contextutil.GetRequestID(c),
+		},
 	})
 }
 
-func Error(c *gin.Context, status int, message string) {
-	ErrorWithCode(c, status, defaultErrorCode(status), message, nil)
+// Fail answers with an error that has only a code and optional params.
+func Fail(c *gin.Context, status int, code string, params map[string]any) {
+	write(c, status, code, params, nil)
 }
 
 func HandleError(c *gin.Context, err error) {
-	status, code, message, fields := classify(err)
+	status, code, params, details := classify(err)
 	logHandled(c, status, code, err)
-	ErrorWithCode(c, status, code, message, fields)
+	write(c, status, code, params, details)
 }
 
-func classify(err error) (status int, code, message string, fields map[string]string) {
+func classify(err error) (status int, code string, params map[string]any, details []httperrors.Detail) {
 	if errors.Is(err, domain.ErrNotFound) {
-		return http.StatusNotFound, "NOT_FOUND", "resource not found", nil
+		return http.StatusNotFound, "NOT_FOUND", nil, nil
 	}
 	var appErr *httperrors.AppError
 	if errors.As(err, &appErr) {
-		return appErr.Status, appErr.Code, appErr.Message, appErr.Fields
+		return appErr.Status, appErr.Code, appErr.Params, appErr.Details
 	}
-	return http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error", nil
+	return http.StatusInternalServerError, "INTERNAL_ERROR", nil, nil
 }
 
 func logHandled(c *gin.Context, status int, code string, err error) {
@@ -94,83 +106,67 @@ func logHandled(c *gin.Context, status int, code string, err error) {
 	)
 }
 
+// ValidationError answers 400 for a request body or query that could not be
+// bound: every broken field becomes an entry of details.
 func ValidationError(c *gin.Context, err error) {
 	if err == nil {
-		ErrorWithCode(c, http.StatusBadRequest, "VALIDATION_FAILED", "invalid request", nil)
+		Fail(c, http.StatusBadRequest, "VALIDATION_FAILED", nil)
 		return
 	}
 
 	var tooLarge *http.MaxBytesError
 	if errors.As(err, &tooLarge) {
-		ErrorWithCode(c, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "request body is too large", nil)
+		Fail(c, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", map[string]any{"max_bytes": tooLarge.Limit})
 		return
 	}
 
-	fields := parseValidationFields(err)
-	ErrorWithCode(c, http.StatusBadRequest, "VALIDATION_FAILED", "invalid request", fields)
+	var syntax *json.SyntaxError
+	if errors.As(err, &syntax) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		Fail(c, http.StatusBadRequest, "INVALID_JSON", nil)
+		return
+	}
+
+	write(c, http.StatusBadRequest, "VALIDATION_FAILED", nil, validationDetails(err))
 }
 
-func BadRequest(c *gin.Context, message string) {
-	ErrorWithCode(c, http.StatusBadRequest, "BAD_REQUEST", message, nil)
+// InvalidID answers 400 for a path parameter that is not a valid identifier.
+func InvalidID(c *gin.Context, param string) {
+	Fail(c, http.StatusBadRequest, "INVALID_ID", map[string]any{"param": param})
 }
 
 func Unauthorized(c *gin.Context) {
-	ErrorWithCode(c, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized", nil)
+	Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", nil)
 }
 
-func Forbidden(c *gin.Context, message string) {
-	if message == "" {
-		message = "forbidden"
-	}
-	ErrorWithCode(c, http.StatusForbidden, "FORBIDDEN", message, nil)
-}
-
-func NotFound(c *gin.Context, message string) {
-	ErrorWithCode(c, http.StatusNotFound, "NOT_FOUND", message, nil)
+func Forbidden(c *gin.Context) {
+	Fail(c, http.StatusForbidden, "FORBIDDEN", nil)
 }
 
 func Internal(c *gin.Context) {
-	ErrorWithCode(c, http.StatusInternalServerError, "INTERNAL_ERROR", "internal server error", nil)
+	Fail(c, http.StatusInternalServerError, "INTERNAL_ERROR", nil)
 }
 
-func defaultErrorCode(status int) string {
-	switch status {
-	case http.StatusBadRequest:
-		return "BAD_REQUEST"
-	case http.StatusUnauthorized:
-		return "UNAUTHORIZED"
-	case http.StatusForbidden:
-		return "FORBIDDEN"
-	case http.StatusNotFound:
-		return "NOT_FOUND"
-	case http.StatusConflict:
-		return "CONFLICT"
-	case http.StatusUnprocessableEntity:
-		return "UNPROCESSABLE_ENTITY"
-	case http.StatusTooManyRequests:
-		return "RATE_LIMIT_EXCEEDED"
-	case http.StatusInternalServerError:
-		return "INTERNAL_ERROR"
-	case http.StatusServiceUnavailable:
-		return "SERVICE_UNAVAILABLE"
-	default:
-		return "ERROR"
-	}
-}
-
-func parseValidationFields(err error) map[string]string {
-	fields := map[string]string{}
-	var validationErrs validator.ValidationErrors
-	if !errors.As(err, &validationErrs) {
-		return fields
-	}
-
-	for _, e := range validationErrs {
-		field := strings.TrimSpace(e.Field())
+func validationDetails(err error) []httperrors.Detail {
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		field := typeErr.Field
 		if field == "" {
 			field = "request"
 		}
-		fields[field] = e.Tag()
+		return []httperrors.Detail{{
+			Field:  field,
+			Code:   "INVALID_TYPE",
+			Params: map[string]any{"expected": jsonTypeName(typeErr)},
+		}}
 	}
-	return fields
+
+	var validationErrs validator.ValidationErrors
+	if !errors.As(err, &validationErrs) {
+		return nil
+	}
+	details := make([]httperrors.Detail, 0, len(validationErrs))
+	for _, fe := range validationErrs {
+		details = append(details, fieldDetail(fe))
+	}
+	return details
 }

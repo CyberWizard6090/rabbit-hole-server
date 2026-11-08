@@ -182,7 +182,7 @@ func (h *TaskTemplateHandler) authorizedTemplate(c *gin.Context, permission stri
 		return nil, false
 	}
 	if !allowed {
-		response.Forbidden(c, "")
+		response.Forbidden(c)
 		return nil, false
 	}
 	return template, true

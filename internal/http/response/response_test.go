@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/go-playground/validator/v10"
 
 	"rabbit-hole-server/internal/domain"
+	contextutil "rabbit-hole-server/internal/http/context"
 	httperrors "rabbit-hole-server/internal/http/errors"
 )
 
@@ -57,37 +59,136 @@ func TestHandleErrorRendersAllSupportedStatuses(t *testing.T) {
 			if body.Error.Code != tc.code {
 				t.Fatalf("error.code = %q, want %q", body.Error.Code, tc.code)
 			}
-			if body.Error.Message == "" {
-				t.Fatal("error.message is empty")
+			if strings.Contains(recorder.Body.String(), `"message"`) {
+				t.Fatalf("error body must not carry free text: %s", recorder.Body.String())
 			}
 		})
 	}
 }
 
-func TestValidationErrorRendersFieldErrors(t *testing.T) {
+func decodeError(t *testing.T, recorder *httptest.ResponseRecorder) *ErrorPayload {
+	t.Helper()
+	var body APIResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil || body.Error == nil {
+		t.Fatalf("decode error body: %v; body=%s", err, recorder.Body.String())
+	}
+	return body.Error
+}
+
+func TestValidationErrorRendersCodedDetails(t *testing.T) {
+	type item struct {
+		Text string `json:"text" validate:"required"`
+	}
+	type request struct {
+		Email    string   `json:"email" validate:"required,email"`
+		Password string   `json:"password" validate:"min=8"`
+		Title    string   `json:"title" validate:"max=3"`
+		Count    int      `json:"count" validate:"gte=1"`
+		Kind     string   `json:"kind" validate:"oneof=a b"`
+		Items    []item   `json:"items" validate:"dive"`
+		Tags     []string `json:"tags" validate:"max=1"`
+	}
+	v := validator.New()
+	v.RegisterTagNameFunc(wireName)
+	validationErr := v.Struct(request{
+		Password: "short", Title: "toolong", Kind: "z",
+		Items: []item{{Text: "ok"}, {}},
+		Tags:  []string{"a", "b"},
+	})
+
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
-
-	type request struct {
-		Email    string `validate:"required,email"`
-		Password string `validate:"min=8"`
-	}
-	validationErr := validator.New().Struct(request{Password: "short"})
 	ValidationError(context, validationErr)
 
 	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+		t.Fatalf("status = %d", recorder.Code)
 	}
+	payload := decodeError(t, recorder)
+	if payload.Code != "VALIDATION_FAILED" {
+		t.Fatalf("code = %q", payload.Code)
+	}
+	got := map[string]httperrors.Detail{}
+	for _, d := range payload.Details {
+		got[d.Field] = d
+	}
+	want := map[string]struct {
+		code   string
+		params map[string]any
+	}{
+		"email":         {"REQUIRED", nil},
+		"password":      {"TOO_SHORT", map[string]any{"min": float64(8)}},
+		"title":         {"TOO_LONG", map[string]any{"max": float64(3)}},
+		"count":         {"TOO_SMALL", map[string]any{"min": float64(1)}},
+		"kind":          {"INVALID_CHOICE", map[string]any{"allowed": []any{"a", "b"}}},
+		"items[1].text": {"REQUIRED", nil},
+		"tags":          {"TOO_MANY", map[string]any{"max": float64(1)}},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("details = %+v", payload.Details)
+	}
+	for field, w := range want {
+		d, ok := got[field]
+		if !ok || d.Code != w.code {
+			t.Fatalf("%s: got %+v, want code %s", field, d, w.code)
+		}
+		if w.params != nil && !reflect.DeepEqual(roundTrip(t, d.Params), w.params) {
+			t.Fatalf("%s: params %v, want %v", field, d.Params, w.params)
+		}
+	}
+}
 
-	var body APIResponse
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
+func roundTrip(t *testing.T, in map[string]any) map[string]any {
+	t.Helper()
+	raw, _ := json.Marshal(in)
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
 	}
-	if body.Error == nil || body.Error.Code != "VALIDATION_FAILED" {
-		t.Fatalf("unexpected error payload: %+v", body.Error)
+	return out
+}
+
+func TestValidationErrorReportsMalformedJSON(t *testing.T) {
+	cases := map[string]struct {
+		body   string
+		status int
+		code   string
+		field  string
+	}{
+		"syntax": {`{"a":`, http.StatusBadRequest, "INVALID_JSON", ""},
+		"type":   {`{"n":"x"}`, http.StatusBadRequest, "VALIDATION_FAILED", "n"},
 	}
-	if body.Error.Fields["Email"] != "required" || body.Error.Fields["Password"] != "min" {
-		t.Fatalf("unexpected validation fields: %+v", body.Error.Fields)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var dst struct {
+				N int `json:"n"`
+			}
+			err := json.NewDecoder(strings.NewReader(tc.body)).Decode(&dst)
+			recorder := httptest.NewRecorder()
+			context, _ := gin.CreateTestContext(recorder)
+			ValidationError(context, err)
+			payload := decodeError(t, recorder)
+			if recorder.Code != tc.status || payload.Code != tc.code {
+				t.Fatalf("status=%d payload=%+v", recorder.Code, payload)
+			}
+			if tc.field != "" && (len(payload.Details) != 1 || payload.Details[0].Field != tc.field ||
+				payload.Details[0].Code != "INVALID_TYPE") {
+				t.Fatalf("details = %+v", payload.Details)
+			}
+		})
+	}
+}
+
+func TestErrorBodyCarriesRequestID(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Set(contextutil.RequestIDKey, "req-12345678")
+
+	HandleError(context, httperrors.TooManyRequests("RATE_LIMIT_EXCEEDED", "slow down", nil).
+		WithParams(map[string]any{"retry_after": 30}))
+
+	payload := decodeError(t, recorder)
+	if payload.RequestID != "req-12345678" || payload.Code != "RATE_LIMIT_EXCEEDED" || payload.Params["retry_after"] != float64(30) {
+		t.Fatalf("payload = %+v", payload)
 	}
 }
 

@@ -17,8 +17,6 @@ func formBadRequest(defaultCode string, err error) *httperrors.AppError {
 		code = validation.Code
 	}
 	appErr := httperrors.BadRequest(code, err.Error(), err)
-	if validation.Field != "" {
-		appErr.Fields = map[string]string{validation.Field: validation.Reason}
-	}
+	appErr.Details = []httperrors.Detail{{Field: validation.Field, Code: validation.Reason, Params: validation.Params}}
 	return appErr
 }

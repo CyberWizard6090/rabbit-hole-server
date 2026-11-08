@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,6 +144,9 @@ func TestAuthMiddlewareRejectsExpiredToken(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized || calls != 0 {
 		t.Fatalf("status=%d calls=%d", rec.Code, calls)
+	}
+	if !strings.Contains(rec.Body.String(), `"ACCESS_TOKEN_EXPIRED"`) {
+		t.Fatalf("an expired token must be told apart so the client can refresh: %s", rec.Body.String())
 	}
 }
 

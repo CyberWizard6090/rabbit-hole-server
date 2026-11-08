@@ -18,8 +18,6 @@ type TagHandler struct {
 	service service.TagService
 }
 
-const invalidSpaceIDMessage = "invalid space id"
-
 func NewTagHandler(s service.TagService) *TagHandler {
 	return &TagHandler{service: s}
 }
@@ -27,7 +25,7 @@ func NewTagHandler(s service.TagService) *TagHandler {
 func (h *TagHandler) Create(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidSpaceIDMessage)
+		response.InvalidID(c, "space_id")
 		return
 	}
 
@@ -53,12 +51,12 @@ func (h *TagHandler) Create(c *gin.Context) {
 func (h *TagHandler) Get(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidSpaceIDMessage)
+		response.InvalidID(c, "space_id")
 		return
 	}
 	tagID, err := strconv.ParseUint(c.Param("tag_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid tag id")
+		response.InvalidID(c, "tag_id")
 		return
 	}
 
@@ -78,7 +76,7 @@ func (h *TagHandler) Get(c *gin.Context) {
 func (h *TagHandler) List(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidSpaceIDMessage)
+		response.InvalidID(c, "space_id")
 		return
 	}
 
@@ -94,12 +92,12 @@ func (h *TagHandler) List(c *gin.Context) {
 func (h *TagHandler) Update(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidSpaceIDMessage)
+		response.InvalidID(c, "space_id")
 		return
 	}
 	tagID, err := strconv.ParseUint(c.Param("tag_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid tag id")
+		response.InvalidID(c, "tag_id")
 		return
 	}
 
@@ -121,12 +119,12 @@ func (h *TagHandler) Update(c *gin.Context) {
 func (h *TagHandler) Delete(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidSpaceIDMessage)
+		response.InvalidID(c, "space_id")
 		return
 	}
 	tagID, err := strconv.ParseUint(c.Param("tag_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid tag id")
+		response.InvalidID(c, "tag_id")
 		return
 	}
 
@@ -141,7 +139,7 @@ func (h *TagHandler) Delete(c *gin.Context) {
 func (h *TagHandler) Merge(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidSpaceIDMessage)
+		response.InvalidID(c, "space_id")
 		return
 	}
 

@@ -3,7 +3,6 @@ package service
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"math"
 	"unicode/utf8"
 
@@ -84,7 +83,7 @@ func validateQuestionSettings(
 	decoder.UseNumber()
 	var settings map[string]any
 	if err := decoder.Decode(&settings); err != nil || settings == nil {
-		return domain.NewFormValidationError("settings", "must be a JSON object")
+		return domain.NewFormValidationError("settings", "INVALID_TYPE").WithParams(map[string]any{"expected": "object"})
 	}
 	if questionType == domain.QuestionFile {
 		return nil
@@ -95,12 +94,11 @@ func validateQuestionSettings(
 	for key, value := range settings {
 		spec, allowed := specs[key]
 		if !allowed {
-			return domain.NewFormValidationError("settings."+key,
-				fmt.Sprintf("is not supported for %s questions", questionType))
+			return domain.NewFormValidationError("settings."+key, "NOT_SUPPORTED").WithParams(map[string]any{"question_type": string(questionType)})
 		}
-		number, err := validateSettingValue(spec, value)
-		if err != nil {
-			return domain.NewFormValidationError("settings."+key, err.Error())
+		number, problem := validateSettingValue(spec, value)
+		if problem != nil {
+			return problem.WithPrefix("settings." + key)
 		}
 		if spec.kind != settingString {
 			numbers[key] = number
@@ -109,26 +107,29 @@ func validateQuestionSettings(
 	return validateSettingRelations(questionType, numbers, optionCount)
 }
 
-func validateSettingValue(spec settingSpec, value any) (float64, error) {
+func validateSettingValue(spec settingSpec, value any) (float64, *domain.FormValidationError) {
+	problem := func(reason string, params map[string]any) (float64, *domain.FormValidationError) {
+		return 0, domain.NewFormValidationError("", reason).WithParams(params)
+	}
 	if spec.kind == settingString {
 		text, ok := value.(string)
 		if !ok {
-			return 0, fmt.Errorf("must be a string")
+			return problem("INVALID_TYPE", map[string]any{"expected": "string"})
 		}
 		if utf8.RuneCountInString(text) > int(spec.max) {
-			return 0, fmt.Errorf("must be at most %d characters", int(spec.max))
+			return problem("TOO_LONG", map[string]any{"max": int(spec.max)})
 		}
 		return 0, nil
 	}
 	number, ok := questionNumber(value)
 	if !ok || math.IsNaN(number) || math.IsInf(number, 0) {
-		return 0, fmt.Errorf("must be a number")
+		return problem("INVALID_TYPE", map[string]any{"expected": "number"})
 	}
 	if spec.kind == settingInteger && number != math.Trunc(number) {
-		return 0, fmt.Errorf("must be an integer")
+		return problem("INVALID_TYPE", map[string]any{"expected": "integer"})
 	}
 	if number < spec.min || number > spec.max {
-		return 0, fmt.Errorf("must be between %v and %v", spec.min, spec.max)
+		return problem("OUT_OF_RANGE", map[string]any{"min": spec.min, "max": spec.max})
 	}
 	return number, nil
 }
@@ -143,30 +144,30 @@ func validateSettingRelations(
 		low, hasLow := numbers["min_length"]
 		high, hasHigh := numbers["max_length"]
 		if hasLow && hasHigh && low > high {
-			return domain.NewFormValidationError("settings.min_length", "must not exceed max_length")
+			return domain.NewFormValidationError("settings.min_length", "EXCEEDS_FIELD").WithParams(map[string]any{"other": "max_length"})
 		}
 	case domain.QuestionNumber:
 		low, hasLow := numbers["min"]
 		high, hasHigh := numbers["max"]
 		if hasLow && hasHigh && low > high {
-			return domain.NewFormValidationError("settings.min", "must not exceed max")
+			return domain.NewFormValidationError("settings.min", "EXCEEDS_FIELD").WithParams(map[string]any{"other": "max"})
 		}
 	case domain.QuestionMultipleChoice:
 		low, hasLow := numbers["min_selected"]
 		high, hasHigh := numbers["max_selected"]
 		if hasLow && hasHigh && low > high {
-			return domain.NewFormValidationError("settings.min_selected", "must not exceed max_selected")
+			return domain.NewFormValidationError("settings.min_selected", "EXCEEDS_FIELD").WithParams(map[string]any{"other": "max_selected"})
 		}
 		if hasHigh && int(high) > optionCount {
-			return domain.NewFormValidationError("settings.max_selected", "must not exceed the number of options")
+			return domain.NewFormValidationError("settings.max_selected", "EXCEEDS_OPTIONS").WithParams(map[string]any{"max": optionCount})
 		}
 		if hasLow && int(low) > optionCount {
-			return domain.NewFormValidationError("settings.min_selected", "must not exceed the number of options")
+			return domain.NewFormValidationError("settings.min_selected", "EXCEEDS_OPTIONS").WithParams(map[string]any{"max": optionCount})
 		}
 	case domain.QuestionRating, domain.QuestionScale:
 		low, high := integerBounds(questionType, numbers)
 		if low >= high {
-			return domain.NewFormValidationError("settings.min", "must be less than max")
+			return domain.NewFormValidationError("settings.min", "NOT_LESS_THAN_FIELD").WithParams(map[string]any{"other": "max"})
 		}
 	}
 	return nil

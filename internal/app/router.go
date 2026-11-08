@@ -12,6 +12,7 @@ import (
 
 	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/middleware"
 )
 
@@ -25,6 +26,7 @@ const (
 
 func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	r := gin.New()
+	response.RegisterValidatorFieldNames()
 	if err := r.SetTrustedProxies(cfg.Server.TrustedProxies); err != nil {
 		panic(fmt.Errorf("configure trusted proxies: %w", err))
 	}

@@ -307,7 +307,7 @@ func (h *TaskHandler) Move(c *gin.Context) {
 			return
 		}
 		if !allowed {
-			response.Forbidden(c, "")
+			response.Forbidden(c)
 			return
 		}
 	}

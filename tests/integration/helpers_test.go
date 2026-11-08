@@ -294,3 +294,14 @@ func registerAndLogin(t *testing.T, tc *TestContext) {
 	tc.UserID = user.ID
 	tc.Token = token
 }
+
+// errorDetail returns the entry of error.details for a field, or nil.
+func errorDetail(body map[string]any, field string) map[string]any {
+	details, _ := body["details"].([]any)
+	for _, raw := range details {
+		if d, ok := raw.(map[string]any); ok && d["field"] == field {
+			return d
+		}
+	}
+	return nil
+}

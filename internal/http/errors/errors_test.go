@@ -65,12 +65,21 @@ func TestStandardErrorConstructorsSetHTTPStatus(t *testing.T) {
 
 func TestValidationFailedSetsFields(t *testing.T) {
 	cause := errors.New("invalid")
-	fields := map[string]string{"Email": "email"}
-	err := ValidationFailed(fields, cause)
+	details := []Detail{{Field: "email", Code: "INVALID_EMAIL"}}
+	err := ValidationFailed(details, cause)
 	if err.Code != "VALIDATION_FAILED" || err.Message != "invalid request" || err.Status != http.StatusBadRequest {
 		t.Fatalf("error=%+v", err)
 	}
-	if !errors.Is(err, cause) || err.Fields["Email"] != "email" {
+	if !errors.Is(err, cause) || len(err.Details) != 1 || err.Details[0].Code != "INVALID_EMAIL" {
+		t.Fatalf("error=%+v", err)
+	}
+}
+
+func TestWithParamsAndDetailsAreChainable(t *testing.T) {
+	err := Conflict("X", "x", nil).
+		WithParams(map[string]any{"max": 5}).
+		WithDetails(Detail{Field: "a", Code: "REQUIRED"})
+	if err.Params["max"] != 5 || len(err.Details) != 1 || err.Status != http.StatusConflict {
 		t.Fatalf("error=%+v", err)
 	}
 }
