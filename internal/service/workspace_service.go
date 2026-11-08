@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"slices"
 	"strings"
 
@@ -39,13 +40,22 @@ type WorkspaceService interface {
 	DeleteWorkspace(ctx context.Context, id uint) error
 }
 
+type WorkspaceAvatarRemover interface {
+	RemoveWorkspaceAvatar(ctx context.Context, workspaceID uint) error
+}
+
 type workspaceService struct {
 	repo    domain.WorkspaceRepository
 	revoker ConnectionRevoker
+	avatars WorkspaceAvatarRemover
 }
 
 func NewWorkspaceServiceWithRevoker(repo domain.WorkspaceRepository, revoker ConnectionRevoker) WorkspaceService {
 	return &workspaceService{repo: repo, revoker: revoker}
+}
+
+func NewWorkspaceServiceWithAvatars(repo domain.WorkspaceRepository, revoker ConnectionRevoker, avatars WorkspaceAvatarRemover) WorkspaceService {
+	return &workspaceService{repo: repo, revoker: revoker, avatars: avatars}
 }
 
 func NewWorkspaceService(
@@ -214,6 +224,11 @@ func (s *workspaceService) DeleteWorkspace(ctx context.Context, id uint) error {
 	}
 	for _, member := range members {
 		disconnectUserFeeds(s.revoker, member.UserID)
+	}
+	if s.avatars != nil {
+		if err := s.avatars.RemoveWorkspaceAvatar(ctx, id); err != nil {
+			slog.Warn("workspaces: cannot remove the avatar of a deleted workspace", "workspace_id", id, "error", err)
+		}
 	}
 	return nil
 }

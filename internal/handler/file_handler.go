@@ -290,3 +290,39 @@ func (h *FileHandler) RemoveAvatar(c *gin.Context) {
 	}
 	response.Success(c, http.StatusOK, gin.H{"avatar_url": ""})
 }
+
+func (h *FileHandler) SetWorkspaceAvatar(c *gin.Context) {
+	uid, err := contextutil.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
+	workspaceID, ok := parseUintParam(c, "workspace_id")
+	if !ok {
+		return
+	}
+	upload, closeFile, ok := openUpload(c)
+	if !ok {
+		return
+	}
+	defer closeFile()
+
+	url, err := h.service.SetWorkspaceAvatar(c.Request.Context(), uid, workspaceID, upload)
+	if err != nil {
+		h.handleError(c, "WORKSPACE_AVATAR_UPLOAD_FAILED", err)
+		return
+	}
+	response.Success(c, http.StatusOK, gin.H{"avatar_url": url})
+}
+
+func (h *FileHandler) RemoveWorkspaceAvatar(c *gin.Context) {
+	workspaceID, ok := parseUintParam(c, "workspace_id")
+	if !ok {
+		return
+	}
+	if err := h.service.RemoveWorkspaceAvatar(c.Request.Context(), workspaceID); err != nil {
+		h.handleError(c, "WORKSPACE_AVATAR_DELETE_FAILED", err)
+		return
+	}
+	response.Success(c, http.StatusOK, gin.H{"avatar_url": ""})
+}

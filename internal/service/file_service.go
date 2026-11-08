@@ -63,6 +63,8 @@ type FileService interface {
 	OpenPublic(ctx context.Context, publicID string) (*domain.File, io.ReadCloser, error)
 	SetAvatar(ctx context.Context, userID uint, upload Upload) (string, error)
 	RemoveAvatar(ctx context.Context, userID uint) error
+	SetWorkspaceAvatar(ctx context.Context, userID, workspaceID uint, upload Upload) (string, error)
+	RemoveWorkspaceAvatar(ctx context.Context, workspaceID uint) error
 }
 
 type fileService struct {
@@ -415,6 +417,49 @@ func (s *fileService) SetAvatar(ctx context.Context, userID uint, upload Upload)
 
 func (s *fileService) RemoveAvatar(ctx context.Context, userID uint) error {
 	replaced, err := s.repo.ClearAvatar(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, old := range replaced {
+		s.discard(old.StorageKey)
+	}
+	return nil
+}
+
+func (s *fileService) SetWorkspaceAvatar(ctx context.Context, userID, workspaceID uint, upload Upload) (string, error) {
+	if upload.Size > s.limits.Avatar {
+		return "", domain.ErrFileTooLarge
+	}
+	data, err := readLimited(upload.Reader, s.limits.Avatar)
+	if err != nil {
+		return "", err
+	}
+	rendered, contentType, err := renderAvatar(data)
+	if err != nil {
+		return "", err
+	}
+
+	key, publicID, err := s.storeImage(ctx, domain.FileKindWorkspaceAvatar, rendered, contentType)
+	if err != nil {
+		return "", err
+	}
+	url := s.publicURL(publicID)
+	_, replaced, err := s.repo.ReplaceWorkspaceAvatar(ctx, domain.NewFile{
+		Kind: domain.FileKindWorkspaceAvatar, PublicID: publicID, StorageKey: key, UserID: userID, WorkspaceID: &workspaceID,
+		Name: "avatar", ContentType: contentType, Size: int64(len(rendered)),
+	}, url)
+	if err != nil {
+		s.discard(key)
+		return "", err
+	}
+	for _, old := range replaced {
+		s.discard(old.StorageKey)
+	}
+	return url, nil
+}
+
+func (s *fileService) RemoveWorkspaceAvatar(ctx context.Context, workspaceID uint) error {
+	replaced, err := s.repo.ClearWorkspaceAvatar(ctx, workspaceID)
 	if err != nil {
 		return err
 	}
