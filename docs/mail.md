@@ -13,7 +13,7 @@ Contents: [Drivers](#drivers) | [Settings](#settings) | [Testing with Mailpit](#
 
 | `MAIL_DRIVER` | Behaviour |
 | --- | --- |
-| `log` (default) | Nothing is sent. Every message is written to the server log at info level with recipient, subject and the full text, including the link. Use it only on a developer machine. The server logs a warning at startup when it runs with this driver outside `development`, and `production` and `staging` refuse to start with it. |
+| `log` (default) | Nothing is sent. Every message is written to the server log at info level with the masked recipient and the subject; in `development` the full text, including the link, is logged too. Use it only on a developer machine. The server logs a warning at startup when it runs with this driver outside `development`, and `production` and `staging` refuse to start with it. |
 | `smtp` | Messages go to the SMTP server from `SMTP_*`. Sending is asynchronous: a bounded queue (256 messages) is drained by a background worker, so an SMTP failure does not fail the HTTP request. It is written to the server log as `mail: cannot send a message`. |
 
 Both drivers send a plain text part and an HTML part.
@@ -210,7 +210,7 @@ yields the same `400 INVALID_TOKEN`.
 | --- | --- |
 | The server exits at startup printing `invalid configuration, N problems found` | Every wrong or missing variable is listed with a hint. Fix them all and start again. Secret values are never printed. |
 | `MAIL_DRIVER=smtp` but nothing arrives and the log shows `mail (log driver, nothing was sent)` | The server runs with `MAIL_DRIVER=log`. Check the variable the server really sees (in Compose, `docker compose config`) and restart. |
-| With `MAIL_DRIVER=log` I cannot find the message | It is in the server log (stdout, or `docker compose logs api`), line `mail (log driver, nothing was sent)` with the whole text and link. |
+| With `MAIL_DRIVER=log` I cannot find the message | It is in the server log (stdout, or `docker compose logs api`), line `mail (log driver, nothing was sent)`; the text and link are printed only when `APP_ENV=development`. |
 | Mailpit inbox is empty | Start it with `docker compose --profile mail up`; check `MAIL_DRIVER=smtp`, `SMTP_PORT=1025`, `SMTP_SECURITY=none`; from inside Compose use `SMTP_HOST=mailpit`, from the host `127.0.0.1`. Look at the server log for `mail: cannot send a message`. Also note that `resend-verification` and `forgot-password` send nothing for unknown or already confirmed accounts and within a minute of the previous request. |
 | `connection refused` or `i/o timeout` in `mail: cannot send a message` | Wrong host or port, the SMTP server is not running, or a firewall blocks outgoing SMTP (many clouds block port 25; use 587 or 465). In Compose `127.0.0.1` is the API container itself, use the service name. |
 | `535` or `authentication failed` | Wrong `SMTP_USERNAME` or `SMTP_PASSWORD`; many providers want an app password or API key as password and a fixed user name such as `apikey`. |

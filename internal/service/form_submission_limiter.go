@@ -1,54 +1,24 @@
 package service
 
 import (
-	"sync"
+	"strconv"
 	"time"
+
+	"rabbit-hole-server/internal/ratelimit"
 )
 
 type submissionLimiter struct {
-	mu      sync.Mutex
-	max     int
-	period  time.Duration
-	now     func() time.Time
-	windows map[uint]*submissionWindow
-	sweepAt time.Time
-}
-
-type submissionWindow struct {
-	count   int
-	resetAt time.Time
+	window *ratelimit.Window
 }
 
 func newSubmissionLimiter(max int, period time.Duration) *submissionLimiter {
-	return &submissionLimiter{max: max, period: period, now: time.Now, windows: map[uint]*submissionWindow{}}
+	return &submissionLimiter{window: ratelimit.NewWindow(max, period)}
 }
 
 func (l *submissionLimiter) allow(formID uint) bool {
-	if l == nil || l.max <= 0 {
+	if l == nil {
 		return true
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := l.now()
-	if l.sweepAt.IsZero() {
-		l.sweepAt = now.Add(l.period)
-	}
-	if now.After(l.sweepAt) {
-		for id, w := range l.windows {
-			if now.After(w.resetAt) {
-				delete(l.windows, id)
-			}
-		}
-		l.sweepAt = now.Add(l.period)
-	}
-	w, ok := l.windows[formID]
-	if !ok || now.After(w.resetAt) {
-		w = &submissionWindow{resetAt: now.Add(l.period)}
-		l.windows[formID] = w
-	}
-	if w.count >= l.max {
-		return false
-	}
-	w.count++
-	return true
+	allowed, _ := l.window.Allow(strconv.FormatUint(uint64(formID), 10))
+	return allowed
 }

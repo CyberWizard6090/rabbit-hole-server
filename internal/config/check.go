@@ -201,16 +201,43 @@ func validHTTPURL(raw string) (*url.URL, bool) {
 }
 
 func checkProxies(cfg *Config, set *problemSet) {
-	for _, entry := range cfg.Server.TrustedProxies {
-		entry = strings.TrimSpace(entry)
-		if net.ParseIP(entry) != nil {
+	for _, entry := range cfg.Server.Proxies() {
+		if ip := net.ParseIP(entry); ip != nil {
 			continue
 		}
-		if _, _, err := net.ParseCIDR(entry); err == nil {
-			continue
+		_, network, err := net.ParseCIDR(entry)
+		if err != nil {
+			set.add("TRUSTED_PROXIES", "entry %q is neither an IP address nor a CIDR range; use a comma separated list such as 127.0.0.1,10.0.0.0/8, or leave it empty to trust no proxy", entry)
+			return
 		}
-		set.add("TRUSTED_PROXIES", "entry %q is neither an IP address nor a CIDR range; use a comma separated list such as 127.0.0.1,10.0.0.0/8", entry)
+		if ones, _ := network.Mask.Size(); ones == 0 {
+			set.add("TRUSTED_PROXIES", "entry %q would trust every client, which lets anyone forge X-Forwarded-For and dodge the rate limits; list only the addresses of your reverse proxies", entry)
+			return
+		}
+	}
+}
+
+func checkDatabase(cfg *Config, set *problemSet) {
+	db := cfg.DB
+	if db.MaxIdleConnections > db.MaxOpenConnections {
+		set.add("DB_MAX_IDLE_CONNS", "is %d but must not exceed DB_MAX_OPEN_CONNS (%d)", db.MaxIdleConnections, db.MaxOpenConnections)
+	}
+	if db.StatementTimeout > 0 && db.LockTimeout > db.StatementTimeout {
+		set.add("DB_LOCK_TIMEOUT", "is %s but must not exceed DB_STATEMENT_TIMEOUT (%s); use 0 to disable a timeout", db.LockTimeout, db.StatementTimeout)
+	}
+}
+
+func checkAuth(cfg *Config, set *problemSet) {
+	a := cfg.Auth
+	if a.LoginFailureLimit == 0 {
 		return
+	}
+	if a.LoginLockBase == 0 {
+		set.add("AUTH_LOGIN_LOCK_BASE", "must be greater than 0s while AUTH_LOGIN_FAILURE_LIMIT is set; set AUTH_LOGIN_FAILURE_LIMIT=0 to disable the lock")
+		return
+	}
+	if a.LoginLockMax < a.LoginLockBase {
+		set.add("AUTH_LOGIN_LOCK_MAX", "is %s but must be at least AUTH_LOGIN_LOCK_BASE (%s)", a.LoginLockMax, a.LoginLockBase)
 	}
 }
 
@@ -310,4 +337,6 @@ func checkDeployment(cfg *Config, set *problemSet) {
 	checkStorage(cfg, set)
 	checkOrigins(cfg, set)
 	checkProxies(cfg, set)
+	checkDatabase(cfg, set)
+	checkAuth(cfg, set)
 }

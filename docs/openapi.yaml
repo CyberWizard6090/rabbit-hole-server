@@ -61,7 +61,7 @@ paths:
     post:
       tags: [auth]
       summary: "Log in; sets the refresh_token cookie"
-      description: "With REQUIRE_VERIFIED_EMAIL=true an account whose address is not confirmed gets 403 EMAIL_NOT_VERIFIED (after the password was checked). The profile shows email_verified_at (null until confirmed)."
+      description: "With REQUIRE_VERIFIED_EMAIL=true an account whose address is not confirmed gets 403 EMAIL_NOT_VERIFIED (after the password was checked). The profile shows email_verified_at (null until confirmed). After AUTH_LOGIN_FAILURE_LIMIT failed attempts in a row for one address, further attempts are refused for a growing delay with the same 401 INVALID_CREDENTIALS answer as a wrong password, for unknown addresses too. When all password-hashing slots are busy (AUTH_HASH_CONCURRENCY) the answer is 503 SERVER_BUSY with a Retry-After header; the same applies to register, password change, password reset, email change and account deletion."
       security: []
       requestBody:
         required: true
@@ -72,6 +72,7 @@ paths:
         '200': {$ref: '#/components/responses/Ok'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
   /auth/verify-email:
     post:
       tags: [auth]

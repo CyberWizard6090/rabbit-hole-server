@@ -119,6 +119,7 @@ type EmailThrottle struct {
 	window time.Duration
 	now    func() time.Time
 	hits   map[uint][]time.Time
+	sweep  time.Time
 }
 
 func NewEmailThrottle(limit int, window time.Duration) *EmailThrottle {
@@ -130,6 +131,14 @@ func (t *EmailThrottle) Allow(userID uint) bool {
 	defer t.mu.Unlock()
 	now := t.now()
 	cutoff := now.Add(-t.window)
+	if now.After(t.sweep) {
+		for id, times := range t.hits {
+			if len(times) == 0 || !times[len(times)-1].After(cutoff) {
+				delete(t.hits, id)
+			}
+		}
+		t.sweep = now.Add(t.window)
+	}
 	kept := t.hits[userID][:0]
 	for _, at := range t.hits[userID] {
 		if at.After(cutoff) {

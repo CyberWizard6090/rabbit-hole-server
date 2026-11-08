@@ -8,7 +8,7 @@ import (
 func TestSubmissionLimiterCapsPerFormAndResets(t *testing.T) {
 	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	limiter := newSubmissionLimiter(2, time.Hour)
-	limiter.now = func() time.Time { return clock }
+	limiter.window.WithClock(func() time.Time { return clock })
 
 	for i := 0; i < 2; i++ {
 		if !limiter.allow(1) {

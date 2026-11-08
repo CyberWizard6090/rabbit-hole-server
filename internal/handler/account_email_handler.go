@@ -70,6 +70,7 @@ func (h *AccountEmailHandler) ResetPassword(c *gin.Context) {
 	}
 	if err := h.service.ResetPassword(c.Request.Context(), req.Token, req.NewPassword); err != nil {
 		switch {
+		case passwordBusy(c, err):
 		case errors.Is(err, domain.ErrInvalidToken):
 			response.HandleError(c, httperrors.BadRequest("INVALID_TOKEN", err.Error(), err))
 		case errors.Is(err, service.ErrWeakPassword):

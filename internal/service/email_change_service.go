@@ -57,7 +57,14 @@ func NewEmailChangeService(users EmailChangeUserStore, tokens EmailChangeStore, 
 
 func (s *EmailChangeService) Request(ctx context.Context, userID uint, newEmail, password string) error {
 	user, err := s.users.GetByID(ctx, userID)
-	if err != nil || !verifyPassword(password, user.PasswordHash) {
+	if err != nil {
+		return ErrInvalidCredentials
+	}
+	matches, err := verifyPasswordLimited(ctx, password, user.PasswordHash)
+	if err != nil {
+		return err
+	}
+	if !matches {
 		return ErrInvalidCredentials
 	}
 	newEmail = strings.ToLower(strings.TrimSpace(newEmail))

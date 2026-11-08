@@ -40,7 +40,12 @@ type WorkspaceService interface {
 }
 
 type workspaceService struct {
-	repo domain.WorkspaceRepository
+	repo    domain.WorkspaceRepository
+	revoker ConnectionRevoker
+}
+
+func NewWorkspaceServiceWithRevoker(repo domain.WorkspaceRepository, revoker ConnectionRevoker) WorkspaceService {
+	return &workspaceService{repo: repo, revoker: revoker}
 }
 
 func NewWorkspaceService(
@@ -172,6 +177,7 @@ func (s *workspaceService) RemoveMember(ctx context.Context, workspaceID, target
 		}
 		return err
 	}
+	disconnectUserFeeds(s.revoker, targetID)
 	return nil
 }
 
@@ -199,5 +205,15 @@ func (s *workspaceService) UpdateWorkspace(ctx context.Context, id uint, name, d
 }
 
 func (s *workspaceService) DeleteWorkspace(ctx context.Context, id uint) error {
-	return s.repo.Delete(ctx, id)
+	var members []domain.MemberDetail
+	if s.revoker != nil {
+		members, _ = s.repo.ListMembers(ctx, id)
+	}
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	for _, member := range members {
+		disconnectUserFeeds(s.revoker, member.UserID)
+	}
+	return nil
 }

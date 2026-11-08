@@ -36,6 +36,7 @@ func (h *EmailChangeHandler) Request(c *gin.Context) {
 	ctx := service.WithLocale(c.Request.Context(), c.GetHeader("Accept-Language"))
 	err = h.service.Request(ctx, uid, req.NewEmail, req.Password)
 	switch {
+	case passwordBusy(c, err):
 	case errors.Is(err, service.ErrInvalidCredentials):
 		response.HandleError(c, httperrors.Unauthorized("INVALID_CREDENTIALS", "password is incorrect", err))
 	case errors.Is(err, service.ErrSameEmail):

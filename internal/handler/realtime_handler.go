@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 
+	"rabbit-hole-server/internal/domain"
 	contextutil "rabbit-hole-server/internal/http/context"
 	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/response"
@@ -28,6 +29,30 @@ type RealtimeHandler struct {
 	checker        service.PermissionChecker
 	originPatterns []string
 	opts           realtime.Options
+	versions       TokenVersionSource
+}
+
+type TokenVersionSource interface {
+	CurrentTokenVersion(ctx context.Context, userID uint) (int, error)
+}
+
+func (h *RealtimeHandler) WithTokenVersions(source TokenVersionSource) *RealtimeHandler {
+	h.versions = source
+	return h
+}
+
+func (h *RealtimeHandler) sessionCurrent(ctx context.Context, userID uint, version int) (bool, error) {
+	if h.versions == nil {
+		return true, nil
+	}
+	current, err := h.versions.CurrentTokenVersion(ctx, userID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return current == version, nil
 }
 
 func NewRealtimeHandler(
@@ -75,7 +100,7 @@ func (h *RealtimeHandler) issueTicket(c *gin.Context, topic string) {
 		return
 	}
 
-	ticket, err := h.tickets.Issue(userID, topic)
+	ticket, err := h.tickets.IssueVersioned(userID, topic, contextutil.GetTokenVersion(c))
 	if err != nil {
 		if errors.Is(err, realtime.ErrTooManyTickets) {
 			response.HandleError(c, httperrors.TooManyRequests("TOO_MANY_TICKETS", err.Error(), err))
@@ -114,9 +139,9 @@ func (h *RealtimeHandler) IssueNotificationTicket(c *gin.Context) {
 }
 
 func (h *RealtimeHandler) ConnectNotifications(c *gin.Context) {
-	redeem := func(raw string) (uint, string, error) {
-		userID, err := h.tickets.RedeemUser(raw)
-		return userID, realtime.UserTopic(userID), err
+	redeem := func(raw string) (realtime.Grant, string, error) {
+		grant, err := h.tickets.RedeemUserGrant(raw)
+		return grant, realtime.UserTopic(grant.UserID), err
 	}
 	h.connect(c, redeem, func(uint) (bool, error) { return true, nil })
 }
@@ -141,20 +166,28 @@ func (h *RealtimeHandler) ConnectSpace(c *gin.Context) {
 	})
 }
 
-func redeemFor(h *RealtimeHandler, topic string) func(string) (uint, string, error) {
-	return func(raw string) (uint, string, error) {
-		userID, err := h.tickets.Redeem(raw, topic)
-		return userID, topic, err
+func redeemFor(h *RealtimeHandler, topic string) func(string) (realtime.Grant, string, error) {
+	return func(raw string) (realtime.Grant, string, error) {
+		grant, err := h.tickets.RedeemGrant(raw, topic)
+		return grant, topic, err
 	}
 }
 
 func (h *RealtimeHandler) connect(
-	c *gin.Context, redeem func(raw string) (uint, string, error), authorize func(userID uint) (bool, error),
+	c *gin.Context, redeem func(raw string) (realtime.Grant, string, error), resourceAllowed func(userID uint) (bool, error),
 ) {
-	userID, topic, err := redeem(c.GetString(middleware.WSTicketKey))
+	grant, topic, err := redeem(c.GetString(middleware.WSTicketKey))
 	if err != nil {
 		response.HandleError(c, httperrors.Unauthorized("INVALID_TICKET", "invalid or expired ticket", err))
 		return
+	}
+	userID := grant.UserID
+	authorize := func(uid uint) (bool, error) {
+		current, err := h.sessionCurrent(c.Request.Context(), uid, grant.Version)
+		if err != nil || !current {
+			return false, err
+		}
+		return resourceAllowed(uid)
 	}
 
 	allowed, err := authorize(userID)
