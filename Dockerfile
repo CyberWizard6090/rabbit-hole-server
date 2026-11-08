@@ -1,7 +1,9 @@
 # ==========================================
 # 1. Базовый этап (Общий)
 # ==========================================
-FROM golang:1.27.3-alpine AS base
+ARG GO_VERSION=1.26.10
+FROM golang:${GO_VERSION}-alpine AS base
+ENV GOTOOLCHAIN=local
 
 WORKDIR /app
 RUN apk add --no-cache git ca-certificates tzdata

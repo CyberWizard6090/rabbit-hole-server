@@ -143,9 +143,7 @@ func TestAccount_DeleteAccount(t *testing.T) {
 	friendID, friendToken := newUser(t, tc, "friend@example.test")
 	var selfID uint
 	tc.DB.Table("users").Select("id").Where("email = ?", email).Scan(&selfID)
-	if rec := request(t, tc.Router, http.MethodPost, "/api/v1/contacts", friendToken, map[string]any{"contact_id": selfID}); rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
-		t.Fatalf("add contact: %d: %s", rec.Code, rec.Body.String())
-	}
+	addContact(t, tc, friendToken, selfID)
 	_ = friendID
 
 	workspace := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces", s.access, map[string]any{"name": "mine"})

@@ -92,7 +92,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	for _, action := range []string{"up", "up", "down", "up"} {
+	for _, action := range []string{"up", "up", database.ActionDownAll, "up"} {
 		if _, _, err := database.RunMigrations(testDBURL, action, 0, 0); err != nil {
 			fmt.Fprintf(os.Stderr, "run integration database migrations (%s): %v\n", action, err)
 			os.Exit(1)
@@ -102,13 +102,7 @@ func TestMain(m *testing.M) {
 	cfg.Storage.Driver = "local"
 	cfg.Storage.LocalDir = filepath.Join(os.TempDir(), "rabbit-hole-integration-uploads")
 	cfg.DB.URL = testDBURL
-	integrationDB, err = database.ConnectDB(
-		testDBURL,
-		cfg.Environment,
-		cfg.DB.MaxIdleConnections,
-		cfg.DB.MaxOpenConnections,
-		cfg.DB.ConnMaxLifetime,
-	)
+	integrationDB, err = database.ConnectDB(testDBURL, cfg.DB.Options(cfg.Environment))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "connect integration database: %v\n", err)
 		os.Exit(1)

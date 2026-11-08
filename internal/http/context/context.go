@@ -25,3 +25,14 @@ const RequestIDKey = "request_id"
 func GetRequestID(c *gin.Context) string {
 	return c.GetString(RequestIDKey)
 }
+
+const TokenVersionKey = "tokenVersion"
+
+func GetTokenVersion(c *gin.Context) int {
+	if version, ok := c.Get(TokenVersionKey); ok {
+		if v, ok := version.(int); ok {
+			return v
+		}
+	}
+	return 0
+}

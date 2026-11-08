@@ -53,6 +53,13 @@ type AccountEmailService struct {
 	sender mail.Sender
 	cfg    AccountEmailConfig
 	now    func() time.Time
+
+	revoker ConnectionRevoker
+}
+
+func (s *AccountEmailService) WithConnectionRevoker(revoker ConnectionRevoker) *AccountEmailService {
+	s.revoker = revoker
+	return s
 }
 
 func NewAccountEmailService(users EmailUserStore, tokens EmailTokenStore, sender mail.Sender, cfg AccountEmailConfig) *AccountEmailService {
@@ -150,10 +157,14 @@ func (s *AccountEmailService) ResetPassword(ctx context.Context, token, newPassw
 	if err := validatePassword(newPassword); err != nil {
 		return err
 	}
-	hash, err := hashPassword(newPassword)
+	hash, err := hashPasswordLimited(ctx, newPassword)
 	if err != nil {
 		return err
 	}
-	_, err = s.tokens.ResetPassword(ctx, hashSecretToken(strings.TrimSpace(token)), hash)
-	return err
+	userID, err := s.tokens.ResetPassword(ctx, hashSecretToken(strings.TrimSpace(token)), hash)
+	if err != nil {
+		return err
+	}
+	disconnectUser(s.revoker, userID)
+	return nil
 }

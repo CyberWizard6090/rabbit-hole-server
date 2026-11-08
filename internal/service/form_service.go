@@ -527,6 +527,7 @@ func (s *formService) Submit(
 		}
 		submission = refreshed
 	}
+	submission.TaskCreationError = ""
 	return submission, replay, nil
 }
 

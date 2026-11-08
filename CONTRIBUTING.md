@@ -59,3 +59,9 @@ Each commit must represent one logical change.
 - vulnerability scanning
 - Go build
 - Docker build
+
+## Deployment notes
+
+Production runs with `docker compose -f docker-compose.yml -f docker-compose.prod.yml`, which sets `APP_ENV=production`;
+see the Deployment section of the README. Do not log SQL parameter values, tokens, passwords, hashes or full e-mail
+addresses, and never roll back migrations with `cmd/migrate -action down` without `-steps N` (or `-all` outside production).

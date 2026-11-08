@@ -1,4 +1,4 @@
-.PHONY: help build run test lint clean docker-up docker-down docker-logs db-create db-up db-down
+.PHONY: help build run test lint clean docker-up docker-build docker-down docker-logs db-create db-up db-down
 
 APP_NAME = rabbit-hole-server
 BUILD_DIR = bin
@@ -34,6 +34,9 @@ clean: ## Удалить скомпилированные бинарники
 
 docker-up: ## Поднять всю инфраструктуру (Postgres -> Migrator -> API)
 	docker compose up -d --build
+
+docker-build: ## Собрать prod-образ с версией Go из go.mod
+	docker build --build-arg GO_VERSION=$$(awk '/^go /{print $$2}' go.mod) -t $(APP_NAME) .
 
 docker-down: ## Остановить и удалить все контейнеры и тома (volumes)
 	docker compose down -v

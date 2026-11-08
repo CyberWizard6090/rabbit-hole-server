@@ -8,62 +8,57 @@ import (
 )
 
 type contactRepositoryMock struct {
-	contacts       []domain.User
-	searchResults  []domain.User
-	getErr         error
-	addErr         error
-	deleteErr      error
-	searchErr      error
-	gotGetUserID   uint
-	gotAddUserID   uint
-	gotAddContact  uint
-	gotDeleteUser  uint
-	gotDeleteCont  uint
-	gotSearchQuery string
-	gotExcludeID   uint
-
-	getContactsFn     func(uint) ([]domain.User, error)
-	getContactsPageFn func(uint, int, int) ([]domain.User, int64, error)
-	addContactFn      func(uint, uint) error
-	deleteContactFn   func(uint, uint) error
-	searchUsersFn     func(string, uint) ([]domain.User, error)
+	err       error
+	users     []domain.CommentUser
+	requests  []domain.ContactRequest
+	calls     []string
+	gotUser   uint
+	gotOther  uint
+	gotIn     bool
+	gotQuery  string
+	gotLimit  int
+	gotOffset int
 }
 
-func (m *contactRepositoryMock) GetContacts(_ context.Context, userID uint) ([]domain.User, error) {
-	m.gotGetUserID = userID
-	if m.getContactsFn != nil {
-		return m.getContactsFn(userID)
-	}
-	return m.contacts, m.getErr
+func (m *contactRepositoryMock) record(name string, userID, otherID uint) error {
+	m.calls = append(m.calls, name)
+	m.gotUser, m.gotOther = userID, otherID
+	return m.err
 }
 
-func (m *contactRepositoryMock) GetContactsPage(_ context.Context, userID uint, limit, offset int) ([]domain.User, int64, error) {
-	m.gotGetUserID = userID
-	if m.getContactsPageFn != nil {
-		return m.getContactsPageFn(userID, limit, offset)
-	}
-	return m.contacts, int64(len(m.contacts)), m.getErr
+func (m *contactRepositoryMock) ListContacts(_ context.Context, userID uint, limit, offset int) ([]domain.CommentUser, int64, error) {
+	m.gotLimit, m.gotOffset = limit, offset
+	return m.users, int64(len(m.users)), m.record("list", userID, 0)
 }
-func (m *contactRepositoryMock) AddContact(_ context.Context, userID, contactID uint) error {
-	m.gotAddUserID, m.gotAddContact = userID, contactID
-	if m.addContactFn != nil {
-		return m.addContactFn(userID, contactID)
-	}
-	return m.addErr
+
+func (m *contactRepositoryMock) Request(_ context.Context, requesterID, targetID uint) error {
+	return m.record("request", requesterID, targetID)
 }
-func (m *contactRepositoryMock) DeleteContact(_ context.Context, userID, contactID uint) error {
-	m.gotDeleteUser, m.gotDeleteCont = userID, contactID
-	if m.deleteContactFn != nil {
-		return m.deleteContactFn(userID, contactID)
-	}
-	return m.deleteErr
+
+func (m *contactRepositoryMock) ListRequests(_ context.Context, userID uint, incoming bool, limit, offset int) ([]domain.ContactRequest, int64, error) {
+	m.gotIn, m.gotLimit, m.gotOffset = incoming, limit, offset
+	return m.requests, int64(len(m.requests)), m.record("requests", userID, 0)
 }
-func (m *contactRepositoryMock) SearchUsers(_ context.Context, query string, excludeID uint) ([]domain.User, error) {
-	m.gotSearchQuery, m.gotExcludeID = query, excludeID
-	if m.searchUsersFn != nil {
-		return m.searchUsersFn(query, excludeID)
-	}
-	return m.searchResults, m.searchErr
+
+func (m *contactRepositoryMock) Accept(_ context.Context, userID, requesterID uint) error {
+	return m.record("accept", userID, requesterID)
+}
+
+func (m *contactRepositoryMock) Decline(_ context.Context, userID, requesterID uint) error {
+	return m.record("decline", userID, requesterID)
+}
+
+func (m *contactRepositoryMock) Cancel(_ context.Context, userID, targetID uint) error {
+	return m.record("cancel", userID, targetID)
+}
+
+func (m *contactRepositoryMock) Remove(_ context.Context, userID, contactID uint) error {
+	return m.record("remove", userID, contactID)
+}
+
+func (m *contactRepositoryMock) SearchUsers(_ context.Context, query string, excludeID uint) ([]domain.CommentUser, error) {
+	m.gotQuery = query
+	return m.users, m.record("search", excludeID, 0)
 }
 
 type folderRepositoryMock struct {

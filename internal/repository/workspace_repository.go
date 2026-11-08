@@ -163,7 +163,8 @@ func (r *workspaceRepository) RemoveMember(ctx context.Context, workspaceID, use
 func (r *workspaceRepository) IsContact(ctx context.Context, userID, otherID uint) (bool, error) {
 	var count int64
 	err := database.DBFromContext(ctx, r.db).Table("user_contacts").
-		Where("user_id = ? AND contact_id = ?", userID, otherID).
+		Where("status = ? AND ((user_id = ? AND contact_id = ?) OR (user_id = ? AND contact_id = ?))",
+			"accepted", userID, otherID, otherID, userID).
 		Count(&count).Error
 	return count > 0, mapErr(err)
 }

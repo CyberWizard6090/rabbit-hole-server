@@ -2,16 +2,20 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"rabbit-hole-server/internal/domain"
 )
 
 type ContactService interface {
-	GetContacts(ctx context.Context, uid uint) ([]domain.User, error)
-	GetContactsPage(ctx context.Context, uid uint, limit, offset int) ([]domain.User, int64, error)
-	AddContact(ctx context.Context, uid uint, contactID uint) error
-	DeleteContact(ctx context.Context, uid uint, contactID uint) error
-	SearchUsers(ctx context.Context, uid uint, query string) ([]domain.User, error)
+	ListContacts(ctx context.Context, uid uint, limit, offset int) ([]domain.CommentUser, int64, error)
+	RequestContact(ctx context.Context, uid, targetID uint) error
+	ListRequests(ctx context.Context, uid uint, incoming bool, limit, offset int) ([]domain.ContactRequest, int64, error)
+	AcceptRequest(ctx context.Context, uid, requesterID uint) error
+	DeclineRequest(ctx context.Context, uid, requesterID uint) error
+	CancelRequest(ctx context.Context, uid, targetID uint) error
+	RemoveContact(ctx context.Context, uid, contactID uint) error
+	SearchUsers(ctx context.Context, uid uint, query string) ([]domain.CommentUser, error)
 }
 
 type contactService struct {
@@ -22,22 +26,37 @@ func NewContactService(repo domain.ContactRepository) ContactService {
 	return &contactService{repo: repo}
 }
 
-func (s *contactService) GetContacts(ctx context.Context, uid uint) ([]domain.User, error) {
-	return s.repo.GetContacts(ctx, uid)
+func (s *contactService) ListContacts(ctx context.Context, uid uint, limit, offset int) ([]domain.CommentUser, int64, error) {
+	return s.repo.ListContacts(ctx, uid, limit, offset)
 }
 
-func (s *contactService) GetContactsPage(ctx context.Context, uid uint, limit, offset int) ([]domain.User, int64, error) {
-	return s.repo.GetContactsPage(ctx, uid, limit, offset)
+func (s *contactService) RequestContact(ctx context.Context, uid, targetID uint) error {
+	if uid == targetID {
+		return domain.ErrCannotAddSelf
+	}
+	return s.repo.Request(ctx, uid, targetID)
 }
 
-func (s *contactService) AddContact(ctx context.Context, uid uint, contactID uint) error {
-	return s.repo.AddContact(ctx, uid, contactID)
+func (s *contactService) ListRequests(ctx context.Context, uid uint, incoming bool, limit, offset int) ([]domain.ContactRequest, int64, error) {
+	return s.repo.ListRequests(ctx, uid, incoming, limit, offset)
 }
 
-func (s *contactService) DeleteContact(ctx context.Context, uid uint, contactID uint) error {
-	return s.repo.DeleteContact(ctx, uid, contactID)
+func (s *contactService) AcceptRequest(ctx context.Context, uid, requesterID uint) error {
+	return s.repo.Accept(ctx, uid, requesterID)
 }
 
-func (s *contactService) SearchUsers(ctx context.Context, uid uint, query string) ([]domain.User, error) {
-	return s.repo.SearchUsers(ctx, query, uid)
+func (s *contactService) DeclineRequest(ctx context.Context, uid, requesterID uint) error {
+	return s.repo.Decline(ctx, uid, requesterID)
+}
+
+func (s *contactService) CancelRequest(ctx context.Context, uid, targetID uint) error {
+	return s.repo.Cancel(ctx, uid, targetID)
+}
+
+func (s *contactService) RemoveContact(ctx context.Context, uid, contactID uint) error {
+	return s.repo.Remove(ctx, uid, contactID)
+}
+
+func (s *contactService) SearchUsers(ctx context.Context, uid uint, query string) ([]domain.CommentUser, error) {
+	return s.repo.SearchUsers(ctx, strings.TrimSpace(query), uid)
 }

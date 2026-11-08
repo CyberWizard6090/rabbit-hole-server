@@ -23,23 +23,23 @@ var (
 
 type Task struct {
 	Model
-	SpaceID           uint       `json:"-"`
-	ListID            uint       `json:"list_id"`
-	StatusID          uint       `json:"status_id"`
-	ParentID          *uint      `json:"parent_id"`
-	Title             string     `json:"title" binding:"required,min=3"`
-	Description       string     `json:"description"`
-	Priority          int        `json:"priority"`
-	UserID            uint       `json:"user_id"`
-	Assignees         []User     `json:"assignees"`
-	Tags              []Tag      `json:"tags"`
-	StartDate         *time.Time `json:"start_date"`
-	DueDate           *time.Time `json:"due_date"`
-	TimeEstimate      int        `json:"time_estimate"`
-	TimeSpent         int        `json:"time_spent"`
-	Position          int64      `json:"position"`
-	Source            TaskSource `json:"source"`
-	SourceReferenceID *uint      `json:"source_reference_id,omitempty"`
+	SpaceID           uint          `json:"-"`
+	ListID            uint          `json:"list_id"`
+	StatusID          uint          `json:"status_id"`
+	ParentID          *uint         `json:"parent_id"`
+	Title             string        `json:"title" binding:"required,min=3"`
+	Description       string        `json:"description"`
+	Priority          int           `json:"priority"`
+	UserID            uint          `json:"user_id"`
+	Assignees         []CommentUser `json:"assignees"`
+	Tags              []Tag         `json:"tags"`
+	StartDate         *time.Time    `json:"start_date"`
+	DueDate           *time.Time    `json:"due_date"`
+	TimeEstimate      int           `json:"time_estimate"`
+	TimeSpent         int           `json:"time_spent"`
+	Position          int64         `json:"position"`
+	Source            TaskSource    `json:"source"`
+	SourceReferenceID *uint         `json:"source_reference_id,omitempty"`
 
 	ChecklistItemsTotal    int `json:"checklist_items_total"`
 	ChecklistItemsResolved int `json:"checklist_items_resolved"`

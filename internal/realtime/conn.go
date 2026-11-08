@@ -19,7 +19,7 @@ func (o Options) withDefaults() Options {
 		o.PingInterval = 25 * time.Second
 	}
 	if o.RecheckInterval <= 0 {
-		o.RecheckInterval = time.Minute
+		o.RecheckInterval = DefaultRecheckInterval
 	}
 	if o.WriteTimeout <= 0 {
 		o.WriteTimeout = 10 * time.Second
@@ -27,7 +27,10 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
-const maxClientFrame = 1024
+const (
+	maxClientFrame         = 1024
+	DefaultRecheckInterval = 2 * time.Minute
+)
 
 func Serve(ctx context.Context, conn *websocket.Conn, sub *Subscriber, recheck func(context.Context) bool, opts Options) {
 	opts = opts.withDefaults()
@@ -63,7 +66,7 @@ func Serve(ctx context.Context, conn *websocket.Conn, sub *Subscriber, recheck f
 			switch reason {
 			case "":
 				reason = "closed"
-			case "client too slow":
+			case "client too slow", ReasonAccessRevoked:
 				status = websocket.StatusPolicyViolation
 			}
 			_ = conn.Close(status, reason)
@@ -86,7 +89,7 @@ func Serve(ctx context.Context, conn *websocket.Conn, sub *Subscriber, recheck f
 
 		case <-recheckTick.C:
 			if recheck != nil && !recheck(ctx) {
-				_ = conn.Close(websocket.StatusPolicyViolation, "access revoked")
+				_ = conn.Close(websocket.StatusPolicyViolation, ReasonAccessRevoked)
 				return
 			}
 		}

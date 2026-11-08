@@ -78,7 +78,7 @@ func waitForLockWait(t *testing.T, db *gorm.DB) {
 	for time.Now().Before(deadline) {
 		var n int64
 		if err := db.Raw(
-			"SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+			"SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%for update%'",
 		).Scan(&n).Error; err != nil {
 			t.Fatalf("poll locks: %v", err)
 		}

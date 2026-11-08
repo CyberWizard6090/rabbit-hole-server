@@ -61,7 +61,7 @@ paths:
     post:
       tags: [auth]
       summary: "Log in; sets the refresh_token cookie"
-      description: "With REQUIRE_VERIFIED_EMAIL=true an account whose address is not confirmed gets 403 EMAIL_NOT_VERIFIED (after the password was checked). The profile shows email_verified_at (null until confirmed)."
+      description: "With REQUIRE_VERIFIED_EMAIL=true an account whose address is not confirmed gets 403 EMAIL_NOT_VERIFIED (after the password was checked). The profile shows email_verified_at (null until confirmed). After AUTH_LOGIN_FAILURE_LIMIT failed attempts in a row for one address, further attempts are refused for a growing delay with the same 401 INVALID_CREDENTIALS answer as a wrong password, for unknown addresses too. When all password-hashing slots are busy (AUTH_HASH_CONCURRENCY) the answer is 503 SERVER_BUSY with a Retry-After header; the same applies to register, password change, password reset, email change and account deletion."
       security: []
       requestBody:
         required: true
@@ -72,6 +72,7 @@ paths:
         '200': {$ref: '#/components/responses/Ok'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
   /auth/verify-email:
     post:
       tags: [auth]
@@ -295,7 +296,8 @@ paths:
   /users/search:
     get:
       tags: [contacts]
-      summary: "Search users by username prefix or exact e-mail (min 3 chars, max 20). Returns public fields only (no e-mail)."
+      summary: "Search users by username or display-name prefix"
+      description: "Case-insensitive prefix match on username, first name or last name; at least 3 characters (400 `QUERY_TOO_SHORT`), at most 20 results, 30 requests per minute per client (429 `RATE_LIMIT_EXCEEDED`). E-mail addresses are never matched, so the endpoint cannot be used to find out whether an address is registered. Items hold only id, username, first_name, last_name and avatar_url."
       security:
         - bearerAuth: []
       parameters:
@@ -307,16 +309,18 @@ paths:
   /contacts:
     get:
       tags: [contacts]
-      summary: "List contacts"
+      summary: "List accepted contacts"
+      description: "Paginated (`page`, `limit`). Contacts are mutual once accepted. Items hold only id, username, first_name, last_name and avatar_url."
       security:
         - bearerAuth: []
       responses:
         '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
-        '404': {$ref: '#/components/responses/Error'}
     post:
       tags: [contacts]
-      summary: "Add a contact"
+      summary: "Send a contact request"
+      description: |
+        Always answers `202` with the same body, whether the id belongs to a user, to nobody, is already a contact, has a pending request or declined an earlier one, so the endpoint cannot be used to probe ids. The target decides: nothing is shared and the user cannot be added to a workspace until they accept. A request from the target to the caller while one is pending accepts it. 400 `CANNOT_ADD_SELF` for the caller's own id. 429 `CONTACT_REQUEST_LIMIT_REACHED` after 100 pending outgoing requests; 20 requests per minute per client.
       security:
         - bearerAuth: []
       requestBody:
@@ -325,14 +329,75 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/AddContactRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '202': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /contacts/requests/incoming:
+    get:
+      tags: [contacts]
+      summary: "List pending requests sent to the caller"
+      description: "Paginated. Items are `{user: {id, username, first_name, last_name, avatar_url}, created_at}`."
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+  /contacts/requests/outgoing:
+    get:
+      tags: [contacts]
+      summary: "List pending requests sent by the caller"
+      description: "Paginated, same item shape as the incoming list. Declined requests are not listed, so the requester cannot tell a decline from silence."
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+  /contacts/requests/{user_id}/accept:
+    post:
+      tags: [contacts]
+      summary: "Accept a request (user_id is the requester)"
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: user_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /contacts/requests/{user_id}/decline:
+    post:
+      tags: [contacts]
+      summary: "Decline a request (user_id is the requester)"
+      description: "The requester cannot send another request; the decliner may still send one back."
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: user_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /contacts/requests/{user_id}:
+    delete:
+      tags: [contacts]
+      summary: "Cancel the caller's pending request to user_id"
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: user_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
   /contacts/{contact_id}:
     delete:
       tags: [contacts]
-      summary: "Remove a contact"
+      summary: "Remove an accepted contact"
+      description: "Either side can remove the contact. 404 `CONTACT_NOT_FOUND` when there is none."
       security:
         - bearerAuth: []
       parameters:
@@ -2911,7 +2976,7 @@ components:
         - `pending`: the submission is stored, task creation has not run yet (it normally runs in the same request, so this is rarely visible).
         - `processing`: task creation is running right now.
         - `succeeded`: a task was created (see `GET /submissions/{submission_id}/tasks`).
-        - `failed`: the attempt failed; the submission itself is kept and `task_creation_error` explains why. Retry with `POST /submissions/{submission_id}/retry-task-creation`.
+        - `failed`: the attempt failed; the submission itself is kept and `task_creation_error` holds a stable code (`TASK_CREATION_FAILED`); the details are only in the server log. Retry with `POST /submissions/{submission_id}/retry-task-creation`.
         - `skipped`: the published form version has no enabled task configuration, so no task is created.
     FormSubmission:
       type: object
@@ -2924,7 +2989,7 @@ components:
         status: {type: string, enum: [submitted, processing, processed, failed]}
         submitted_at: {type: string, format: date-time}
         task_creation_status: {$ref: '#/components/schemas/TaskCreationStatus'}
-        task_creation_error: {type: string, description: "Present only after a failed attempt."}
+        task_creation_error: {type: string, description: "Stable failure code, present only after a failed attempt and only for workspace members; never part of the anonymous public submission response."}
         answers:
           type: array
           items:
@@ -3286,7 +3351,7 @@ components:
         start_date: {type: string, format: date-time, nullable: true, description: "null clears the date."}
         due_date: {type: string, format: date-time, nullable: true, description: "null clears the date. Must not be before start_date (400 INVALID_DATE_RANGE)."}
         time_estimate: {type: integer, minimum: 0, description: Seconds.}
-        assignee_ids: {type: array, items: {type: integer}, description: "Replaces the whole set of assignees; [] removes all. Must be workspace members."}
+        assignee_ids: {type: array, items: {type: integer}, description: "Replaces the whole set of assignees; [] removes all. Must be workspace members. Responses list assignees as public profiles (id, username, first_name, last_name, avatar_url), never with e-mail, bio or time zone."}
         add_tag_ids: {type: array, items: {type: integer}}
         add_tag_names: {type: array, items: {type: string}}
     ChangePasswordRequest:

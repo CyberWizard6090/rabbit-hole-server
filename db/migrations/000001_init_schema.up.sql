@@ -61,11 +61,17 @@ CREATE INDEX idx_email_tokens_user_kind ON email_tokens (user_id, kind, created_
 CREATE TABLE user_contacts (
     user_id BIGINT NOT NULL,
     contact_id BIGINT NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    responded_at TIMESTAMPTZ,
     PRIMARY KEY (user_id, contact_id),
+    CONSTRAINT chk_user_contacts_status CHECK (status IN ('pending', 'accepted', 'declined')),
     CONSTRAINT fk_user_contacts_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT fk_user_contacts_contacts FOREIGN KEY (contact_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT chk_user_contacts_not_self CHECK (user_id <> contact_id)
 );
+CREATE UNIQUE INDEX uq_user_contacts_pair ON user_contacts (LEAST(user_id, contact_id), GREATEST(user_id, contact_id));
+CREATE INDEX idx_user_contacts_contact_status ON user_contacts (contact_id, status);
 
 CREATE TABLE workspaces (
     id BIGSERIAL PRIMARY KEY,

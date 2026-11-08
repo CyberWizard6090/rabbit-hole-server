@@ -79,8 +79,11 @@ func TestAPI_ProfileSearchAndContactsLifecycle(t *testing.T) {
 	rec = request(t, tc.Router, http.MethodPost, "/api/v1/contacts", tc.Token, map[string]any{
 		"contact_id": otherUser.ID,
 	})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("add contact: expected 201, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("request contact: expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := tc.DB.Exec("UPDATE user_contacts SET status = 'accepted'").Error; err != nil {
+		t.Fatalf("accept contact: %v", err)
 	}
 
 	rec = request(t, tc.Router, http.MethodGet, "/api/v1/contacts?page=1&limit=10", tc.Token, nil)

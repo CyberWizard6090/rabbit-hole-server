@@ -16,6 +16,7 @@ import (
 	"rabbit-hole-server/internal/handler"
 	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/mail"
+	"rabbit-hole-server/internal/ratelimit"
 	"rabbit-hole-server/internal/realtime"
 	"rabbit-hole-server/internal/repository"
 	"rabbit-hole-server/internal/safehttp"
@@ -62,7 +63,7 @@ type Container struct {
 }
 
 func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
-	sender, closeMail, err := newMailSender(cfg.Mail)
+	sender, closeMail, err := newMailSender(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -77,13 +78,13 @@ func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
 	return container, nil
 }
 
-func newMailSender(cfg config.MailConfig) (mail.Sender, func(context.Context) error, error) {
-	if cfg.Driver != "smtp" {
-		return mail.NewLog(slog.Default()), func(context.Context) error { return nil }, nil
+func newMailSender(cfg *config.Config) (mail.Sender, func(context.Context) error, error) {
+	if cfg.Mail.Driver != "smtp" {
+		return mail.NewLog(slog.Default()).WithBody(cfg.Environment == "development"), func(context.Context) error { return nil }, nil
 	}
 	smtp, err := mail.NewSMTP(mail.SMTPOptions{
-		Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword,
-		Security: cfg.SMTPSecurity, From: cfg.From,
+		Host: cfg.Mail.SMTPHost, Port: cfg.Mail.SMTPPort, Username: cfg.Mail.SMTPUsername, Password: cfg.Mail.SMTPPassword,
+		Security: cfg.Mail.SMTPSecurity, From: cfg.Mail.From,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure the mail sender: %w", err)
@@ -117,6 +118,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	for _, opt := range opts {
 		opt(&options)
 	}
+	hub := realtime.NewHub(realtime.DefaultMaxConnectionsPerUser, slog.Default())
 	userRepo := repository.NewUserRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 	contactRepo := repository.NewContactRepository(db)
@@ -128,11 +130,17 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 
 	accountEmail := service.NewAccountEmailService(userRepo, repository.NewEmailTokenRepository(db), sender, service.AccountEmailConfig{
 		FrontendURL: cfg.Mail.FrontendURL, VerificationTTL: cfg.Mail.VerificationTTL, ResetTTL: cfg.Mail.ResetTTL,
-	})
+	}).WithConnectionRevoker(hub)
 	emailChange := service.NewEmailChangeService(userRepo, repository.NewEmailChangeRepository(db), sender, cfg.Mail.FrontendURL)
 	authServ := service.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL).
 		WithVerificationSender(accountEmail).
-		WithRequireVerifiedEmail(cfg.Mail.RequireVerifiedEmail)
+		WithRequireVerifiedEmail(cfg.Mail.RequireVerifiedEmail).
+		WithConnectionRevoker(hub).
+		WithLoginBackoff(ratelimit.NewBackoff(ratelimit.BackoffConfig{
+			Threshold: cfg.Auth.LoginFailureLimit, Base: cfg.Auth.LoginLockBase, Max: cfg.Auth.LoginLockMax,
+			MaxKeys: cfg.Auth.LoginTrackedAccounts,
+		}))
+	service.ConfigurePasswordHashing(cfg.Auth.HashSlots(), cfg.Auth.HashWait)
 	spaceServ := service.NewSpaceService(spaceRepo)
 	statusServ := service.NewStatusService(statusRepo, spaceRepo)
 	tagService := service.NewTagService(tagRepo)
@@ -160,7 +168,6 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	}
 	activityService := service.NewActivityService(repository.NewActivityRepository(db))
 	permissionChecker := repository.NewPermissionChecker(db)
-	hub := realtime.NewHub(realtime.DefaultMaxConnectionsPerUser, slog.Default())
 	tickets := realtime.NewTicketStore(realtime.DefaultTicketTTL)
 	notifications, err := newNotifications(db, cfg, sender, permissionChecker, hub, options.webhookClient)
 	if err != nil {
@@ -177,7 +184,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	userService := service.NewUserService(userRepo)
 	contactService := service.NewContactService(contactRepo)
 	folderService := service.NewFolderService(folderRepo)
-	workspaceService := service.NewWorkspaceService(workspaceRepo)
+	workspaceService := service.NewWorkspaceServiceWithRevoker(workspaceRepo, hub)
 
 	commentService := service.NewCommentService(repository.NewCommentRepository(db), permissionChecker, activityRecorder)
 
@@ -240,7 +247,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 		Ready:             sqlDB.PingContext,
 
 		Realtime:        hub,
-		RealtimeHandler: handler.NewRealtimeHandler(hub, tickets, permissionChecker, cfg.AllowedOrigins),
+		RealtimeHandler: handler.NewRealtimeHandler(hub, tickets, permissionChecker, cfg.AllowedOrigins).WithTokenVersions(authServ),
 	}, nil
 }
 
