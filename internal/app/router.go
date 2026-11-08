@@ -119,6 +119,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 			v1.GET("/public/forms/:slug", deps.FormHandler.GetPublic)
 			v1.POST("/public/forms/:slug/submissions",
 				middleware.RateLimiter(5, time.Minute),
+				middleware.OptionalAuthMiddleware(deps.AuthService),
 				deps.FormHandler.Submit)
 			v1.POST("/public/forms/:slug/uploads", formUploadLimiter, deps.FormUploadHandler.Upload)
 

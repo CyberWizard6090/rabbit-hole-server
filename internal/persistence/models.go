@@ -202,6 +202,10 @@ type Task struct {
 	Position          int64  `gorm:"type:bigint;not null"`
 	Source            string `gorm:"type:varchar(30);not null;default:'manual'"`
 	SourceReferenceID *uint  `gorm:"index"`
+	ActorType         string `gorm:"type:text;not null;default:'user'"`
+	ActorID           *uint
+	ActorLabel        *string `gorm:"type:text"`
+	Requester         *string `gorm:"type:jsonb"`
 
 	SortStatusPosition int     `gorm:"->;-:migration"`
 	SortAssignee       *string `gorm:"->;-:migration"`

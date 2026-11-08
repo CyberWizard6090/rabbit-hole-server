@@ -36,10 +36,21 @@ func (r *activityRepository) Record(ctx context.Context, entries []domain.Activi
 			if e.Field != "" {
 				field = e.Field
 			}
+			actor := e.Actor.Normalized()
+			var userID, actorID, label any
+			if actor.ID != 0 {
+				actorID = actor.ID
+			}
+			if actor.Type == domain.ActorUser {
+				userID = actor.ID
+			}
+			if actor.Label != "" {
+				label = actor.Label
+			}
 			if err := tx.Exec(
-				"INSERT INTO task_activities (task_id, user_id, action, field, old_value, new_value) "+
-					"VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb)",
-				e.TaskID, e.ActorID, e.Action, field, jsonArg(e.OldValue), jsonArg(e.NewValue),
+				"INSERT INTO task_activities (task_id, user_id, actor_type, actor_id, actor_label, action, field, old_value, new_value) "+
+					"VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)",
+				e.TaskID, userID, string(actor.Type), actorID, label, e.Action, field, jsonArg(e.OldValue), jsonArg(e.NewValue),
 			).Error; err != nil {
 				return err
 			}
@@ -50,14 +61,34 @@ func (r *activityRepository) Record(ctx context.Context, entries []domain.Activi
 }
 
 type activityRow struct {
-	ID        uint
-	CreatedAt time.Time
-	TaskID    uint
-	UserID    uint
-	Action    string
-	Field     *string
-	OldValue  []byte
-	NewValue  []byte
+	ID         uint
+	CreatedAt  time.Time
+	TaskID     uint
+	UserID     *uint
+	ActorType  string
+	ActorID    *uint
+	ActorLabel *string
+	Action     string
+	Field      *string
+	OldValue   []byte
+	NewValue   []byte
+}
+
+func (row activityRow) actor() domain.Actor {
+	actor := domain.Actor{Type: domain.ActorType(row.ActorType)}
+	if actor.Type == domain.ActorUser {
+		if row.UserID != nil {
+			actor.ID = *row.UserID
+		}
+		return actor
+	}
+	if row.ActorID != nil {
+		actor.ID = *row.ActorID
+	}
+	if row.ActorLabel != nil {
+		actor.Label = *row.ActorLabel
+	}
+	return actor
 }
 
 func (r *activityRepository) ListByTask(ctx context.Context, taskID uint, limit, offset int) ([]domain.Activity, int64, error) {
@@ -70,7 +101,7 @@ func (r *activityRepository) ListByTask(ctx context.Context, taskID uint, limit,
 
 	var rows []activityRow
 	if err := db.Raw(
-		"SELECT id, created_at, task_id, user_id, action, field, old_value, new_value "+
+		"SELECT id, created_at, task_id, user_id, actor_type, actor_id, actor_label, action, field, old_value, new_value "+
 			"FROM task_activities WHERE task_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
 		taskID, limit, offset,
 	).Scan(&rows).Error; err != nil {
@@ -80,24 +111,26 @@ func (r *activityRepository) ListByTask(ctx context.Context, taskID uint, limit,
 		return []domain.Activity{}, total, nil
 	}
 
-	actorIDs := make([]uint, len(rows))
-	for i, row := range rows {
-		actorIDs[i] = row.UserID
+	var userIDs []uint
+	for _, row := range rows {
+		if row.UserID != nil {
+			userIDs = append(userIDs, *row.UserID)
+		}
 	}
-	var actors []commentUserRow
-	if err := db.Table("users").Select("id, username, first_name, last_name, avatar_url").
-		Where("id IN ?", uniqueIDs(actorIDs)).Scan(&actors).Error; err != nil {
+	users, err := loadPublicUsers(db, userIDs)
+	if err != nil {
 		return nil, 0, mapErr(err)
-	}
-	actorByID := make(map[uint]commentUserRow, len(actors))
-	for _, a := range actors {
-		actorByID[a.ID] = a
 	}
 
 	out := make([]domain.Activity, len(rows))
 	for i, row := range rows {
+		actor := row.actor()
+		var user *domain.CommentUser
+		if u, ok := users[actor.UserID()]; ok {
+			user = &u
+		}
 		activity := domain.Activity{
-			ID: row.ID, TaskID: row.TaskID, Actor: actorByID[row.UserID].toDomain(),
+			ID: row.ID, TaskID: row.TaskID, Actor: domain.NewActorView(actor, user),
 			Action: row.Action, CreatedAt: row.CreatedAt,
 			OldValue: row.OldValue, NewValue: row.NewValue,
 		}

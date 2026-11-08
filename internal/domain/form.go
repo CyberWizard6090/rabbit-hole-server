@@ -181,6 +181,7 @@ type FormSubmission struct {
 	TaskCreationStatus TaskCreationStatus `json:"task_creation_status"`
 	TaskCreationError  string             `json:"task_creation_error,omitempty"`
 	CreatedBy          uint               `json:"-"`
+	FormName           string             `json:"-"`
 	Files              []SubmissionFile   `json:"files,omitempty"`
 }
 
@@ -207,6 +208,7 @@ const (
 
 type FormTaskConfiguration struct {
 	Enabled      bool              `json:"enabled"`
+	OwnerID      *uint             `json:"owner_id"`
 	Target       FormTaskTarget    `json:"target"`
 	Template     *FormTaskTemplate `json:"template,omitempty"`
 	TaskDefaults FormTaskDefaults  `json:"task_defaults"`

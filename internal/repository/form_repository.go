@@ -431,6 +431,7 @@ func (r *formRepository) ProcessSubmission(
 		}
 		submissionDomain := persistenceSubmissionToDomain(submission, nil)
 		submissionDomain.CreatedBy = form.CreatedBy
+		submissionDomain.FormName = form.Name
 		var answerRows []persistence.SubmissionAnswer
 		if err := tx.Where("submission_id = ?", submissionID).Order("id ASC").Find(&answerRows).Error; err != nil {
 			return err

@@ -143,6 +143,11 @@ func (s *formTaskConfigurationService) validate(
 	if statusID != nil && !listHasStatus(list, *statusID) {
 		return statusNotInList("task_defaults.status_id", *statusID, list.ID)
 	}
+	if config.OwnerID != nil {
+		if _, err := s.workspaces.GetMember(ctx, form.WorkspaceID, *config.OwnerID); err != nil {
+			return domain.NewFormValidationError("owner_id", "NOT_A_MEMBER")
+		}
+	}
 	if config.TaskDefaults.AssigneeID != nil {
 		if _, err := s.workspaces.GetMember(ctx, form.WorkspaceID, *config.TaskDefaults.AssigneeID); err != nil {
 			return domain.NewFormValidationError("task_defaults.assignee_id", "NOT_A_MEMBER")
@@ -334,6 +339,19 @@ func (s *formTaskConfigurationService) validateMapping(
 					return invalid(".transform.values", "NOT_A_MEMBER", map[string]any{"user_id": id})
 				}
 			}
+		case "assignee":
+			if !isChoiceQuestion(question.Type) || question.Type == domain.QuestionMultipleChoice || mapping.Transform != nil {
+				return invalid(".target", "INCOMPATIBLE_QUESTION", map[string]any{"target": mapping.Target.Field})
+			}
+			for _, option := range question.Options {
+				id, err := strconv.ParseUint(option.Value, 10, 64)
+				if err != nil || id == 0 {
+					return invalid(".target", "INVALID_OPTION_VALUE", map[string]any{"option": option.Value})
+				}
+				if _, err := s.workspaces.GetMember(ctx, workspaceID, uint(id)); err != nil {
+					return invalid(".target", "NOT_A_MEMBER", map[string]any{"user_id": id})
+				}
+			}
 		case "due_date":
 			if question.Type != domain.QuestionDate || mapping.Transform != nil {
 				return invalid(".target", "INCOMPATIBLE_QUESTION", map[string]any{"target": mapping.Target.Field})
@@ -342,6 +360,23 @@ func (s *formTaskConfigurationService) validateMapping(
 			return invalid(".target.field", "INVALID_CHOICE", nil)
 		}
 		return key, nil
+	case "requester":
+		if mapping.Transform != nil || mapping.Target.FieldID != 0 {
+			return invalid(".target", "INVALID_TARGET", nil)
+		}
+		switch mapping.Target.Field {
+		case "name":
+			if !questionIsText(question.Type) {
+				return invalid(".target", "INCOMPATIBLE_QUESTION", map[string]any{"target": "requester.name"})
+			}
+		case "email":
+			if question.Type != domain.QuestionEmail {
+				return invalid(".target", "INCOMPATIBLE_QUESTION", map[string]any{"target": "requester.email"})
+			}
+		default:
+			return invalid(".target.field", "INVALID_CHOICE", map[string]any{"allowed": []string{"name", "email"}})
+		}
+		return "requester:" + mapping.Target.Field, nil
 	case "custom_field":
 		if mapping.Target.FieldID == 0 || mapping.Target.Field != "" || mapping.Transform != nil {
 			return invalid(".target", "INVALID_TARGET", nil)
@@ -355,7 +390,7 @@ func (s *formTaskConfigurationService) validateMapping(
 		}
 		return fmt.Sprintf("custom:%d", customField.ID), nil
 	default:
-		return invalid(".target.type", "INVALID_CHOICE", map[string]any{"allowed": []string{"task_field", "custom_field"}})
+		return invalid(".target.type", "INVALID_CHOICE", map[string]any{"allowed": []string{"task_field", "custom_field", "requester"}})
 	}
 }
 

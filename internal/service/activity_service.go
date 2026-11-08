@@ -98,7 +98,7 @@ func diffTask(taskID, actorID uint, before, after map[string]json.RawMessage) []
 			continue
 		}
 		entry := domain.ActivityEntry{
-			TaskID: taskID, ActorID: actorID, Action: domain.ActivityTaskUpdated, Field: field,
+			TaskID: taskID, Actor: domain.UserActor(actorID), Action: domain.ActivityTaskUpdated, Field: field,
 			OldValue: before[field], NewValue: after[field],
 		}
 		if field == "list_id" {

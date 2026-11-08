@@ -17,7 +17,7 @@ type directTarget struct {
 
 type notificationPlan struct {
 	TaskID      uint
-	ActorID     uint
+	Actor       domain.Actor
 	AutoWatch   []uint
 	Direct      []directTarget
 	WatcherType string
@@ -36,6 +36,16 @@ func defaultEventMappers() map[string]eventMapper {
 		domain.ActivityChecklistItemAssigned: mapChecklistItemAssigned,
 		domain.ActivityFormSubmissionCreated: mapFormSubmissionCreated,
 	}
+}
+
+func withoutZero(ids []uint) []uint {
+	out := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if id != 0 {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func decodeIDs(raw json.RawMessage) []uint {
@@ -83,8 +93,8 @@ func mapCommentCreated(ctx context.Context, d *NotificationDispatcher, e domain.
 		return nil, err
 	}
 	plan := &notificationPlan{
-		TaskID: e.TaskID, ActorID: e.ActorID, WatcherType: domain.NotificationComment,
-		AutoWatch: []uint{e.ActorID, comment.Author.ID},
+		TaskID: e.TaskID, Actor: e.Actor, WatcherType: domain.NotificationComment,
+		AutoWatch: withoutZero([]uint{e.Actor.UserID(), comment.Author.ID}),
 		Payload: map[string]any{
 			"comment_id": comment.ID, "comment_excerpt": truncateRunes(comment.Body, commentExcerptRunes),
 		},
@@ -99,18 +109,19 @@ func mapCommentCreated(ctx context.Context, d *NotificationDispatcher, e domain.
 func mapTaskCreated(_ context.Context, _ *NotificationDispatcher, e domain.ActivityEntry) (*notificationPlan, error) {
 	var created struct {
 		AssigneeIDs []uint `json:"assignee_ids"`
+		OwnerID     uint   `json:"owner_id"`
 	}
 	_ = json.Unmarshal(e.NewValue, &created)
 	return &notificationPlan{
-		TaskID: e.TaskID, ActorID: e.ActorID,
-		AutoWatch: append([]uint{e.ActorID}, created.AssigneeIDs...),
+		TaskID: e.TaskID, Actor: e.Actor,
+		AutoWatch: withoutZero(append([]uint{e.Actor.UserID(), created.OwnerID}, created.AssigneeIDs...)),
 		Direct:    assignedTargets(created.AssigneeIDs),
 		Payload:   map[string]any{},
 	}, nil
 }
 
 func mapTaskUpdated(ctx context.Context, d *NotificationDispatcher, e domain.ActivityEntry) (*notificationPlan, error) {
-	plan := &notificationPlan{TaskID: e.TaskID, ActorID: e.ActorID, Payload: map[string]any{}}
+	plan := &notificationPlan{TaskID: e.TaskID, Actor: e.Actor, Payload: map[string]any{}}
 	switch e.Field {
 	case "assignee_ids":
 		added := addedIDs(decodeIDs(e.OldValue), decodeIDs(e.NewValue))
@@ -155,7 +166,7 @@ func mapChecklistItemAssigned(_ context.Context, _ *NotificationDispatcher, e do
 		return nil, nil
 	}
 	return &notificationPlan{
-		TaskID: e.TaskID, ActorID: e.ActorID,
+		TaskID: e.TaskID, Actor: e.Actor,
 		AutoWatch: []uint{item.AssigneeID},
 		Direct:    assignedTargets([]uint{item.AssigneeID}),
 		Payload: map[string]any{

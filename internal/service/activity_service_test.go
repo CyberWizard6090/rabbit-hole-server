@@ -71,7 +71,7 @@ func TestDiffTaskReportsOnlyChangedFields(t *testing.T) {
 		}
 	}
 	title := entryByField(entries, "title")
-	if title == nil || string(title.OldValue) != `"old"` || string(title.NewValue) != `"new"` || title.ActorID != 42 || title.TaskID != 9 {
+	if title == nil || string(title.OldValue) != `"old"` || string(title.NewValue) != `"new"` || title.Actor.ID != 42 || title.TaskID != 9 {
 		t.Fatalf("title entry = %+v", title)
 	}
 	if title.Action != domain.ActivityTaskUpdated {
@@ -111,7 +111,7 @@ func TestTaskServiceRecordsCreationUpdateAndMove(t *testing.T) {
 	if _, err := svc.CreateTask(context.Background(), 42, CreateTaskParams{Title: "Build it", ListID: 7, StatusID: 3}); err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	if len(rec.entries) != 1 || rec.entries[0].Action != domain.ActivityTaskCreated || rec.entries[0].ActorID != 42 ||
+	if len(rec.entries) != 1 || rec.entries[0].Action != domain.ActivityTaskCreated || rec.entries[0].Actor.ID != 42 ||
 		string(rec.entries[0].NewValue) != `{"title":"Build it"}` {
 		t.Fatalf("created entries = %+v", rec.entries)
 	}
@@ -167,7 +167,7 @@ func TestCommentServiceRecordsActivity(t *testing.T) {
 	}
 	for i, action := range want {
 		e := rec.entries[i]
-		if e.Action != action || e.TaskID != 9 || e.ActorID != 7 {
+		if e.Action != action || e.TaskID != 9 || e.Actor.ID != 7 {
 			t.Errorf("entry %d = %+v", i, e)
 		}
 		var payload map[string]uint
@@ -181,7 +181,7 @@ func TestActivityServiceRecordSwallowsRepositoryErrors(t *testing.T) {
 	repo := &activityRepositoryMock{err: errors.New("db down")}
 	svc := NewActivityService(repo)
 
-	svc.Record(context.Background(), domain.ActivityEntry{TaskID: 1, ActorID: 2, Action: domain.ActivityTaskCreated})
+	svc.Record(context.Background(), domain.ActivityEntry{TaskID: 1, Actor: domain.UserActor(2), Action: domain.ActivityTaskCreated})
 	svc.Record(context.Background())
 
 	if len(repo.recorded) != 1 {

@@ -85,6 +85,7 @@ relies on:
 - **Activity**: `GET /tasks/{id}/activity` returns who changed what on a task, newest first (field
   changes with old and new values, moves between lists, comment and attachment events). Entries are written after
   the change succeeds; a failed write is logged and does not fail the request.
+- **Event actors**: every activity entry and every task records who or what initiated it (`actor_type` user, form, automation, integration or system, a nullable `actor_id` and a `actor_label` snapshot). Tasks created from a public form are attributed to the form (`created_by`, `task.created` actor), keep the form creator or the configured `owner_id` as technical owner, never suppress notifications for that owner, and may carry a `requester` (signed-in respondent or mapped name and e-mail, visible to members with `task.update` only). A choice answer can be mapped to the task assignee.
 - **Comments**: `POST/GET /tasks/{id}/comments`, `PATCH/DELETE /tasks/{id}/comments/{comment_id}`.
   The body is stored as the client sends it; @mentions are sent as `mention_user_ids` (workspace
   members only). Creating needs `task.update`, only the author edits, and the author or anyone

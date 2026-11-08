@@ -98,7 +98,7 @@ func TestFileServiceUploadAttachmentRecordsActivity(t *testing.T) {
 		t.Fatalf("entries=%d, want 1", len(rec.entries))
 	}
 	entry := rec.entries[0]
-	if entry.Action != domain.ActivityAttachmentCreated || entry.TaskID != 9 || entry.ActorID != 7 || entry.OldValue != nil {
+	if entry.Action != domain.ActivityAttachmentCreated || entry.TaskID != 9 || entry.Actor.ID != 7 || entry.OldValue != nil {
 		t.Fatalf("entry=%+v", entry)
 	}
 	value := decodeValue(t, entry.NewValue)
@@ -151,7 +151,7 @@ func TestFileServiceDeleteAttachmentRecordsActivity(t *testing.T) {
 				t.Fatalf("entries=%d, want 1", len(rec.entries))
 			}
 			entry := rec.entries[0]
-			if entry.Action != domain.ActivityAttachmentDeleted || entry.TaskID != 9 || entry.ActorID != tc.actor || entry.NewValue != nil {
+			if entry.Action != domain.ActivityAttachmentDeleted || entry.TaskID != 9 || entry.Actor.ID != tc.actor || entry.NewValue != nil {
 				t.Fatalf("entry=%+v", entry)
 			}
 			value := decodeValue(t, entry.OldValue)

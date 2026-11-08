@@ -314,7 +314,7 @@ func TestNotificationTypeRegistryDefaults(t *testing.T) {
 
 func TestResolveRecipientsStrongestReasonWinsAndActorIsExcluded(t *testing.T) {
 	plan := &notificationPlan{
-		ActorID: 1, WatcherType: domain.NotificationComment,
+		Actor: domain.UserActor(1), WatcherType: domain.NotificationComment,
 		Direct: []directTarget{
 			{2, domain.NotificationMention}, {3, domain.NotificationAssigned}, {3, domain.NotificationMention}, {1, domain.NotificationMention},
 		},
@@ -363,9 +363,9 @@ func TestEventMappingIgnoresUnknownActionsAndUnrelatedFields(t *testing.T) {
 	rig := newNotifyRig(t, allowPerms{}, 30)
 	rig.watchers.active = []uint{2}
 	rig.run(
-		domain.ActivityEntry{TaskID: 5, ActorID: 1, Action: "attachment.added", NewValue: raw(map[string]any{"name": "x"})},
-		domain.ActivityEntry{TaskID: 5, ActorID: 1, Action: domain.ActivityTaskUpdated, Field: "title", NewValue: raw("new")},
-		domain.ActivityEntry{TaskID: 5, ActorID: 1, Action: domain.ActivityTaskMoved, Field: "list_id"},
+		domain.ActivityEntry{TaskID: 5, Actor: domain.UserActor(1), Action: "attachment.added", NewValue: raw(map[string]any{"name": "x"})},
+		domain.ActivityEntry{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "title", NewValue: raw("new")},
+		domain.ActivityEntry{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskMoved, Field: "list_id"},
 	)
 	if len(rig.inbox.drafts) != 0 || len(rig.mailbox.Messages()) != 0 {
 		t.Fatal("unrelated activity must not notify anyone")
@@ -375,7 +375,7 @@ func TestEventMappingIgnoresUnknownActionsAndUnrelatedFields(t *testing.T) {
 func TestAssignmentNotifiesOnlyNewAssigneesAndAutoWatches(t *testing.T) {
 	rig := newNotifyRig(t, allowPerms{}, 30)
 	rig.run(domain.ActivityEntry{
-		TaskID: 5, ActorID: 1, Action: domain.ActivityTaskUpdated, Field: "assignee_ids",
+		TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "assignee_ids",
 		OldValue: raw([]uint{2}), NewValue: raw([]uint{2, 4}),
 	})
 	got := draftTypes(rig.inbox.drafts)
@@ -393,7 +393,7 @@ func TestAssignmentNotifiesOnlyNewAssigneesAndAutoWatches(t *testing.T) {
 func TestStatusChangeGoesToWatchersWithoutEmailByDefault(t *testing.T) {
 	rig := newNotifyRig(t, allowPerms{}, 30)
 	rig.watchers.active = []uint{1, 2, 4}
-	rig.run(domain.ActivityEntry{TaskID: 5, ActorID: 1, Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(7)})
+	rig.run(domain.ActivityEntry{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(7)})
 	got := draftTypes(rig.inbox.drafts)
 	if len(got) != 2 || got[2] != domain.NotificationStatusChanged || got[4] != domain.NotificationStatusChanged {
 		t.Fatalf("drafts = %v", got)
@@ -415,7 +415,7 @@ func TestCommentMentionBeatsWatchAndMailEscapesInput(t *testing.T) {
 		Mentions: []domain.CommentUser{{ID: 2}},
 	}
 	rig.watchers.active = []uint{2, 4}
-	rig.run(domain.ActivityEntry{TaskID: 5, ActorID: 1, Action: domain.ActivityCommentCreated, NewValue: raw(map[string]uint{"comment_id": 3})})
+	rig.run(domain.ActivityEntry{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityCommentCreated, NewValue: raw(map[string]uint{"comment_id": 3})})
 	got := draftTypes(rig.inbox.drafts)
 	if got[2] != domain.NotificationMention || got[4] != domain.NotificationComment || len(got) != 2 {
 		t.Fatalf("drafts = %v", got)
@@ -438,7 +438,7 @@ func TestCommentMentionBeatsWatchAndMailEscapesInput(t *testing.T) {
 func TestUnreadableRecipientsAreSkipped(t *testing.T) {
 	rig := newNotifyRig(t, allowPerms{denied: map[uint]bool{2: true}}, 30)
 	rig.watchers.active = []uint{2, 4}
-	rig.run(domain.ActivityEntry{TaskID: 5, ActorID: 1, Action: domain.ActivityTaskUpdated, Field: "due_date", NewValue: raw("2030-01-01T10:00:00Z")})
+	rig.run(domain.ActivityEntry{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "due_date", NewValue: raw("2030-01-01T10:00:00Z")})
 	got := draftTypes(rig.inbox.drafts)
 	if len(got) != 1 || got[4] != domain.NotificationDueDateChange {
 		t.Fatalf("drafts = %v", got)
@@ -449,7 +449,7 @@ func TestEmailNeedsConfirmedDestinationAndThrottles(t *testing.T) {
 	rig := newNotifyRig(t, allowPerms{}, 2)
 	assign := func(user uint) domain.ActivityEntry {
 		return domain.ActivityEntry{
-			TaskID: 5, ActorID: 1, Action: domain.ActivityTaskUpdated, Field: "assignee_ids",
+			TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "assignee_ids",
 			OldValue: raw([]uint{}), NewValue: raw([]uint{user}),
 		}
 	}
@@ -481,7 +481,7 @@ func TestExtraAddressReceivesMailOnlyWhenConfirmed(t *testing.T) {
 		t.Fatal("the unconfirmed address must receive exactly its confirmation mail")
 	}
 	assign := domain.ActivityEntry{
-		TaskID: 5, ActorID: 1, Action: domain.ActivityTaskUpdated, Field: "assignee_ids", OldValue: raw([]uint{}), NewValue: raw([]uint{2}),
+		TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "assignee_ids", OldValue: raw([]uint{}), NewValue: raw([]uint{2}),
 	}
 	rig.run(assign)
 	if len(rig.mailbox.To("extra@example.test")) != 1 {
@@ -560,18 +560,18 @@ func TestDispatcherSurvivesPanicsAndDrainsOnClose(t *testing.T) {
 	rig.dispatcher.mappers["boom"] = func(context.Context, *NotificationDispatcher, domain.ActivityEntry) (*notificationPlan, error) {
 		panic("boom")
 	}
-	rig.dispatcher.Enqueue([]domain.ActivityEntry{{TaskID: 1, ActorID: 1, Action: "boom"}})
+	rig.dispatcher.Enqueue([]domain.ActivityEntry{{TaskID: 1, Actor: domain.UserActor(1), Action: "boom"}})
 	rig.watchers.active = []uint{2}
-	rig.run(domain.ActivityEntry{TaskID: 5, ActorID: 1, Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(7)})
+	rig.run(domain.ActivityEntry{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(7)})
 	if len(rig.inbox.drafts) != 1 {
 		t.Fatal("the worker must keep running after a panic")
 	}
-	rig.dispatcher.Enqueue([]domain.ActivityEntry{{TaskID: 5, ActorID: 1, Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(8)}})
+	rig.dispatcher.Enqueue([]domain.ActivityEntry{{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(8)}})
 	rig.dispatcher.Close()
 	if len(rig.inbox.drafts) != 2 {
 		t.Fatal("Close must drain queued events")
 	}
-	rig.dispatcher.Enqueue([]domain.ActivityEntry{{TaskID: 5, ActorID: 1, Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(9)}})
+	rig.dispatcher.Enqueue([]domain.ActivityEntry{{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(9)}})
 	rig.dispatcher.Wait()
 }
 
@@ -608,7 +608,7 @@ func TestDispatcherQueueIsRaceFree(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 25; j++ {
 				rig.dispatcher.Enqueue([]domain.ActivityEntry{{
-					TaskID: 5, ActorID: 1, Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(7),
+					TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(7),
 				}})
 			}
 		}()
@@ -628,7 +628,7 @@ func TestNotifyingRecorderForwardsAndDispatches(t *testing.T) {
 	var forwarded []domain.ActivityEntry
 	next := recorderFunc(func(_ context.Context, e ...domain.ActivityEntry) { forwarded = append(forwarded, e...) })
 	recorder := NewNotifyingRecorder(next, rig.dispatcher)
-	recorder.Record(context.Background(), domain.ActivityEntry{TaskID: 5, ActorID: 1, Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(7)})
+	recorder.Record(context.Background(), domain.ActivityEntry{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(7)})
 	rig.dispatcher.Wait()
 	if len(forwarded) != 1 || len(rig.inbox.drafts) != 1 {
 		t.Fatalf("forwarded=%d drafts=%d", len(forwarded), len(rig.inbox.drafts))

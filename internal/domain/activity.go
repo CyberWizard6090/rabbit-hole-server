@@ -29,7 +29,7 @@ const (
 type Activity struct {
 	ID        uint            `json:"id"`
 	TaskID    uint            `json:"task_id"`
-	Actor     CommentUser     `json:"actor"`
+	Actor     ActorView       `json:"actor"`
 	Action    string          `json:"action"`
 	Field     string          `json:"field,omitempty"`
 	OldValue  json.RawMessage `json:"old_value,omitempty"`
@@ -39,7 +39,7 @@ type Activity struct {
 
 type ActivityEntry struct {
 	TaskID   uint
-	ActorID  uint
+	Actor    Actor
 	Action   string
 	Field    string
 	OldValue json.RawMessage

@@ -34,7 +34,7 @@ func (s *checklistService) CreateChecklist(ctx context.Context, userID, taskID u
 		return nil, err
 	}
 	recordActivity(ctx, s.activity, domain.ActivityEntry{
-		TaskID: taskID, ActorID: userID, Action: domain.ActivityChecklistCreated,
+		TaskID: taskID, Actor: domain.UserActor(userID), Action: domain.ActivityChecklistCreated,
 		NewValue: mustJSON(map[string]any{"checklist_id": list.ID, "name": list.Name}),
 	})
 	return list, nil
@@ -57,7 +57,7 @@ func (s *checklistService) DeleteChecklist(ctx context.Context, userID, taskID, 
 		return err
 	}
 	recordActivity(ctx, s.activity, domain.ActivityEntry{
-		TaskID: taskID, ActorID: userID, Action: domain.ActivityChecklistDeleted,
+		TaskID: taskID, Actor: domain.UserActor(userID), Action: domain.ActivityChecklistDeleted,
 		OldValue: mustJSON(map[string]any{"checklist_id": existing.ID, "name": existing.Name}),
 	})
 	return nil
@@ -83,7 +83,7 @@ func (s *checklistService) recordAssignment(ctx context.Context, userID, taskID 
 		return
 	}
 	recordActivity(ctx, s.activity, domain.ActivityEntry{
-		TaskID: taskID, ActorID: userID, Action: domain.ActivityChecklistItemAssigned,
+		TaskID: taskID, Actor: domain.UserActor(userID), Action: domain.ActivityChecklistItemAssigned,
 		NewValue: mustJSON(map[string]any{
 			"checklist_id": item.ChecklistID, "item_id": item.ID, "text": item.Text, "assignee_id": item.Assignee.ID,
 		}),
@@ -107,7 +107,7 @@ func (s *checklistService) UpdateItem(
 			action = domain.ActivityChecklistItemResolved
 		}
 		recordActivity(ctx, s.activity, domain.ActivityEntry{
-			TaskID: taskID, ActorID: userID, Action: action,
+			TaskID: taskID, Actor: domain.UserActor(userID), Action: action,
 			NewValue: mustJSON(map[string]any{"checklist_id": checklistID, "item_id": itemID, "text": item.Text}),
 		})
 	}

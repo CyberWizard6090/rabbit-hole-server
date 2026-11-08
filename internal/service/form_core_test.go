@@ -57,7 +57,8 @@ func TestResolveSubmissionTaskPrecedence(t *testing.T) {
 	}
 
 	submission := domain.FormSubmission{ID: 7, Answers: []domain.SubmissionAnswer{answer(1, "Mapped title"), answer(2, "x")}}
-	input, _, _, err := resolveSubmissionTask(submission, config, template)
+	resolved, err := resolveSubmissionTask(submission, config, template, nil)
+	input := resolved.input
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +68,8 @@ func TestResolveSubmissionTaskPrecedence(t *testing.T) {
 	}
 
 	submission.Answers = []domain.SubmissionAnswer{answer(1, "Mapped title")}
-	input, _, _, err = resolveSubmissionTask(submission, config, template)
+	resolved, err = resolveSubmissionTask(submission, config, template, nil)
+	input = resolved.input
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +77,8 @@ func TestResolveSubmissionTaskPrecedence(t *testing.T) {
 		t.Fatalf("template must beat task_defaults when no answer is mapped: %+v", input)
 	}
 
-	input, _, _, err = resolveSubmissionTask(submission, config, TaskTemplateConfiguration{})
+	resolved, err = resolveSubmissionTask(submission, config, TaskTemplateConfiguration{}, nil)
+	input = resolved.input
 	if err != nil {
 		t.Fatal(err)
 	}

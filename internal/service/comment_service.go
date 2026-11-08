@@ -25,7 +25,7 @@ func NewCommentService(repo domain.CommentRepository, permissions PermissionChec
 
 func (s *commentService) record(ctx context.Context, action string, userID, taskID, commentID uint) {
 	recordActivity(ctx, s.activity, domain.ActivityEntry{
-		TaskID: taskID, ActorID: userID, Action: action,
+		TaskID: taskID, Actor: domain.UserActor(userID), Action: action,
 		NewValue: mustJSON(map[string]uint{"comment_id": commentID}),
 	})
 }

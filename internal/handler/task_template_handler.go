@@ -217,6 +217,7 @@ func parseTemplateID(c *gin.Context, name string) (uint, bool) {
 func decodeFormTaskConfiguration(req dto.FormTaskConfigurationRequest) domain.FormTaskConfiguration {
 	config := domain.FormTaskConfiguration{
 		Enabled: req.Enabled,
+		OwnerID: req.OwnerID,
 		Target: domain.FormTaskTarget{
 			WorkspaceID: req.Target.WorkspaceID, ListID: req.Target.ListID,
 		},

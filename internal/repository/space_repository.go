@@ -111,7 +111,11 @@ func (r *spaceRepository) GetDashboard(ctx context.Context, spaceID uint, tasksP
 	}
 
 	byList := make(map[uint][]domain.Task, len(space.Lists))
-	for _, task := range mapSlice(rows, taskToDomain) {
+	spaceTasks := mapSlice(rows, taskToDomain)
+	if err := decorateTasks(database.DBFromContext(ctx, r.db), spaceTasks); err != nil {
+		return nil, mapErr(err)
+	}
+	for _, task := range spaceTasks {
 		byList[task.ListID] = append(byList[task.ListID], task)
 	}
 	for i := range space.Lists {

@@ -44,6 +44,8 @@ type CreateTaskFromSubmissionParams struct {
 	WorkspaceID  uint
 	SubmissionID uint
 	Task         CreateTaskParams
+	Actor        domain.Actor
+	Requester    *domain.Requester
 }
 
 type MoveTaskParams struct {
@@ -130,7 +132,7 @@ func (s *taskService) resolveNewTags(ctx context.Context, spaceID uint, names []
 }
 
 func (s *taskService) CreateTask(ctx context.Context, userID uint, input CreateTaskParams) (*domain.Task, error) {
-	return s.createTask(ctx, userID, input, domain.TaskSourceManual, nil)
+	return s.createTask(ctx, userID, input, taskOrigin{source: domain.TaskSourceManual, actor: domain.UserActor(userID)})
 }
 
 func (s *taskService) CreateTaskFromSubmission(
@@ -158,15 +160,17 @@ func (s *taskService) CreateTaskFromSubmission(
 	if space.WorkspaceID != input.WorkspaceID {
 		return nil, domain.ErrInvalidListReference
 	}
-	return s.createTask(ctx, userID, input.Task, domain.TaskSourceForm, &input.SubmissionID)
+	return s.createTask(ctx, userID, input.Task, taskOrigin{
+		source: domain.TaskSourceForm, sourceReferenceID: &input.SubmissionID,
+		actor: input.Actor, requester: input.Requester,
+	})
 }
 
 func (s *taskService) createTask(
 	ctx context.Context,
 	userID uint,
 	input CreateTaskParams,
-	source domain.TaskSource,
-	sourceReferenceID *uint,
+	origin taskOrigin,
 ) (*domain.Task, error) {
 	if err := checkDateRange(input.StartDate, input.DueDate); err != nil {
 		return nil, err
@@ -204,16 +208,18 @@ func (s *taskService) createTask(
 		DueDate:           input.DueDate,
 		TimeEstimate:      input.TimeEstimate,
 		Tags:              taskTags,
-		Source:            source,
-		SourceReferenceID: sourceReferenceID,
+		Source:            origin.source,
+		SourceReferenceID: origin.sourceReferenceID,
+		Actor:             origin.actor.Normalized(),
+		RequesterInfo:     origin.requester,
 	}
 
 	if err := s.repo.Create(ctx, task, input.AssigneeIDs, allTagIDs); err != nil {
 		return nil, err
 	}
 	recordActivity(ctx, s.activity, domain.ActivityEntry{
-		TaskID: task.ID, ActorID: userID, Action: domain.ActivityTaskCreated,
-		NewValue: createdTaskActivity(task.Title, input.AssigneeIDs),
+		TaskID: task.ID, Actor: origin.actor.Normalized(), Action: domain.ActivityTaskCreated,
+		NewValue: createdTaskActivity(task.Title, input.AssigneeIDs, ownerForActivity(origin.actor, userID)),
 	})
 	return task, nil
 }
@@ -375,8 +381,25 @@ func (s *taskService) MoveTask(ctx context.Context, userID, taskID uint, params 
 	return moved, nil
 }
 
-func createdTaskActivity(title string, assigneeIDs []uint) json.RawMessage {
+type taskOrigin struct {
+	source            domain.TaskSource
+	sourceReferenceID *uint
+	actor             domain.Actor
+	requester         *domain.Requester
+}
+
+func ownerForActivity(actor domain.Actor, ownerID uint) uint {
+	if actor.IsUser() {
+		return 0
+	}
+	return ownerID
+}
+
+func createdTaskActivity(title string, assigneeIDs []uint, ownerID uint) json.RawMessage {
 	value := map[string]any{"title": title}
+	if ownerID != 0 {
+		value["owner_id"] = ownerID
+	}
 	if len(assigneeIDs) > 0 {
 		value["assignee_ids"] = sortedIDs(assigneeIDs)
 	}
