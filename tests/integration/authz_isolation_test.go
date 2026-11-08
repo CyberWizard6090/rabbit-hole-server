@@ -215,13 +215,10 @@ func TestAuthz_ContactsAreScopedToCaller(t *testing.T) {
 	b := newTenant(t, tc, "bob")
 	c := newTenant(t, tc, "carol")
 
-	rec := request(t, tc.Router, http.MethodPost, "/api/v1/contacts", a.token, map[string]any{"contact_id": c.userID})
-	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
-		t.Fatalf("add contact: %d: %s", rec.Code, rec.Body.String())
-	}
+	addContact(t, tc, a.token, c.userID)
 
 	// Bob cannot remove Alice's contact, and does not see it.
-	rec = request(t, tc.Router, http.MethodDelete, "/api/v1/contacts/"+itoa(c.userID), b.token, nil)
+	rec := request(t, tc.Router, http.MethodDelete, "/api/v1/contacts/"+itoa(c.userID), b.token, nil)
 	requireClientError(t, rec)
 
 	rec = request(t, tc.Router, http.MethodGet, "/api/v1/contacts", b.token, nil)

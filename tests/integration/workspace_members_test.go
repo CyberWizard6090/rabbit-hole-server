@@ -32,8 +32,12 @@ func newWorkspaceOwner(t *testing.T, tc *TestContext, label string) workspaceOwn
 func addContact(t *testing.T, tc *TestContext, token string, contactID uint) {
 	t.Helper()
 	rec := request(t, tc.Router, http.MethodPost, "/api/v1/contacts", token, map[string]any{"contact_id": contactID})
-	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
-		t.Fatalf("add contact: %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("request contact: %d: %s", rec.Code, rec.Body.String())
+	}
+	res := tc.DB.Exec("UPDATE user_contacts SET status = 'accepted' WHERE contact_id = ? AND status = 'pending'", contactID)
+	if res.Error != nil || res.RowsAffected == 0 {
+		t.Fatalf("accept contact %d: rows=%d err=%v", contactID, res.RowsAffected, res.Error)
 	}
 }
 

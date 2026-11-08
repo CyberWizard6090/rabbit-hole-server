@@ -62,6 +62,14 @@ func userFromDomain(u domain.User) persistence.User {
 	}
 }
 
+func publicUserToDomain(u persistence.User) domain.CommentUser {
+	return domain.CommentUser{ID: u.ID, Username: u.Username, FirstName: u.FirstName, LastName: u.LastName, AvatarURL: u.AvatarURL}
+}
+
+func publicUserFromDomain(u domain.CommentUser) persistence.User {
+	return persistence.User{ID: u.ID, Username: u.Username, FirstName: u.FirstName, LastName: u.LastName, AvatarURL: u.AvatarURL}
+}
+
 func sessionToDomain(s persistence.UserSession) domain.UserSession {
 	return domain.UserSession{ID: s.ID, UserID: s.UserID, TokenHash: s.TokenHash, ExpiresAt: s.ExpiresAt, CreatedAt: s.CreatedAt}
 }
@@ -153,7 +161,7 @@ func taskToDomain(t persistence.Task) domain.Task {
 		Source: domain.TaskSource(t.Source), SourceReferenceID: t.SourceReferenceID,
 		SortStatusPosition: t.SortStatusPosition, SortAssignee: t.SortAssignee,
 		ChecklistItemsTotal: t.ChecklistItemsTotal, ChecklistItemsResolved: t.ChecklistItemsResolved,
-		Assignees: mapSlice(t.Assignees, userToDomain),
+		Assignees: mapSlice(t.Assignees, publicUserToDomain),
 		Tags:      mapSlice(t.Tags, tagToDomain),
 	}
 }
@@ -165,7 +173,7 @@ func taskFromDomain(t domain.Task) persistence.Task {
 		UserID: t.UserID, StartDate: t.StartDate, DueDate: t.DueDate,
 		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent, Position: t.Position,
 		Source: string(t.Source), SourceReferenceID: t.SourceReferenceID,
-		Assignees: mapSlice(t.Assignees, userFromDomain),
+		Assignees: mapSlice(t.Assignees, publicUserFromDomain),
 		Tags:      mapSlice(t.Tags, tagFromDomain),
 	}
 }

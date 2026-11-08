@@ -113,9 +113,7 @@ func TestTaskAssigneeMustHaveActiveWorkspaceMembership(t *testing.T) {
 	taskID := responseID(t, rec)
 
 	memberID, _ := newUser(t, tc, "removed-assignee@example.test")
-	if rec := request(t, tc.Router, http.MethodPost, "/api/v1/contacts", tc.Token, map[string]any{"contact_id": memberID}); rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
-		t.Fatalf("add contact: %d: %s", rec.Code, rec.Body.String())
-	}
+	addContact(t, tc, tc.Token, memberID)
 	if rec := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces/"+itoa(workspaceID)+"/members", tc.Token,
 		map[string]any{"user_id": memberID, "role": "Member"}); rec.Code != http.StatusCreated {
 		t.Fatalf("add workspace member: %d: %s", rec.Code, rec.Body.String())
