@@ -23,10 +23,6 @@ type Pagination struct {
 	Pages int `json:"pages"`
 }
 
-// ErrorPayload is the error body of every failed response. It carries no
-// human readable text: the client translates Code and fills the translation
-// with Params. Details lists per-field problems of an invalid request.
-// RequestID matches the X-Request-ID header and the server log line.
 type ErrorPayload struct {
 	Code      string              `json:"code"`
 	Params    map[string]any      `json:"params,omitempty"`
@@ -59,7 +55,6 @@ func write(c *gin.Context, status int, code string, params map[string]any, detai
 	})
 }
 
-// Fail answers with an error that has only a code and optional params.
 func Fail(c *gin.Context, status int, code string, params map[string]any) {
 	write(c, status, code, params, nil)
 }
@@ -106,8 +101,6 @@ func logHandled(c *gin.Context, status int, code string, err error) {
 	)
 }
 
-// ValidationError answers 400 for a request body or query that could not be
-// bound: every broken field becomes an entry of details.
 func ValidationError(c *gin.Context, err error) {
 	if err == nil {
 		Fail(c, http.StatusBadRequest, "VALIDATION_FAILED", nil)
@@ -129,7 +122,6 @@ func ValidationError(c *gin.Context, err error) {
 	write(c, http.StatusBadRequest, "VALIDATION_FAILED", nil, validationDetails(err))
 }
 
-// InvalidID answers 400 for a path parameter that is not a valid identifier.
 func InvalidID(c *gin.Context, param string) {
 	Fail(c, http.StatusBadRequest, "INVALID_ID", map[string]any{"param": param})
 }

@@ -295,7 +295,6 @@ func registerAndLogin(t *testing.T, tc *TestContext) {
 	tc.Token = token
 }
 
-// errorDetail returns the entry of error.details for a field, or nil.
 func errorDetail(body map[string]any, field string) map[string]any {
 	details, _ := body["details"].([]any)
 	for _, raw := range details {

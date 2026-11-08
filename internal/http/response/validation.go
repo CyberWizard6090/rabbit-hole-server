@@ -12,9 +12,6 @@ import (
 	httperrors "rabbit-hole-server/internal/http/errors"
 )
 
-// RegisterValidatorFieldNames makes gin's validator report fields under the
-// name the client sent (json, form or uri tag) instead of the Go field name.
-// Call it once while the router is built.
 func RegisterValidatorFieldNames() {
 	engine, ok := binding.Validator.Engine().(*validator.Validate)
 	if !ok {
@@ -36,8 +33,6 @@ func wireName(f reflect.StructField) string {
 	return ""
 }
 
-// fieldDetail turns one validator failure into a stable code plus the params
-// a translation needs. The client never sees validator tags.
 func fieldDetail(fe validator.FieldError) httperrors.Detail {
 	detail := httperrors.Detail{Field: fieldPath(fe)}
 	lengthLike := false
@@ -58,7 +53,6 @@ func fieldDetail(fe validator.FieldError) httperrors.Detail {
 	case "gt":
 		detail.Code = lowerBoundCode(lengthLike, collection)
 		if lengthLike {
-			// A length above N is a length of at least N+1.
 			if n, err := strconv.ParseInt(fe.Param(), 10, 64); err == nil {
 				detail.Params = map[string]any{"min": n + 1}
 				break
@@ -111,8 +105,6 @@ func upperBoundCode(lengthLike, collection bool) string {
 	}
 }
 
-// fieldPath is the JSON path of the failing field without the leading
-// struct name: "items[2].text".
 func fieldPath(fe validator.FieldError) string {
 	ns := fe.Namespace()
 	if i := strings.Index(ns, "."); i >= 0 {

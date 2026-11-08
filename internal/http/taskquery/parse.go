@@ -105,7 +105,6 @@ type filterParser struct {
 	details []httperrors.Detail
 }
 
-// fail records the first problem found for a query parameter.
 func (p *filterParser) fail(name, code string, params map[string]any) {
 	for _, d := range p.details {
 		if d.Field == name {

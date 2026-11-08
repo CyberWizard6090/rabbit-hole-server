@@ -5,19 +5,12 @@ import (
 	"net/http"
 )
 
-// Detail describes one problem with one input field. Field is the JSON path of
-// the offending value ("title", "items[2].text"), Code is a stable machine
-// readable reason the client localises, Params carry the values the
-// translated text needs ({"max": 255}).
 type Detail struct {
 	Field  string         `json:"field"`
 	Code   string         `json:"code"`
 	Params map[string]any `json:"params,omitempty"`
 }
 
-// AppError is an error the API reports to the client. Only Code, Params and
-// Details reach the response: the client translates Code itself. Message is
-// an English description for logs and developers and is never sent.
 type AppError struct {
 	Code    string
 	Message string
@@ -27,14 +20,11 @@ type AppError struct {
 	Err     error
 }
 
-// WithParams attaches values the client needs to render the error (limits,
-// identifiers). It returns the receiver so it can be chained.
 func (e *AppError) WithParams(params map[string]any) *AppError {
 	e.Params = params
 	return e
 }
 
-// WithDetails attaches per-field problems.
 func (e *AppError) WithDetails(details ...Detail) *AppError {
 	e.Details = details
 	return e

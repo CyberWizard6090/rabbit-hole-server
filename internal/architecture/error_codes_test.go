@@ -14,12 +14,6 @@ import (
 	"testing"
 )
 
-// The frontend translates API errors by code, so the set of codes is part of
-// the contract. docs/error-codes.md lists every code the server can send; this
-// test fails when the code and the document drift apart.
-//
-// After adding or removing a code run:  UPDATE_ERROR_CODES=1 go test ./internal/architecture
-
 const (
 	errorCodesDoc   = "../../docs/error-codes.md"
 	errorCodesStart = "<!-- codes:start -->"
@@ -28,7 +22,6 @@ const (
 
 var errorCodePattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$`)
 
-// errorCodeDirs are the packages that produce API errors.
 var errorCodeDirs = []string{
 	"../handler", "../service", "../http", "../middleware",
 	"../domain", "../repository", "../realtime", "../app",
