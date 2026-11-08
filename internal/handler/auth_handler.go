@@ -56,6 +56,9 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	ctx := service.WithLocale(c.Request.Context(), c.GetHeader("Accept-Language"))
 	if err := h.authService.Register(ctx, input.Email, input.Password, input.Username); err != nil {
+		if passwordBusy(c, err) {
+			return
+		}
 		if errors.Is(err, domain.ErrEmailTaken) {
 			response.HandleError(c, httperrors.Conflict("EMAIL_TAKEN", "email is already registered", err))
 			return
@@ -89,6 +92,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	tokenPair, err := h.authService.Login(c.Request.Context(), input.Email, input.Password)
 	if err != nil {
+		if passwordBusy(c, err) {
+			return
+		}
 		if errors.Is(err, service.ErrEmailNotVerified) {
 			response.HandleError(c, httperrors.Forbidden("EMAIL_NOT_VERIFIED", err.Error(), err))
 			return
@@ -152,6 +158,8 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 
 	tokenPair, err := h.authService.ChangePassword(c.Request.Context(), uid, req.CurrentPassword, req.NewPassword)
 	switch {
+	case passwordBusy(c, err):
+		return
 	case errors.Is(err, service.ErrWeakPassword):
 		response.HandleError(c, httperrors.BadRequest("WEAK_PASSWORD", err.Error(), err))
 		return
@@ -196,6 +204,8 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 
 	err = h.authService.DeleteAccount(c.Request.Context(), uid, req.Password)
 	switch {
+	case passwordBusy(c, err):
+		return
 	case errors.Is(err, service.ErrInvalidCredentials):
 		response.HandleError(c, httperrors.Unauthorized("INVALID_CREDENTIALS", "password is incorrect", err))
 		return

@@ -19,7 +19,7 @@ func TestHealthEndpoints_LivenessIsCheapReadinessChecksTheDatabase(t *testing.T)
 		}
 	}
 
-	db, err := database.ConnectDB(integrationConfig.DB.URL, integrationConfig.Environment, 1, 1, integrationConfig.DB.ConnMaxLifetime)
+	db, err := database.ConnectDB(integrationConfig.DB.URL, database.Options{Environment: integrationConfig.Environment, MaxIdleConnections: 1, MaxOpenConnections: 1, ConnMaxLifetime: integrationConfig.DB.ConnMaxLifetime})
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}

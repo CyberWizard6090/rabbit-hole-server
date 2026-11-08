@@ -27,7 +27,7 @@ const (
 func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	r := gin.New()
 	response.RegisterValidatorFieldNames()
-	if err := r.SetTrustedProxies(cfg.Server.TrustedProxies); err != nil {
+	if err := r.SetTrustedProxies(cfg.Server.Proxies()); err != nil {
 		panic(fmt.Errorf("configure trusted proxies: %w", err))
 	}
 

@@ -26,7 +26,13 @@ const (
 type ticket struct {
 	userID  uint
 	topic   string
+	version int
 	expires time.Time
+}
+
+type Grant struct {
+	UserID  uint
+	Version int
 }
 
 type TicketStore struct {
@@ -58,6 +64,10 @@ func hashTicket(raw string) string {
 }
 
 func (s *TicketStore) Issue(userID uint, topic string) (string, error) {
+	return s.IssueVersioned(userID, topic, 0)
+}
+
+func (s *TicketStore) IssueVersioned(userID uint, topic string, version int) (string, error) {
 	buf := make([]byte, ticketEntropyBytes)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
@@ -79,36 +89,32 @@ func (s *TicketStore) Issue(userID uint, topic string) (string, error) {
 		}
 	}
 
-	s.tickets[hashTicket(raw)] = ticket{userID: userID, topic: topic, expires: now.Add(s.ttl)}
+	s.tickets[hashTicket(raw)] = ticket{userID: userID, topic: topic, version: version, expires: now.Add(s.ttl)}
 	s.byUser[userID]++
 	return raw, nil
 }
 
 func (s *TicketStore) Redeem(raw, topic string) (uint, error) {
-	if raw == "" {
-		return 0, ErrInvalidTicket
-	}
-	key := hashTicket(raw)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	t, ok := s.tickets[key]
-	if !ok {
-		return 0, ErrInvalidTicket
-	}
-	delete(s.tickets, key)
-	s.releaseLocked(t.userID)
-
-	if !s.now().Before(t.expires) || t.topic != topic {
-		return 0, ErrInvalidTicket
-	}
-	return t.userID, nil
+	grant, err := s.RedeemGrant(raw, topic)
+	return grant.UserID, err
 }
 
 func (s *TicketStore) RedeemUser(raw string) (uint, error) {
+	grant, err := s.RedeemUserGrant(raw)
+	return grant.UserID, err
+}
+
+func (s *TicketStore) RedeemGrant(raw, topic string) (Grant, error) {
+	return s.redeem(raw, func(t ticket) bool { return t.topic == topic })
+}
+
+func (s *TicketStore) RedeemUserGrant(raw string) (Grant, error) {
+	return s.redeem(raw, func(t ticket) bool { return t.topic == UserTopic(t.userID) })
+}
+
+func (s *TicketStore) redeem(raw string, topicOK func(ticket) bool) (Grant, error) {
 	if raw == "" {
-		return 0, ErrInvalidTicket
+		return Grant{}, ErrInvalidTicket
 	}
 	key := hashTicket(raw)
 
@@ -117,15 +123,15 @@ func (s *TicketStore) RedeemUser(raw string) (uint, error) {
 
 	t, ok := s.tickets[key]
 	if !ok {
-		return 0, ErrInvalidTicket
+		return Grant{}, ErrInvalidTicket
 	}
 	delete(s.tickets, key)
 	s.releaseLocked(t.userID)
 
-	if !s.now().Before(t.expires) || t.topic != UserTopic(t.userID) {
-		return 0, ErrInvalidTicket
+	if !s.now().Before(t.expires) || !topicOK(t) {
+		return Grant{}, ErrInvalidTicket
 	}
-	return t.userID, nil
+	return Grant{UserID: t.userID, Version: t.version}, nil
 }
 
 func (s *TicketStore) releaseLocked(userID uint) {

@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -21,6 +20,7 @@ import (
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/dto"
+	"rabbit-hole-server/internal/ratelimit"
 )
 
 var (
@@ -88,6 +88,8 @@ type AuthService struct {
 
 	verification    VerificationSender
 	requireVerified bool
+	revoker         ConnectionRevoker
+	backoff         *ratelimit.Backoff
 }
 
 func NewAuthService(r AuthUserStore, jwtSecret string, accessTTL, refreshTTL time.Duration) *AuthService {
@@ -183,7 +185,7 @@ func (s *AuthService) Register(ctx context.Context, email, password, username st
 	if err := validatePassword(password); err != nil {
 		return err
 	}
-	passwordHash, err := hashPassword(password)
+	passwordHash, err := hashPasswordLimited(ctx, password)
 	if err != nil {
 		return err
 	}
@@ -220,17 +222,44 @@ func burnPasswordHash(password string) {
 	_ = verifyPassword(password, dummyHash)
 }
 
+func burnPasswordHashLimited(ctx context.Context, password string) error {
+	release, err := acquirePasswordSlot(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	burnPasswordHash(password)
+	return nil
+}
+
+func (s *AuthService) WithLoginBackoff(backoff *ratelimit.Backoff) *AuthService {
+	s.backoff = backoff
+	return s
+}
+
 func (s *AuthService) Login(ctx context.Context, email, password string) (dto.TokenPair, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
+	if locked, _ := s.backoff.Locked(email); locked {
+		return dto.TokenPair{}, ErrInvalidCredentials
+	}
 	user, err := s.repo.GetByEmail(ctx, email)
 	if err != nil {
-		burnPasswordHash(password)
+		if busy := burnPasswordHashLimited(ctx, password); busy != nil {
+			return dto.TokenPair{}, busy
+		}
+		s.backoff.Fail(email)
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
 
-	if !verifyPassword(password, user.PasswordHash) {
+	matches, err := verifyPasswordLimited(ctx, password, user.PasswordHash)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	if !matches {
+		s.backoff.Fail(email)
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
+	s.backoff.Succeed(email)
 	if s.requireVerified && user.EmailVerifiedAt == nil {
 		return dto.TokenPair{}, ErrEmailNotVerified
 	}
@@ -347,10 +376,11 @@ func (s *AuthService) handleUnknownRefreshSession(ctx context.Context, userID ui
 		return
 	}
 	if _, err := s.repo.RevokeAll(context.WithoutCancel(ctx), userID); err != nil {
-		log.Printf("revoke sessions after refresh token reuse (user %d): %v", userID, err)
+		slog.Error("auth: cannot revoke sessions after refresh token reuse", "user_id", userID, "error", err)
 		return
 	}
-	log.Printf("refresh token reuse detected: revoked all sessions of user %d", userID)
+	disconnectUser(s.revoker, userID)
+	slog.Warn("auth: refresh token reuse detected, all sessions revoked", "user_id", userID)
 }
 
 func (s *AuthService) Logout(ctx context.Context, refreshTokenString string) error {
@@ -383,15 +413,26 @@ func (s *AuthService) Authenticate(ctx context.Context, tokenString string) (*Cl
 	return claims, nil
 }
 
+func (s *AuthService) CurrentTokenVersion(ctx context.Context, userID uint) (int, error) {
+	return s.repo.GetTokenVersion(ctx, userID)
+}
+
 func (s *AuthService) ChangePassword(ctx context.Context, userID uint, currentPassword, newPassword string) (dto.TokenPair, error) {
 	if err := validatePassword(newPassword); err != nil {
 		return dto.TokenPair{}, err
 	}
 	user, err := s.repo.GetByID(ctx, userID)
-	if err != nil || !verifyPassword(currentPassword, user.PasswordHash) {
+	if err != nil {
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
-	hash, err := hashPassword(newPassword)
+	matches, err := verifyPasswordLimited(ctx, currentPassword, user.PasswordHash)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	if !matches {
+		return dto.TokenPair{}, ErrInvalidCredentials
+	}
+	hash, err := hashPasswordLimited(ctx, newPassword)
 	if err != nil {
 		return dto.TokenPair{}, err
 	}
@@ -399,12 +440,16 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uint, currentPa
 	if err != nil {
 		return dto.TokenPair{}, err
 	}
+	disconnectUser(s.revoker, userID)
 	return s.issueTokenPair(ctx, userID, version)
 }
 
 func (s *AuthService) LogoutAll(ctx context.Context, userID uint) error {
-	_, err := s.repo.RevokeAll(ctx, userID)
-	return err
+	if _, err := s.repo.RevokeAll(ctx, userID); err != nil {
+		return err
+	}
+	disconnectUser(s.revoker, userID)
+	return nil
 }
 
 type VerificationSender interface {
@@ -413,6 +458,11 @@ type VerificationSender interface {
 
 func (s *AuthService) WithVerificationSender(sender VerificationSender) *AuthService {
 	s.verification = sender
+	return s
+}
+
+func (s *AuthService) WithConnectionRevoker(revoker ConnectionRevoker) *AuthService {
+	s.revoker = revoker
 	return s
 }
 
@@ -432,7 +482,14 @@ func (s *AuthService) WithAvatarRemover(remover AvatarRemover) *AuthService {
 
 func (s *AuthService) DeleteAccount(ctx context.Context, userID uint, password string) error {
 	user, err := s.repo.GetByID(ctx, userID)
-	if err != nil || !verifyPassword(password, user.PasswordHash) {
+	if err != nil {
+		return ErrInvalidCredentials
+	}
+	matches, err := verifyPasswordLimited(ctx, password, user.PasswordHash)
+	if err != nil {
+		return err
+	}
+	if !matches {
 		return ErrInvalidCredentials
 	}
 	if err := s.repo.AnonymizeIfNoOwnedWorkspaces(ctx, userID); err != nil {
@@ -441,6 +498,7 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID uint, password s
 		}
 		return err
 	}
+	disconnectUser(s.revoker, userID)
 	if s.avatars != nil {
 		if err := s.avatars.RemoveAvatar(ctx, userID); err != nil {
 			slog.Warn("auth: cannot remove the avatar of a deleted account", "user_id", userID, "error", err)

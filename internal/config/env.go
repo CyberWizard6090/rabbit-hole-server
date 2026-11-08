@@ -2,7 +2,9 @@ package config
 
 import (
 	"log/slog"
+	"net"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ type Config struct {
 	Server         ServerConfig
 	DB             DBConfig
 	JWT            JWTConfig `envPrefix:"JWT_"`
+	Auth           AuthConfig
 	Storage        StorageConfig
 	Mail           MailConfig
 	Notifications  NotificationConfig
@@ -23,16 +26,48 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port           int      `env:"PORT" envDefault:"8080" validate:"required,min=1,max=65535"`
-	Host           string   `env:"HOST" envDefault:"0.0.0.0" validate:"required,hostname|ip"`
-	TrustedProxies []string `env:"TRUSTED_PROXIES" envDefault:"127.0.0.1,::1" envSeparator:"," validate:"required,min=1"`
+	Port            int           `env:"PORT" envDefault:"8080" validate:"required,min=1,max=65535"`
+	Host            string        `env:"HOST" envDefault:"0.0.0.0" validate:"required,hostname|ip"`
+	TrustedProxies  []string      `env:"TRUSTED_PROXIES" envSeparator:","`
+	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"30s" validate:"gt=0"`
+}
+
+func (s ServerConfig) Proxies() []string {
+	proxies := make([]string, 0, len(s.TrustedProxies))
+	for _, entry := range s.TrustedProxies {
+		if entry = strings.TrimSpace(entry); entry != "" {
+			proxies = append(proxies, entry)
+		}
+	}
+	return proxies
+}
+
+type AuthConfig struct {
+	HashConcurrency      int           `env:"AUTH_HASH_CONCURRENCY" envDefault:"0" validate:"gte=0,max=1024"`
+	HashWait             time.Duration `env:"AUTH_HASH_WAIT" envDefault:"1s" validate:"gte=0"`
+	LoginFailureLimit    int           `env:"AUTH_LOGIN_FAILURE_LIMIT" envDefault:"5" validate:"gte=0"`
+	LoginLockBase        time.Duration `env:"AUTH_LOGIN_LOCK_BASE" envDefault:"30s" validate:"gte=0"`
+	LoginLockMax         time.Duration `env:"AUTH_LOGIN_LOCK_MAX" envDefault:"15m" validate:"gte=0"`
+	LoginTrackedAccounts int           `env:"AUTH_LOGIN_TRACKED_ACCOUNTS" envDefault:"100000" validate:"gt=0"`
+}
+
+func (a AuthConfig) HashSlots() int {
+	if a.HashConcurrency > 0 {
+		return a.HashConcurrency
+	}
+	return runtime.NumCPU()
 }
 
 type DBConfig struct {
 	URL                string        `env:"DB_URL" validate:"required"`
-	MaxIdleConnections int           `env:"DB_MAX_IDLE_CONNS" envDefault:"5" validate:"gte=0"`
+	MaxIdleConnections int           `env:"DB_MAX_IDLE_CONNS" envDefault:"10" validate:"gte=0"`
 	MaxOpenConnections int           `env:"DB_MAX_OPEN_CONNS" envDefault:"25" validate:"gt=0"`
 	ConnMaxLifetime    time.Duration `env:"DB_CONN_MAX_LIFETIME" envDefault:"1h" validate:"gt=0"`
+	ConnMaxIdleTime    time.Duration `env:"DB_CONN_MAX_IDLE_TIME" envDefault:"10m" validate:"gte=0"`
+	StatementTimeout   time.Duration `env:"DB_STATEMENT_TIMEOUT" envDefault:"30s" validate:"gte=0"`
+	LockTimeout        time.Duration `env:"DB_LOCK_TIMEOUT" envDefault:"5s" validate:"gte=0"`
+	IdleInTxTimeout    time.Duration `env:"DB_IDLE_IN_TX_TIMEOUT" envDefault:"1m" validate:"gte=0"`
+	SlowQueryThreshold time.Duration `env:"DB_SLOW_QUERY_THRESHOLD" envDefault:"200ms" validate:"gte=0"`
 }
 
 type StorageConfig struct {
@@ -163,6 +198,7 @@ func LogStartup(cfg *Config) {
 		"storage_driver", cfg.Storage.Driver,
 		"require_verified_email", cfg.Mail.RequireVerifiedEmail,
 	)
+	logTrustedProxies(cfg)
 	if cfg.Mail.Driver == "log" && cfg.Environment != "development" {
 		slog.Warn("MAIL_DRIVER=log only writes mail to the server log; users will not receive verification or reset links", "environment", cfg.Environment)
 	}
@@ -183,3 +219,29 @@ var knownWeakSecretMarkers = []string{
 }
 
 const minDistinctSecretChars = 12
+
+func logTrustedProxies(cfg *Config) {
+	proxies := cfg.Server.Proxies()
+	if len(proxies) == 0 {
+		slog.Info("trusted proxies: none; X-Forwarded-For is ignored and the TCP peer address is the client IP (set TRUSTED_PROXIES when running behind a reverse proxy)")
+		return
+	}
+	slog.Info("trusted proxies configured; X-Forwarded-For is honored only for requests coming from them", "trusted_proxies", proxies)
+	for _, entry := range proxies {
+		if wideProxyRange(entry) {
+			slog.Warn("TRUSTED_PROXIES contains a very wide range; any host inside it can forge X-Forwarded-For", "entry", entry)
+		}
+	}
+}
+
+func wideProxyRange(entry string) bool {
+	_, network, err := net.ParseCIDR(entry)
+	if err != nil {
+		return false
+	}
+	ones, bits := network.Mask.Size()
+	if bits == 32 {
+		return ones < 16
+	}
+	return ones < 48
+}

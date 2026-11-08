@@ -135,7 +135,9 @@ relies on:
 ## Database migrations
 
 Migrations are embedded (`db/migrations`) and run with `cmd/migrate`
-(`up`, `down [-steps N]`, `version`, `force -version N`).
+(`up`, `down -steps N`, `down -all`, `version`, `force -version N`). `down` without `-steps` is refused;
+`down -all` rolls back everything and is refused when `APP_ENV=production`. The server checks the schema
+version at startup and exits with a clear message when the database is behind or dirty (run `migrate -action up`).
 
 Pre-release policy: the project is not deployed yet, so `000001_init_schema` may be edited in
 place. After changing it, recreate the local database:
@@ -151,11 +153,34 @@ database will otherwise silently drift from the schema.
 schema change is a new numbered file (`make db-create name=...`). CI runs `up -> down -> up`
 to catch broken down scripts.
 
+## Deployment
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+- `docker-compose.prod.yml` sets `APP_ENV=production` (release mode, JSON logs, strict config validation, secure
+  cookies). Without it `docker-compose.yml` defaults to `development`; never expose that mode. `staging` also runs
+  in release mode.
+- `TRUSTED_PROXIES` is empty by default: `X-Forwarded-For` is ignored and the TCP peer is the client. Behind a
+  reverse proxy set it to the proxy address(es), never to `0.0.0.0/0`; the startup log lists what is trusted.
+- Rate limits, the sign-in lock and the argon2 gate are per process (a restart resets them, N replicas allow N times
+  the budget). IPv6 clients are limited per /64.
+- Sign-in: at most `AUTH_HASH_CONCURRENCY` password hashes run at once (default: CPUs), extra requests get 503 with
+  `Retry-After`; repeated failures for one e-mail address delay further attempts (`AUTH_LOGIN_*`).
+- On SIGTERM the server waits up to `SHUTDOWN_TIMEOUT` (30s); compose gives the container `stop_grace_period: 45s`.
+- The Go version of the image comes from `go.mod` (`make docker-build`, CI passes it as the `GO_VERSION` build arg).
+- `LOG_LEVEL` (debug, info, warn, error) overrides the default level; logs never contain SQL parameter values, tokens,
+  passwords or full e-mail addresses.
+- PostgreSQL sessions get `statement_timeout`, `lock_timeout` and `idle_in_transaction_session_timeout` from `DB_*`.
+- Account revocation (logout everywhere, password change or reset, account deletion, removal from a workspace)
+  closes the user's WebSocket feeds immediately; open feeds are also revalidated every two minutes.
+
 ## Before the first deploy
 
 The production-only work is intentionally deferred; check it off before releasing:
 
-- [ ] TLS reverse proxy in front of the API; `APP_ENV=production` in the prod compose
+- [ ] TLS reverse proxy in front of the API (the prod compose already sets `APP_ENV=production`)
 - [ ] `TRUSTED_PROXIES` set to the proxy's address range
 - [ ] Separate DB roles (migrator vs. application) instead of the Postgres superuser
 - [ ] Image publishing (GHCR) and pinned image tags
