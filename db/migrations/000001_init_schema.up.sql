@@ -202,7 +202,8 @@ CREATE TABLE lists (
     parent_status_id BIGINT,
     CONSTRAINT chk_lists_name_not_blank CHECK (btrim(name) <> ''),
     CONSTRAINT fk_spaces_lists FOREIGN KEY (space_id) REFERENCES spaces (id) ON DELETE CASCADE,
-    CONSTRAINT fk_folders_lists FOREIGN KEY (folder_id) REFERENCES folders (id) ON DELETE CASCADE
+    CONSTRAINT fk_folders_lists FOREIGN KEY (folder_id) REFERENCES folders (id) ON DELETE CASCADE,
+    CONSTRAINT uq_lists_space_id_id UNIQUE (space_id, id)
 );
 CREATE INDEX idx_lists_deleted_at ON lists (deleted_at);
 CREATE INDEX idx_lists_folder_id ON lists (folder_id);
@@ -224,7 +225,8 @@ CREATE TABLE task_statuses (
     type task_status_type NOT NULL,
     CONSTRAINT chk_task_statuses_name_not_blank CHECK (btrim(name) <> ''),
     CONSTRAINT fk_spaces_statuses FOREIGN KEY (space_id) REFERENCES spaces (id) ON DELETE CASCADE,
-    CONSTRAINT fk_lists_statuses FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE CASCADE,
+    CONSTRAINT fk_lists_statuses FOREIGN KEY (space_id, list_id) REFERENCES lists (space_id, id) ON DELETE CASCADE,
+    CONSTRAINT uq_task_statuses_list_id_id UNIQUE (list_id, id),
     CONSTRAINT chk_task_statuses_color CHECK (color ~ '^#[0-9A-Fa-f]{6}$'),
     CONSTRAINT chk_task_statuses_position CHECK (position >= 1)
 );
@@ -268,8 +270,8 @@ CREATE TABLE tasks (
     position BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT chk_tasks_title_not_blank CHECK (btrim(title) <> ''),
     CONSTRAINT fk_spaces_tasks FOREIGN KEY (space_id) REFERENCES spaces (id) ON DELETE CASCADE,
-    CONSTRAINT fk_lists_tasks FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE NO ACTION,
-    CONSTRAINT fk_tasks_status FOREIGN KEY (status_id) REFERENCES task_statuses (id) ON DELETE NO ACTION,
+    CONSTRAINT fk_lists_tasks FOREIGN KEY (space_id, list_id) REFERENCES lists (space_id, id) ON DELETE NO ACTION,
+    CONSTRAINT fk_tasks_status FOREIGN KEY (list_id, status_id) REFERENCES task_statuses (list_id, id) ON DELETE NO ACTION,
     CONSTRAINT fk_tasks_parent FOREIGN KEY (parent_id) REFERENCES tasks (id) ON DELETE SET NULL,
     CONSTRAINT fk_tasks_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT,
     CONSTRAINT chk_tasks_priority CHECK (priority BETWEEN 1 AND 5),

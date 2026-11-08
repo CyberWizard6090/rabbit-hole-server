@@ -568,7 +568,8 @@ func TestSearch_TrigramIndexesServeTheQueries(t *testing.T) {
 	seed := []string{
 		"INSERT INTO spaces (name, workspace_id, owner_id) SELECT 'sp' || g, " + ws + ", " + owner + " FROM generate_series(1, 60) g",
 		"INSERT INTO lists (name, space_id) SELECT 'l' || id, id FROM spaces WHERE workspace_id = " + ws + " AND id <> " + itoa(e.owner.spaceID),
-		"INSERT INTO tasks (space_id, list_id, status_id, title, description, user_id) SELECT l.space_id, l.id, " + itoa(e.statusID) + ", md5((g + l.id * 1000)::text) || ' ' || md5((g * 7 + l.id)::text), md5((g * 13 + l.id)::text) || ' filler words here', " + owner + " FROM lists l, generate_series(1, 500) g WHERE l.id <> " + itoa(e.listID),
+		"INSERT INTO task_statuses (space_id, list_id, name, color, position, type) SELECT l.space_id, l.id, 'seed', '#112233', 1, type FROM lists l, (SELECT type FROM task_statuses WHERE id = " + itoa(e.statusID) + ") s WHERE l.id <> " + itoa(e.listID),
+		"INSERT INTO tasks (space_id, list_id, status_id, title, description, user_id) SELECT l.space_id, l.id, st.id, md5((g + l.id * 1000)::text) || ' ' || md5((g * 7 + l.id)::text), md5((g * 13 + l.id)::text) || ' filler words here', " + owner + " FROM lists l JOIN task_statuses st ON st.list_id = l.id, generate_series(1, 500) g WHERE l.id <> " + itoa(e.listID),
 		"INSERT INTO task_comments (task_id, user_id, body) SELECT id, " + owner + ", md5(id::text) || ' ' || md5((id * 3)::text) FROM tasks",
 		"INSERT INTO task_checklist_items (checklist_id, text) SELECT " + itoa(checklist) + ", md5(id::text) || ' ' || md5((id * 5)::text) FROM tasks",
 		"VACUUM ANALYZE spaces", "VACUUM ANALYZE lists", "VACUUM ANALYZE tasks", "VACUUM ANALYZE task_comments", "VACUUM ANALYZE task_checklist_items",

@@ -29,7 +29,7 @@ func (r *spaceRepository) GetByID(ctx context.Context, id uint) (*domain.Space, 
 
 func (r *spaceRepository) Create(ctx context.Context, space *domain.Space) error {
 	m := spaceFromDomain(*space)
-	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Create(&m).Error; err != nil {
 		return mapErr(err)
 	}
 	*space = spaceToDomain(m)
@@ -40,7 +40,7 @@ func (r *spaceRepository) GetAll(ctx context.Context, workspaceID uint, limit, o
 	var rows []persistence.Space
 	var total int64
 
-	baseQuery := r.db.WithContext(ctx).Model(&persistence.Space{}).Where("workspace_id = ?", workspaceID)
+	baseQuery := database.DBFromContext(ctx, r.db).Model(&persistence.Space{}).Where("workspace_id = ?", workspaceID)
 
 	if err := baseQuery.Count(&total).Error; err != nil {
 		return nil, 0, mapErr(err)
@@ -61,7 +61,7 @@ func (r *spaceRepository) GetAll(ctx context.Context, workspaceID uint, limit, o
 func (r *spaceRepository) GetDashboard(ctx context.Context, spaceID uint, tasksPerList int) (*domain.Space, error) {
 	var m persistence.Space
 
-	err := r.db.WithContext(ctx).
+	err := database.DBFromContext(ctx, r.db).
 		Preload("Lists", func(db *gorm.DB) *gorm.DB { return db.Order("id ASC") }).
 		Preload("Lists.Statuses", func(db *gorm.DB) *gorm.DB { return db.Order("position ASC") }).
 		Preload("Tags").
@@ -83,7 +83,7 @@ func (r *spaceRepository) GetDashboard(ctx context.Context, spaceID uint, tasksP
 		ListID uint
 		Count  int64
 	}
-	if err := r.db.WithContext(ctx).Model(&persistence.Task{}).
+	if err := database.DBFromContext(ctx, r.db).Model(&persistence.Task{}).
 		Select("list_id, COUNT(*) AS count").
 		Where("list_id IN ?", listIDs).
 		Group("list_id").
@@ -95,16 +95,16 @@ func (r *spaceRepository) GetDashboard(ctx context.Context, spaceID uint, tasksP
 		totals[row.ListID] = int(row.Count)
 	}
 
-	ranked := r.db.WithContext(ctx).Model(&persistence.Task{}).
+	ranked := database.DBFromContext(ctx, r.db).Model(&persistence.Task{}).
 		Select("id, ROW_NUMBER() OVER (PARTITION BY list_id ORDER BY created_at DESC, id DESC) AS rn").
 		Where("list_id IN ?", listIDs)
 	var rows []persistence.Task
-	if err := r.db.WithContext(ctx).Model(&persistence.Task{}).
+	if err := database.DBFromContext(ctx, r.db).Model(&persistence.Task{}).
 		Select(append([]string{"tasks.*"}, checklistCountSelects...)).
 		Joins(checklistCountsJoin).
 		Preload("Assignees").
 		Preload("Tags").
-		Where("tasks.id IN (?)", r.db.WithContext(ctx).Table("(?) AS ranked", ranked).Select("id").Where("rn <= ?", tasksPerList)).
+		Where("tasks.id IN (?)", database.DBFromContext(ctx, r.db).Table("(?) AS ranked", ranked).Select("id").Where("rn <= ?", tasksPerList)).
 		Order("tasks.created_at DESC, tasks.id DESC").
 		Find(&rows).Error; err != nil {
 		return nil, mapErr(err)
@@ -127,7 +127,7 @@ func (r *spaceRepository) GetDashboard(ctx context.Context, spaceID uint, tasksP
 
 func (r *spaceRepository) CreateStatus(ctx context.Context, status *domain.TaskStatus) error {
 	m := statusFromDomain(*status)
-	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Create(&m).Error; err != nil {
 		return mapErr(err)
 	}
 	*status = statusToDomain(m)
@@ -136,7 +136,7 @@ func (r *spaceRepository) CreateStatus(ctx context.Context, status *domain.TaskS
 
 func (r *spaceRepository) CreateTag(ctx context.Context, tag *domain.Tag) error {
 	m := tagFromDomain(*tag)
-	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Create(&m).Error; err != nil {
 		return mapErr(err)
 	}
 	*tag = tagToDomain(m)
@@ -145,7 +145,7 @@ func (r *spaceRepository) CreateTag(ctx context.Context, tag *domain.Tag) error 
 
 func (r *spaceRepository) CreateList(ctx context.Context, list *domain.List) error {
 	m := listFromDomain(*list)
-	if err := r.db.WithContext(ctx).Create(&m).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Create(&m).Error; err != nil {
 		return mapErr(err)
 	}
 	*list = listToDomain(m)
@@ -154,8 +154,12 @@ func (r *spaceRepository) CreateList(ctx context.Context, list *domain.List) err
 
 func (r *spaceRepository) UpdateStatus(ctx context.Context, status *domain.TaskStatus) error {
 	m := statusFromDomain(*status)
-	if err := r.db.WithContext(ctx).Save(&m).Error; err != nil {
-		return mapErr(err)
+	res := database.DBFromContext(ctx, r.db).Model(&m).Select("Name", "Color", "Type").Updates(&m)
+	if res.Error != nil {
+		return mapErr(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return domain.ErrNotFound
 	}
 	status.UpdatedAt = m.UpdatedAt
 	return nil
@@ -176,7 +180,7 @@ func (r *spaceRepository) GetListByID(ctx context.Context, id uint) (*domain.Lis
 
 func (r *spaceRepository) GetListsBySpace(ctx context.Context, spaceID uint) ([]domain.List, error) {
 	var rows []persistence.List
-	err := r.db.WithContext(ctx).Where("space_id = ?", spaceID).Order("created_at ASC").Find(&rows).Error
+	err := database.DBFromContext(ctx, r.db).Where("space_id = ?", spaceID).Order("created_at ASC").Find(&rows).Error
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -185,7 +189,7 @@ func (r *spaceRepository) GetListsBySpace(ctx context.Context, spaceID uint) ([]
 
 func (r *spaceRepository) GetStatusByID(ctx context.Context, id uint) (*domain.TaskStatus, error) {
 	var m persistence.TaskStatus
-	if err := r.db.WithContext(ctx).First(&m, id).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).First(&m, id).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	status := statusToDomain(m)
@@ -194,7 +198,7 @@ func (r *spaceRepository) GetStatusByID(ctx context.Context, id uint) (*domain.T
 
 func (r *spaceRepository) GetListsByFolder(ctx context.Context, folderID uint) ([]domain.List, error) {
 	var rows []persistence.List
-	err := r.db.WithContext(ctx).Where("folder_id = ?", folderID).Order("created_at ASC").Find(&rows).Error
+	err := database.DBFromContext(ctx, r.db).Where("folder_id = ?", folderID).Order("created_at ASC").Find(&rows).Error
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -203,26 +207,25 @@ func (r *spaceRepository) GetListsByFolder(ctx context.Context, folderID uint) (
 
 func (r *spaceRepository) UpdateList(ctx context.Context, list *domain.List) error {
 	m := listFromDomain(*list)
-	if err := r.db.WithContext(ctx).Save(&m).Error; err != nil {
-		return mapErr(err)
-	}
-	list.UpdatedAt = m.UpdatedAt
-	return nil
-}
-
-func (r *spaceRepository) DeleteList(ctx context.Context, id uint) error {
-	res := r.db.WithContext(ctx).Delete(&persistence.List{}, id)
+	res := database.DBFromContext(ctx, r.db).Model(&m).Select("Name").Updates(&m)
 	if res.Error != nil {
 		return mapErr(res.Error)
 	}
 	if res.RowsAffected == 0 {
 		return domain.ErrNotFound
 	}
+	list.UpdatedAt = m.UpdatedAt
 	return nil
 }
 
+func (r *spaceRepository) DeleteList(ctx context.Context, id uint) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		return softDeleteList(tx, id)
+	}))
+}
+
 func (r *spaceRepository) CreateWithDefaults(ctx context.Context, space *domain.Space, list *domain.List, statuses []domain.TaskStatus) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		sm := spaceFromDomain(*space)
 		if err := tx.Create(&sm).Error; err != nil {
 			return err
@@ -257,7 +260,7 @@ func (r *spaceRepository) CreateWithDefaults(ctx context.Context, space *domain.
 
 func (r *spaceRepository) Update(ctx context.Context, space *domain.Space) error {
 	m := spaceFromDomain(*space)
-	if err := r.db.WithContext(ctx).Model(&m).Select("Name", "Currency").Updates(&m).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Model(&m).Select("Name", "Currency").Updates(&m).Error; err != nil {
 		return mapErr(err)
 	}
 	space.UpdatedAt = m.UpdatedAt
@@ -265,12 +268,7 @@ func (r *spaceRepository) Update(ctx context.Context, space *domain.Space) error
 }
 
 func (r *spaceRepository) Delete(ctx context.Context, id uint) error {
-	res := r.db.WithContext(ctx).Delete(&persistence.Space{}, id)
-	if res.Error != nil {
-		return mapErr(res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		return softDeleteSpace(tx, id)
+	}))
 }

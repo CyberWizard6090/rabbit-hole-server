@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -49,7 +50,7 @@ func isContactDuplicate(err error) bool {
 
 func (r *ContactRepository) ListContacts(ctx context.Context, userID uint, limit, offset int) ([]domain.CommentUser, int64, error) {
 	base := func() *gorm.DB {
-		return r.db.WithContext(ctx).Table("users").Where(`users.id IN (
+		return database.DBFromContext(ctx, r.db).Table("users").Where(`users.id IN (
 			SELECT contact_id FROM user_contacts WHERE user_id = ? AND status = ?
 			UNION
 			SELECT user_id FROM user_contacts WHERE contact_id = ? AND status = ?)`,
@@ -67,7 +68,7 @@ func (r *ContactRepository) ListContacts(ctx context.Context, userID uint, limit
 }
 
 func (r *ContactRepository) Request(ctx context.Context, requesterID, targetID uint) error {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var pending int64
 		if err := tx.Table("user_contacts").Where("user_id = ? AND status = ?", requesterID, contactPending).Count(&pending).Error; err != nil {
 			return err
@@ -130,7 +131,7 @@ func (r *ContactRepository) ListRequests(ctx context.Context, userID uint, incom
 		ownColumn, otherColumn = otherColumn, ownColumn
 	}
 	base := func() *gorm.DB {
-		return r.db.WithContext(ctx).Table("user_contacts").
+		return database.DBFromContext(ctx, r.db).Table("user_contacts").
 			Joins("JOIN users ON users.id = "+otherColumn).
 			Where(ownColumn+" = ? AND user_contacts.status = ?", userID, contactPending)
 	}
@@ -162,7 +163,7 @@ func (r *ContactRepository) ListRequests(ctx context.Context, userID uint, incom
 }
 
 func (r *ContactRepository) respond(ctx context.Context, userID, requesterID uint, status string) error {
-	res := r.db.WithContext(ctx).Exec(
+	res := database.DBFromContext(ctx, r.db).Exec(
 		"UPDATE user_contacts SET status = ?, responded_at = ? WHERE user_id = ? AND contact_id = ? AND status = ?",
 		status, time.Now().UTC(), requesterID, userID, contactPending)
 	if res.Error != nil {
@@ -183,7 +184,7 @@ func (r *ContactRepository) Decline(ctx context.Context, userID, requesterID uin
 }
 
 func (r *ContactRepository) Cancel(ctx context.Context, userID, targetID uint) error {
-	res := r.db.WithContext(ctx).Exec(
+	res := database.DBFromContext(ctx, r.db).Exec(
 		"DELETE FROM user_contacts WHERE user_id = ? AND contact_id = ? AND status = ?", userID, targetID, contactPending)
 	if res.Error != nil {
 		return mapErr(res.Error)
@@ -195,7 +196,7 @@ func (r *ContactRepository) Cancel(ctx context.Context, userID, targetID uint) e
 }
 
 func (r *ContactRepository) Remove(ctx context.Context, userID, contactID uint) error {
-	res := r.db.WithContext(ctx).Exec(`DELETE FROM user_contacts WHERE status = ?
+	res := database.DBFromContext(ctx, r.db).Exec(`DELETE FROM user_contacts WHERE status = ?
 		AND ((user_id = ? AND contact_id = ?) OR (user_id = ? AND contact_id = ?))`,
 		contactAccepted, userID, contactID, contactID, userID)
 	if res.Error != nil {
@@ -214,7 +215,7 @@ func escapeLike(s string) string {
 func (r *ContactRepository) SearchUsers(ctx context.Context, query string, excludeID uint) ([]domain.CommentUser, error) {
 	var rows []publicUserRow
 	pattern := escapeLike(strings.ToLower(strings.TrimSpace(query))) + "%"
-	err := r.db.WithContext(ctx).Table("users").Select(publicUserColumns).
+	err := database.DBFromContext(ctx, r.db).Table("users").Select(publicUserColumns).
 		Where(`users.id <> ? AND users.email NOT LIKE '%@deleted.invalid' AND (
 			LOWER(users.username) LIKE ? ESCAPE '\' OR LOWER(users.first_name) LIKE ? ESCAPE '\' OR LOWER(users.last_name) LIKE ? ESCAPE '\')`,
 			excludeID, pattern, pattern, pattern).

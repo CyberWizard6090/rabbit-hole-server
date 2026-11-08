@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -33,7 +34,7 @@ type searchRow struct {
 func (r *searchRepository) Search(ctx context.Context, params domain.SearchParams) ([]domain.SearchHit, int64, error) {
 	hits := []domain.SearchHit{}
 	var total int64
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SELECT set_config('pg_trgm.word_similarity_threshold', '" + wordSimilarityLimit + "', true)").Error; err != nil {
 			return err
 		}

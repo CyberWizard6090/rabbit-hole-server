@@ -39,7 +39,7 @@ func (r *formRepository) Create(ctx context.Context, form *domain.Form) error {
 
 func (r *formRepository) ListByWorkspace(ctx context.Context, workspaceID uint) ([]domain.Form, error) {
 	var rows []persistence.Form
-	if err := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).
+	if err := database.DBFromContext(ctx, r.db).Where("workspace_id = ?", workspaceID).
 		Order("updated_at DESC, id DESC").Find(&rows).Error; err != nil {
 		return nil, mapErr(err)
 	}
@@ -87,7 +87,7 @@ func (r *formRepository) loadFormChildren(
 }
 
 func (r *formRepository) Update(ctx context.Context, form *domain.Form) error {
-	result := r.db.WithContext(ctx).Model(&persistence.Form{}).
+	result := database.DBFromContext(ctx, r.db).Model(&persistence.Form{}).
 		Where("id = ? AND workspace_id = ?", form.ID, form.WorkspaceID).
 		Updates(map[string]any{
 			"name": form.Name, "description": form.Description, "slug": form.Slug,
@@ -106,7 +106,7 @@ func (r *formRepository) Update(ctx context.Context, form *domain.Form) error {
 }
 
 func (r *formRepository) Delete(ctx context.Context, workspaceID, formID uint) error {
-	result := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).Delete(&persistence.Form{}, formID)
+	result := database.DBFromContext(ctx, r.db).Where("workspace_id = ?", workspaceID).Delete(&persistence.Form{}, formID)
 	if result.Error != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(result.Error, &pgErr) && pgErr.Code == "23503" {
@@ -121,7 +121,7 @@ func (r *formRepository) Delete(ctx context.Context, workspaceID, formID uint) e
 }
 
 func (r *formRepository) Archive(ctx context.Context, workspaceID, formID uint) error {
-	result := r.db.WithContext(ctx).Model(&persistence.Form{}).
+	result := database.DBFromContext(ctx, r.db).Model(&persistence.Form{}).
 		Where("id = ? AND workspace_id = ?", formID, workspaceID).
 		Update("status", string(domain.FormArchived))
 	if result.Error != nil {
@@ -193,7 +193,7 @@ func placeQuestion(tx *gorm.DB, formID uint, model *persistence.FormQuestion) er
 
 func (r *formRepository) UpdateQuestion(ctx context.Context, question *domain.FormQuestion) error {
 	model := questionToPersistence(*question)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var form persistence.Form
 		if err := tx.First(&form, "id = ?", question.FormID).Error; err != nil {
 			return mapErr(err)
@@ -238,7 +238,7 @@ func (r *formRepository) UpdateQuestion(ctx context.Context, question *domain.Fo
 }
 
 func (r *formRepository) DeleteQuestion(ctx context.Context, formID, questionID uint) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var form persistence.Form
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			First(&form, "id = ?", formID).Error; err != nil {
@@ -261,7 +261,7 @@ func (r *formRepository) DeleteQuestion(ctx context.Context, formID, questionID 
 }
 
 func (r *formRepository) ReorderQuestions(ctx context.Context, formID uint, questionIDs []uint) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var form persistence.Form
 		if err := tx.First(&form, "id = ?", formID).Error; err != nil {
 			return mapErr(err)
@@ -290,7 +290,7 @@ func (r *formRepository) ReorderQuestions(ctx context.Context, formID uint, ques
 
 func (r *formRepository) Publish(ctx context.Context, formID uint) (*domain.Form, error) {
 	var published domain.Form
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var form persistence.Form
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&form, "id = ?", formID).Error; err != nil {
 			return mapErr(err)
@@ -517,9 +517,15 @@ func (r *formRepository) GetSubmissionWorkspace(ctx context.Context, submissionI
 	return workspaceID, nil
 }
 
+var liveFormScope = liveWorkspacePredicate("forms.workspace_id") +
+	" AND NOT EXISTS (SELECT 1 FROM form_task_configs fc WHERE fc.form_version_id = forms.current_version_id " +
+	"AND fc.enabled AND NOT " + liveListPredicate("fc.target_list_id") + ")"
+
 func (r *formRepository) GetPublishedBySlug(ctx context.Context, slug string) (*domain.Form, error) {
 	var form persistence.Form
-	err := r.db.WithContext(ctx).Where("lower(slug) = lower(?) AND status = ?", slug, domain.FormPublished).
+	err := database.DBFromContext(ctx, r.db).
+		Where("lower(slug) = lower(?) AND status = ?", slug, domain.FormPublished).
+		Where(liveFormScope).
 		First(&form).Error
 	if err != nil {
 		return nil, mapErr(err)
@@ -528,7 +534,7 @@ func (r *formRepository) GetPublishedBySlug(ctx context.Context, slug string) (*
 		return nil, domain.ErrFormNotPublished
 	}
 	var version persistence.FormVersion
-	if err := r.db.WithContext(ctx).
+	if err := database.DBFromContext(ctx, r.db).
 		Where("id = ? AND form_id = ? AND status = 'published'", *form.CurrentVersionID, form.ID).
 		First(&version).Error; err != nil {
 		return nil, domain.ErrFormNotPublished
@@ -553,7 +559,7 @@ func (r *formRepository) CreateSubmission(
 ) (*domain.FormSubmission, bool, error) {
 	var created domain.FormSubmission
 	var replay bool
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("form_id = ? AND key = ? AND expires_at <= ?", formID, idempotencyKey, time.Now()).
 			Delete(&persistence.FormIdempotencyKey{}).Error; err != nil {
 			return err
@@ -582,6 +588,7 @@ func (r *formRepository) CreateSubmission(
 
 		var form persistence.Form
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where(liveFormScope).
 			First(&form, "id = ? AND status = ? AND current_version_id IS NOT NULL", formID, domain.FormPublished).Error; err != nil {
 			return domain.ErrFormNotPublished
 		}
@@ -629,9 +636,9 @@ func (r *formRepository) CreateSubmission(
 	if err != nil {
 		if isUniqueViolation(err) {
 			var existing persistence.FormIdempotencyKey
-			lookupErr := r.db.WithContext(ctx).Where("form_id = ? AND key = ?", formID, idempotencyKey).First(&existing).Error
+			lookupErr := database.DBFromContext(ctx, r.db).Where("form_id = ? AND key = ?", formID, idempotencyKey).First(&existing).Error
 			if lookupErr == nil && existing.RequestHash == requestHash && existing.SubmissionID != nil {
-				row, loadErr := loadSubmission(r.db.WithContext(ctx), *existing.SubmissionID)
+				row, loadErr := loadSubmission(database.DBFromContext(ctx, r.db), *existing.SubmissionID)
 				if loadErr == nil {
 					return ptrSubmission(submissionToDomain(row)), true, nil
 				}
@@ -648,7 +655,7 @@ func (r *formRepository) ListSubmissions(
 	filter domain.SubmissionFilter,
 	limit, offset int,
 ) ([]domain.FormSubmission, int64, error) {
-	query := r.db.WithContext(ctx).Model(&persistence.FormSubmission{}).Where("form_id = ?", formID)
+	query := database.DBFromContext(ctx, r.db).Model(&persistence.FormSubmission{}).Where("form_id = ?", formID)
 	if filter.Status != "" {
 		query = query.Where("status = ?", filter.Status)
 	}
@@ -669,7 +676,7 @@ func (r *formRepository) ListSubmissions(
 }
 
 func (r *formRepository) GetSubmission(ctx context.Context, submissionID uint) (*domain.FormSubmission, error) {
-	row, err := loadSubmission(r.db.WithContext(ctx), submissionID)
+	row, err := loadSubmission(database.DBFromContext(ctx, r.db), submissionID)
 	if err != nil {
 		return nil, mapErr(err)
 	}

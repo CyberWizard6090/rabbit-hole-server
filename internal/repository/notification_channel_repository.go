@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -50,7 +51,7 @@ func (r *notificationChannelRepository) Create(
 	ctx context.Context, userID uint, kind, destination string, maxPerKind int,
 ) (*domain.NotificationChannel, error) {
 	var created channelRow
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("SELECT id FROM users WHERE id = ? FOR UPDATE", userID).Error; err != nil {
 			return err
 		}
@@ -86,7 +87,7 @@ func (r *notificationChannelRepository) Create(
 
 func (r *notificationChannelRepository) List(ctx context.Context, userID uint) ([]domain.NotificationChannel, error) {
 	var rows []channelRow
-	err := r.db.WithContext(ctx).Raw(
+	err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT "+channelColumns+" FROM notification_channels WHERE user_id = ? ORDER BY id", userID,
 	).Scan(&rows).Error
 	if err != nil {
@@ -101,7 +102,7 @@ func (r *notificationChannelRepository) List(ctx context.Context, userID uint) (
 
 func (r *notificationChannelRepository) Get(ctx context.Context, userID, id uint) (*domain.NotificationChannel, error) {
 	var rows []channelRow
-	err := r.db.WithContext(ctx).Raw(
+	err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT "+channelColumns+" FROM notification_channels WHERE id = ? AND user_id = ?", id, userID,
 	).Scan(&rows).Error
 	if err != nil {
@@ -115,7 +116,7 @@ func (r *notificationChannelRepository) Get(ctx context.Context, userID, id uint
 }
 
 func (r *notificationChannelRepository) Delete(ctx context.Context, userID, id uint) error {
-	res := r.db.WithContext(ctx).Exec("DELETE FROM notification_channels WHERE id = ? AND user_id = ?", id, userID)
+	res := database.DBFromContext(ctx, r.db).Exec("DELETE FROM notification_channels WHERE id = ? AND user_id = ?", id, userID)
 	if res.Error != nil {
 		return mapErr(res.Error)
 	}
@@ -127,7 +128,7 @@ func (r *notificationChannelRepository) Delete(ctx context.Context, userID, id u
 
 func (r *notificationChannelRepository) VerifiedDestinations(ctx context.Context, userID uint, kind string) ([]string, error) {
 	var out []string
-	err := r.db.WithContext(ctx).Raw(
+	err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT destination FROM notification_channels WHERE user_id = ? AND kind = ? AND verified_at IS NOT NULL AND disabled_at IS NULL ORDER BY id",
 		userID, kind,
 	).Scan(&out).Error
@@ -135,7 +136,7 @@ func (r *notificationChannelRepository) VerifiedDestinations(ctx context.Context
 }
 
 func (r *notificationChannelRepository) SaveConfirmation(ctx context.Context, channelID uint, tokenHash string, expiresAt time.Time) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("DELETE FROM channel_confirmations WHERE channel_id = ? AND used_at IS NULL", channelID).Error; err != nil {
 			return err
 		}
@@ -147,13 +148,13 @@ func (r *notificationChannelRepository) SaveConfirmation(ctx context.Context, ch
 }
 
 func (r *notificationChannelRepository) DiscardConfirmation(ctx context.Context, tokenHash string) error {
-	return mapErr(r.db.WithContext(ctx).Exec(
+	return mapErr(database.DBFromContext(ctx, r.db).Exec(
 		"DELETE FROM channel_confirmations WHERE token_hash = ? AND used_at IS NULL", tokenHash).Error)
 }
 
 func (r *notificationChannelRepository) LastConfirmationAt(ctx context.Context, channelID uint) (*time.Time, error) {
 	var times []time.Time
-	err := r.db.WithContext(ctx).Raw(
+	err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT created_at FROM channel_confirmations WHERE channel_id = ? ORDER BY created_at DESC LIMIT 1", channelID,
 	).Scan(&times).Error
 	if err != nil {
@@ -166,7 +167,7 @@ func (r *notificationChannelRepository) LastConfirmationAt(ctx context.Context, 
 }
 
 func (r *notificationChannelRepository) Confirm(ctx context.Context, tokenHash string) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var ids []uint
 		if err := tx.Raw(
 			"UPDATE channel_confirmations SET used_at = now() "+

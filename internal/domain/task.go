@@ -62,7 +62,7 @@ type TaskRepository interface {
 	List(ctx context.Context, listID uint, query TaskQuery, params pagination.Params) ([]Task, bool, bool, error)
 	Count(ctx context.Context, listID uint, filter TaskFilter) (int64, error)
 	GetByID(ctx context.Context, id uint) (*Task, error)
-	Update(ctx context.Context, task *Task, addTagIDs []uint, replaceAssigneeIDs *[]uint) error
+	Update(ctx context.Context, id uint, apply func(*Task) error, addTagIDs []uint, replaceAssigneeIDs *[]uint) (before, after *Task, err error)
 	Delete(ctx context.Context, id uint) error
 	Move(ctx context.Context, id uint, target TaskMove) (*Task, error)
 }

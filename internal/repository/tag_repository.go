@@ -25,7 +25,7 @@ func (r *tagRepository) CountUsageBySpace(ctx context.Context, spaceID uint) (ma
 		TagID uint
 		Count int64
 	}
-	err := r.db.WithContext(ctx).Table("task_tags").
+	err := database.DBFromContext(ctx, r.db).Table("task_tags").
 		Select("task_tags.tag_id AS tag_id, COUNT(*) AS count").
 		Joins("JOIN tags ON tags.id = task_tags.tag_id").
 		Where("tags.space_id = ?", spaceID).
@@ -56,7 +56,7 @@ func (r *tagRepository) Create(ctx context.Context, tag *domain.Tag) error {
 }
 
 func (r *tagRepository) Delete(ctx context.Context, spaceID, tagID uint) error {
-	res := r.db.WithContext(ctx).Where("id = ? AND space_id = ?", tagID, spaceID).Delete(&persistence.Tag{})
+	res := database.DBFromContext(ctx, r.db).Where("id = ? AND space_id = ?", tagID, spaceID).Delete(&persistence.Tag{})
 	if res.Error != nil {
 		return mapErr(res.Error)
 	}
@@ -68,7 +68,7 @@ func (r *tagRepository) Delete(ctx context.Context, spaceID, tagID uint) error {
 
 func (r *tagRepository) GetAllBySpace(ctx context.Context, spaceID uint) ([]domain.Tag, error) {
 	var rows []persistence.Tag
-	if err := r.db.WithContext(ctx).Where("space_id = ?", spaceID).Find(&rows).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Where("space_id = ?", spaceID).Find(&rows).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	return mapSlice(rows, tagToDomain), nil
@@ -76,7 +76,7 @@ func (r *tagRepository) GetAllBySpace(ctx context.Context, spaceID uint) ([]doma
 
 func (r *tagRepository) GetByID(ctx context.Context, tagID uint) (*domain.Tag, error) {
 	var m persistence.Tag
-	if err := r.db.WithContext(ctx).First(&m, tagID).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).First(&m, tagID).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	tag := tagToDomain(m)
@@ -96,7 +96,7 @@ func (r *tagRepository) GetByName(ctx context.Context, spaceID uint, name string
 }
 
 func (r *tagRepository) Merge(ctx context.Context, spaceID, sourceTagID, targetTagID uint) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec(`
 			INSERT INTO task_tags (task_id, tag_id)
 			SELECT task_id, ? FROM task_tags
@@ -116,7 +116,7 @@ func (r *tagRepository) Merge(ctx context.Context, spaceID, sourceTagID, targetT
 
 func (r *tagRepository) Update(ctx context.Context, tag *domain.Tag) error {
 	m := tagFromDomain(*tag)
-	return mapErr(r.db.WithContext(ctx).Save(&m).Error)
+	return mapErr(database.DBFromContext(ctx, r.db).Save(&m).Error)
 }
 
 func isUniqueViolation(err error) bool {

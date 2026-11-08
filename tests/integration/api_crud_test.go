@@ -256,8 +256,8 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 	}
 
 	rec = request(t, tc.Router, http.MethodDelete, "/api/v1/lists/"+itoa(folderListID), tc.Token, nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("delete folder list: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("delete folder list after folder delete: expected 403, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	var folder persistence.Folder

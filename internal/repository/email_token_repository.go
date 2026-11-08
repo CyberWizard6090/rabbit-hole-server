@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -23,7 +24,7 @@ func NewEmailTokenRepository(db *gorm.DB) *EmailTokenRepository {
 }
 
 func (r *EmailTokenRepository) Create(ctx context.Context, userID uint, kind, tokenHash string, expiresAt time.Time) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("DELETE FROM email_tokens WHERE user_id = ? AND kind = ?", userID, kind).Error; err != nil {
 			return err
 		}
@@ -35,12 +36,12 @@ func (r *EmailTokenRepository) Create(ctx context.Context, userID uint, kind, to
 }
 
 func (r *EmailTokenRepository) Discard(ctx context.Context, tokenHash string) error {
-	return mapErr(r.db.WithContext(ctx).Exec("DELETE FROM email_tokens WHERE token_hash = ? AND used_at IS NULL", tokenHash).Error)
+	return mapErr(database.DBFromContext(ctx, r.db).Exec("DELETE FROM email_tokens WHERE token_hash = ? AND used_at IS NULL", tokenHash).Error)
 }
 
 func (r *EmailTokenRepository) LastCreatedAt(ctx context.Context, userID uint, kind string) (*time.Time, error) {
 	var times []time.Time
-	err := r.db.WithContext(ctx).Raw(
+	err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT created_at FROM email_tokens WHERE user_id = ? AND kind = ? ORDER BY created_at DESC LIMIT 1", userID, kind,
 	).Scan(&times).Error
 	if err != nil {
@@ -70,7 +71,7 @@ func consumeToken(tx *gorm.DB, kind, tokenHash string) (uint, error) {
 
 func (r *EmailTokenRepository) VerifyEmail(ctx context.Context, tokenHash string) (uint, error) {
 	var userID uint
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		id, err := consumeToken(tx, TokenKindVerifyEmail, tokenHash)
 		if err != nil {
 			return err
@@ -85,7 +86,7 @@ func (r *EmailTokenRepository) VerifyEmail(ctx context.Context, tokenHash string
 
 func (r *EmailTokenRepository) ResetPassword(ctx context.Context, tokenHash, passwordHash string) (uint, error) {
 	var userID uint
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		id, err := consumeToken(tx, TokenKindResetPassword, tokenHash)
 		if err != nil {
 			return err

@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/persistence"
 )
@@ -26,7 +27,7 @@ func NewStatusRepository(db *gorm.DB) domain.StatusRepository {
 
 func (r *statusRepository) Create(ctx context.Context, status *domain.TaskStatus) error {
 	m := statusFromDomain(*status)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var list persistence.List
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, m.ListID).Error; err != nil {
 			return err
@@ -63,7 +64,7 @@ func (r *statusRepository) Create(ctx context.Context, status *domain.TaskStatus
 func (r *statusRepository) GetAllByList(ctx context.Context, listID uint) ([]domain.TaskStatus, error) {
 	var rows []persistence.TaskStatus
 
-	err := r.db.WithContext(ctx).
+	err := database.DBFromContext(ctx, r.db).
 		Where("list_id = ?", listID).
 		Order("position ASC").
 		Find(&rows).
@@ -78,7 +79,7 @@ func (r *statusRepository) GetAllByList(ctx context.Context, listID uint) ([]dom
 func (r *statusRepository) GetByID(ctx context.Context, statusID uint) (*domain.TaskStatus, error) {
 	var m persistence.TaskStatus
 
-	if err := r.db.WithContext(ctx).First(&m, statusID).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).First(&m, statusID).Error; err != nil {
 		return nil, mapErr(err)
 	}
 
@@ -88,8 +89,12 @@ func (r *statusRepository) GetByID(ctx context.Context, statusID uint) (*domain.
 
 func (r *statusRepository) Update(ctx context.Context, status *domain.TaskStatus) error {
 	m := statusFromDomain(*status)
-	if err := r.db.WithContext(ctx).Save(&m).Error; err != nil {
-		return mapErr(err)
+	res := database.DBFromContext(ctx, r.db).Model(&m).Select("Name", "Color", "Type").Updates(&m)
+	if res.Error != nil {
+		return mapErr(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return domain.ErrNotFound
 	}
 	status.UpdatedAt = m.UpdatedAt
 	return nil
@@ -97,7 +102,7 @@ func (r *statusRepository) Update(ctx context.Context, status *domain.TaskStatus
 
 func (r *statusRepository) UpdatePosition(ctx context.Context, status *domain.TaskStatus, position int) error {
 	m := statusFromDomain(*status)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var list persistence.List
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, m.ListID).Error; err != nil {
 			return err
@@ -134,7 +139,7 @@ func (r *statusRepository) UpdatePosition(ctx context.Context, status *domain.Ta
 		}
 
 		m.Position = position
-		return tx.Save(&m).Error
+		return tx.Model(&m).Select("Name", "Color", "Type", "Position").Updates(&m).Error
 	})
 	if err != nil {
 		status.Position = m.Position
@@ -146,7 +151,7 @@ func (r *statusRepository) UpdatePosition(ctx context.Context, status *domain.Ta
 }
 
 func (r *statusRepository) Delete(ctx context.Context, listID uint, statusID uint, replacementID *uint) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var list persistence.List
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&list, listID).Error; err != nil {
 			return err

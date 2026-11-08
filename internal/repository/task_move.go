@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/persistence"
 )
@@ -130,7 +131,7 @@ func resolvePosition(tx *gorm.DB, listID, taskID uint, target domain.TaskMove) (
 }
 
 func (r *taskRepository) Move(ctx context.Context, id uint, target domain.TaskMove) (*domain.Task, error) {
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var seen persistence.Task
 		if err := tx.Select("id", "list_id").Where("id = ?", id).First(&seen).Error; err != nil {
 			return err

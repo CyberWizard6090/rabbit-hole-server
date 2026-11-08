@@ -5,6 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -17,7 +18,7 @@ func NewWebhookChannelRepository(db *gorm.DB) domain.WebhookChannelRepository {
 }
 
 func (r *webhookChannelRepository) SetSecret(ctx context.Context, userID, channelID uint, secretEnc string) error {
-	res := r.db.WithContext(ctx).Exec(
+	res := database.DBFromContext(ctx, r.db).Exec(
 		"UPDATE notification_channels SET secret_enc = ?, failure_count = 0, disabled_at = NULL, last_error = NULL "+
 			"WHERE id = ? AND user_id = ? AND kind = ?", secretEnc, channelID, userID, domain.ChannelKindWebhook,
 	)
@@ -35,7 +36,7 @@ func (r *webhookChannelRepository) ActiveTarget(ctx context.Context, userID uint
 		ID        uint
 		SecretEnc *string
 	}
-	err := r.db.WithContext(ctx).Raw(
+	err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT id, secret_enc FROM notification_channels "+
 			"WHERE user_id = ? AND kind = ? AND destination = ? AND verified_at IS NOT NULL AND disabled_at IS NULL",
 		userID, domain.ChannelKindWebhook, destination,
@@ -51,11 +52,11 @@ func (r *webhookChannelRepository) ActiveTarget(ctx context.Context, userID uint
 
 func (r *webhookChannelRepository) RecordDelivery(ctx context.Context, channelID uint, failure string, maxFailures int) error {
 	if failure == "" {
-		return mapErr(r.db.WithContext(ctx).Exec(
+		return mapErr(database.DBFromContext(ctx, r.db).Exec(
 			"UPDATE notification_channels SET failure_count = 0, last_error = NULL WHERE id = ? AND disabled_at IS NULL",
 			channelID).Error)
 	}
-	return mapErr(r.db.WithContext(ctx).Exec(
+	return mapErr(database.DBFromContext(ctx, r.db).Exec(
 		"UPDATE notification_channels SET failure_count = failure_count + 1, last_error = ?, "+
 			"disabled_at = CASE WHEN failure_count + 1 >= ? THEN now() ELSE NULL END "+
 			"WHERE id = ? AND disabled_at IS NULL", failure, maxFailures, channelID,
