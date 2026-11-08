@@ -106,7 +106,7 @@ func TestTaskServiceRecordsCreationUpdateAndMove(t *testing.T) {
 	repo := &taskRepositoryMock{task: &domain.Task{Model: domain.Model{ID: 9}, SpaceID: 55, ListID: 7, StatusID: 3, Title: "task"}}
 	spaces := &spaceRepositoryMock{list: &domain.List{Model: domain.Model{ID: 7}, SpaceID: 55}}
 	codec := newTestCodec(t)
-	svc := NewTaskService(repo, spaces, &tagServiceMock{}, codec, rec)
+	svc := NewTaskService(repo, spaces, &tagServiceMock{}, codec, rec, nil, nil)
 
 	if _, err := svc.CreateTask(context.Background(), 42, CreateTaskParams{Title: "Build it", ListID: 7, StatusID: 3}); err != nil {
 		t.Fatalf("CreateTask: %v", err)
@@ -130,7 +130,7 @@ func TestTaskServiceRecordsCreationUpdateAndMove(t *testing.T) {
 func TestTaskServiceRecordsNothingForAFailedUpdateOrANoOp(t *testing.T) {
 	rec := &recorderStub{}
 	repo := &taskRepositoryMock{task: &domain.Task{Model: domain.Model{ID: 9}, ListID: 7, StatusID: 3, Title: "task"}}
-	svc := NewTaskService(repo, &spaceRepositoryMock{}, &tagServiceMock{}, newTestCodec(t), rec)
+	svc := NewTaskService(repo, &spaceRepositoryMock{}, &tagServiceMock{}, newTestCodec(t), rec, nil, nil)
 
 	if _, err := svc.UpdateTask(context.Background(), 42, 9, UpdateTaskParams{}); err != nil {
 		t.Fatalf("no-op update: %v", err)

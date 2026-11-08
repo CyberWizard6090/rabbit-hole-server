@@ -357,6 +357,16 @@ func applyTaskFilter(db *gorm.DB, f domain.TaskFilter) *gorm.DB {
 			db = db.Where("tasks.due_date IS NULL")
 		}
 	}
+	if len(f.ParentIDs) > 0 {
+		db = db.Where("tasks.parent_id IN ?", f.ParentIDs)
+	}
+	if f.HasParent != nil {
+		if *f.HasParent {
+			db = db.Where("tasks.parent_id IS NOT NULL")
+		} else {
+			db = db.Where("tasks.parent_id IS NULL")
+		}
+	}
 	if f.HasOpenChecklistItems != nil {
 		if *f.HasOpenChecklistItems {
 			db = db.Where(openChecklistItemExists)
@@ -508,7 +518,7 @@ func (r *taskRepository) Update(
 	ctx context.Context,
 	id uint,
 	apply func(*domain.Task) error,
-	addTagIDs []uint,
+	addTagIDs, removeTagIDs []uint,
 	replaceAssigneeIDs *[]uint,
 ) (*domain.Task, *domain.Task, error) {
 	var before, after *domain.Task
@@ -547,6 +557,12 @@ func (r *taskRepository) Update(
 		}
 		if replaceAssigneeIDs != nil {
 			if err := replaceTaskAssignees(tx, id, assigneeIDs); err != nil {
+				return err
+			}
+		}
+		removeTagIDs = uniqueIDs(removeTagIDs)
+		if len(removeTagIDs) > 0 {
+			if err := tx.Exec("DELETE FROM task_tags WHERE task_id = ? AND tag_id IN ?", id, removeTagIDs).Error; err != nil {
 				return err
 			}
 		}

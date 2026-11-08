@@ -96,7 +96,7 @@ func TestDashboard_TasksPerListAreBoundedAndCounted(t *testing.T) {
 	if tags, _ := newest["tags"].([]any); len(tags) != 1 || tags[0].(map[string]any)["name"] != "urgent" {
 		t.Fatalf("newest task tags = %v, want [urgent]", newest["tags"])
 	}
-	if statuses, _ := lists[big]["statuses"].([]any); len(statuses) != 1 {
+	if statuses, _ := lists[big]["statuses"].([]any); len(statuses) != 4 {
 		t.Fatalf("statuses missing from the dashboard: %v", lists[big]["statuses"])
 	}
 

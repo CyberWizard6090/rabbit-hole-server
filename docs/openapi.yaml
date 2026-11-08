@@ -1298,6 +1298,7 @@ paths:
     patch:
       tags: [task-templates]
       summary: "Update task template metadata"
+      description: "Partial update: only the sent `name` / `description` change, an omitted field keeps its value. `updated_at` is bumped and returned."
       security:
         - bearerAuth: []
       parameters:
@@ -1361,6 +1362,12 @@ paths:
     post:
       tags: [task-templates]
       summary: "Create a task from the latest template version"
+      description: |
+        Honors every field of the template: `title`, `description`, `priority`, `status_id`, `assignee_id`, `tags`,
+        `custom_fields` and the due date (`task.due_date` absolute, or `task.due_in_days` relative to the day of the
+        request, UTC). `custom_fields` of the request override the template values. Required custom fields of the
+        workspace must be supplied by the template or the request, otherwise 400 `VALIDATION_FAILED` with a
+        `custom_fields.<id>` detail (`REQUIRED`, params `field_id`) and no task is created.
       security:
         - bearerAuth: []
       parameters:
@@ -1481,7 +1488,14 @@ paths:
     patch:
       tags: [custom-fields]
       summary: "Replace a custom field definition"
-      description: "The current implementation requires the full definition in the request body."
+      description: |
+        The full definition is required in the request body. While live tasks hold values of the field the edit must
+        keep them valid, otherwise nothing changes and the answer is 409: `CUSTOM_FIELD_IN_USE` when the type changes
+        (detail `type`: `VALUES_EXIST` or `REFERENCED` by a template or form) and `CUSTOM_FIELD_VALUE_OUT_OF_RANGE` when
+        a dropdown / multi_select option that is still used is removed (detail `options`, params `values`), a number or
+        integer `min` / `max` excludes a stored value (details `config.min`, `config.max`), or a text `min_length` /
+        `max_length` does (details `config.min_length`, `config.max_length`; params `bound`, `count`). Fields without
+        stored values (values of deleted tasks do not count) can be changed freely.
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -1736,6 +1750,7 @@ paths:
     post:
       tags: [lists]
       summary: "Create a list in a space"
+      description: "Like the default list of a new space, every new list is created with the statuses `К выполнению` (todo), `В работе` (in_progress) and `Готово` (done) at positions 1 to 3, in the same transaction, so tasks can be created at once. Extra statuses are appended after them."
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -1770,6 +1785,7 @@ paths:
     post:
       tags: [lists]
       summary: "Create a list in a folder"
+      description: "Seeded with the same default statuses as a list created in a space."
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -1833,7 +1849,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/UpdateFolderRequest'}
+            schema: {$ref: '#/components/schemas/UpdateListRequest'}
       responses:
         '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
@@ -1911,14 +1927,23 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     delete:
       tags: [statuses]
-      summary: "Delete a status"
+      summary: "Delete a status, optionally moving its tasks to a replacement status"
+      description: |
+        Without `replacement_status_id` a status that live tasks use answers 409 `STATUS_IN_USE`. With it, all tasks of
+        the status (also soft-deleted ones and subtasks) move to the replacement and the status is deleted in one
+        transaction under a lock on the list. The replacement must be another status of the same list (400
+        `INVALID_REPLACEMENT_STATUS`). A status referenced by the task defaults, a status mapping or the template of the
+        enabled task configuration of a published form version is refused with 409 `STATUS_USED_BY_FORM` (params
+        `form_ids`), also with a replacement: change the form configuration and publish it again first.
       x-permission: space.update
       security:
         - bearerAuth: []
       parameters:
         - {name: list_id, in: path, required: true, schema: {type: integer}}
         - {name: status_id, in: path, required: true, schema: {type: integer}}
+        - {name: replacement_status_id, in: query, required: false, description: "Status of the same list that receives the tasks. `replacement_id` is accepted as an alias.", schema: {type: integer}}
       responses:
+        '409': {$ref: '#/components/responses/Error'}
         '200': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1973,6 +1998,8 @@ paths:
         - {name: start_to, in: query, required: false, description: "Starts on or before this UTC day.", schema: {type: string, format: date}}
         - {name: has_due, in: query, required: false, description: "`true`/`false`: task has / has no due date.", schema: {type: boolean}}
         - {name: has_open_checklist_items, in: query, required: false, description: "`true`/`false`: task has / has no unresolved checklist items.", schema: {type: boolean}}
+        - {name: parent_id, in: query, required: false, description: "Comma separated task ids: only direct subtasks of these tasks.", schema: {type: string, example: "12,15"}}
+        - {name: has_parent, in: query, required: false, description: "`false`: only top-level tasks, `true`: only subtasks. `false` together with `parent_id` is 400 `INVALID_FILTER`.", schema: {type: boolean}}
         - {name: with_total, in: query, required: false, description: "`true`: include `total_count` (number of tasks matching the filters, ignoring cursor and limit).", schema: {type: boolean}}
       responses:
         '200': {$ref: '#/components/responses/Ok'}
@@ -2997,6 +3024,7 @@ components:
 
         position: {type: integer}
         priority: {$ref: '#/components/schemas/TaskPriority'}
+        subtask_count: {type: integer, minimum: 0, description: "Number of live direct subtasks."}
         checklist_items_total: {type: integer, minimum: 0, description: "Number of items over all checklists of the task; 0 without checklists. Subtasks are not counted."}
         checklist_items_resolved: {type: integer, minimum: 0, description: "Number of resolved items; never above checklist_items_total."}
     ActorView:
@@ -3038,6 +3066,7 @@ components:
         start_date: {type: string, format: date-time, nullable: true}
         due_date: {type: string, format: date-time, nullable: true, description: Must not be before start_date (400 INVALID_DATE_RANGE).}
         time_estimate: {type: integer, minimum: 0, description: Seconds.}
+        custom_fields: {type: object, additionalProperties: {}, description: "Custom field values keyed by field id, for example `{\"7\": \"ACME\"}`; saved with the task in one transaction. Every required custom field of the workspace needs a non-empty value, otherwise 400 `VALIDATION_FAILED` with one `custom_fields.<id>` detail (`REQUIRED`, params `field_id`) per missing field. Unknown fields and invalid values are 400 `INVALID_CUSTOM_FIELD`. Tasks created by a form fail with `task_creation_status` `failed` when a required field has no value."}
     TaskPriority:
       type: integer
       enum: [1, 2, 3, 4, 5]
@@ -3310,7 +3339,6 @@ components:
         configuration: {$ref: '#/components/schemas/TaskTemplateConfiguration'}
     UpdateTaskTemplateRequest:
       type: object
-      required: [name]
       properties:
         name: {type: string, minLength: 1, maxLength: 255}
         description: {type: string}
@@ -3330,7 +3358,8 @@ components:
             priority: {$ref: '#/components/schemas/TaskPriorityName'}
             status_id: {type: integer, nullable: true}
             assignee_id: {type: integer, nullable: true}
-            due_date: {type: string, format: date, nullable: true}
+            due_date: {type: string, format: date, nullable: true, description: "Absolute due day (UTC). Mutually exclusive with `due_in_days`. Honored by apply and by form tasks."}
+            due_in_days: {type: integer, minimum: 0, maximum: 3650, nullable: true, description: "Relative due day: that many days after the day of the apply request (UTC) or of the form submission. 0 is the same day."}
         custom_fields:
           type: array
           items:
@@ -3349,6 +3378,7 @@ components:
         status_id: {type: integer}
         title: {type: string}
         description: {type: string}
+        custom_fields: {type: object, additionalProperties: {}, description: "Custom field values keyed by field id; override the template values."}
     CustomFieldRequest:
       type: object
       required: [name, type]
@@ -3447,6 +3477,12 @@ components:
         assignee_ids: {type: array, items: {type: integer}, description: "Replaces the whole set of assignees; [] removes all. Must be workspace members. Responses list assignees as public profiles (id, username, first_name, last_name, avatar_url), never with e-mail, bio or time zone."}
         add_tag_ids: {type: array, items: {type: integer}}
         add_tag_names: {type: array, items: {type: string}}
+        remove_tag_ids: {type: array, items: {type: integer}, description: "Tags to detach; tags the task does not have are ignored. Applied atomically with the other changes under the task lock; a tag in both `remove_tag_ids` and `add_tag_ids` is 400 `CONFLICTING_TAG_CHANGE`. The change is recorded as a `tag_ids` activity entry."}
+    UpdateListRequest:
+      type: object
+      properties:
+        name: {type: string, minLength: 1}
+        folder_id: {type: integer, nullable: true, description: "Moves the list into this folder; null moves it to the space root. The folder must be alive and belong to the same space (400 `INVALID_FOLDER_REFERENCE`). Tasks and statuses move along."}
     ChangePasswordRequest:
       type: object
       required: [current_password, new_password]

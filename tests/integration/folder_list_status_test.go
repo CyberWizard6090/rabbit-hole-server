@@ -85,8 +85,8 @@ func TestStatus_PositionShiftAndDelete(t *testing.T) {
 	if err := tc.DB.Where("list_id = ?", listID).Order("position ASC").Find(&statuses).Error; err != nil {
 		t.Fatalf("query statuses: %v", err)
 	}
-	if len(statuses) != 1 {
-		t.Fatalf("status count = %d, want 1", len(statuses))
+	if len(statuses) != 4 || statuses[0].Name != "Inserted" {
+		t.Fatalf("statuses = %+v, want Inserted first followed by the three defaults", statuses)
 	}
 
 	for i, status := range statuses {

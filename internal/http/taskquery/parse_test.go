@@ -91,6 +91,41 @@ func TestParseErrors(t *testing.T) {
 	}
 }
 
+func TestParseParentFilters(t *testing.T) {
+	q, err := Parse(url.Values{"parent_id": {"9,3,9"}, "has_parent": {"true"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(q.Filter.ParentIDs, []uint{3, 9}) || q.Filter.HasParent == nil || !*q.Filter.HasParent {
+		t.Fatalf("parent filters = %+v", q.Filter)
+	}
+	other, _ := Parse(url.Values{"parent_id": {"3,9"}, "has_parent": {"true"}})
+	if q.FilterSignature() != other.FilterSignature() {
+		t.Fatal("equivalent parent filters must share a signature")
+	}
+	none, _ := Parse(url.Values{})
+	if q.FilterSignature() == none.FilterSignature() {
+		t.Fatal("parent filters must change the cursor signature")
+	}
+	top, err := Parse(url.Values{"has_parent": {"false"}})
+	if err != nil || top.Filter.HasParent == nil || *top.Filter.HasParent {
+		t.Fatalf("has_parent=false: %+v %v", top.Filter, err)
+	}
+}
+
+func TestParseParentFiltersRejectInvalidInput(t *testing.T) {
+	for name, values := range map[string]url.Values{
+		"text id":  {"parent_id": {"abc"}},
+		"zero id":  {"parent_id": {"0"}},
+		"bad bool": {"has_parent": {"maybe"}},
+		"conflict": {"parent_id": {"4"}, "has_parent": {"false"}},
+	} {
+		if _, err := Parse(values); err == nil || err.Code != CodeInvalidFilter {
+			t.Errorf("%s: err = %v, want %s", name, err, CodeInvalidFilter)
+		}
+	}
+}
+
 func TestEveryWhitelistedFieldParses(t *testing.T) {
 	for _, f := range []domain.TaskSortField{"id", "title", "status", "priority", "time_estimate", "time_spent", "start_date", "due_date", "created_at", "updated_at", "assignee"} {
 		if _, err := Parse(url.Values{"sort": {"-" + string(f)}}); err != nil {
