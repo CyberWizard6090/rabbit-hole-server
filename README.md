@@ -58,7 +58,11 @@ relies on:
   single-use link goes to the new address (`FRONTEND_URL/confirm-email-change?token=...`, posted to
   `/auth/confirm-email-change`), `DELETE /profile/email-change` cancels it, `GET /profile` shows
   `pending_email`. Confirming revokes every session like a password change and warns the old address.
-- **Members**: workspace members are managed under `/workspaces/:id/members`; only contacts can be
+- **Contacts and privacy**: contacts are consent based (`POST /contacts` sends a request that looks the
+  same for every id, the other user accepts or declines under `/contacts/requests`); only accepted
+  contacts can be added to a workspace. Other users are exposed as id, username, name and avatar only
+  (never e-mail, bio or time zone), and `/users/search` does not match e-mail addresses.
+- **Members**: workspace members are managed under `/workspaces/:id/members`; only accepted contacts can be
   added, and the owner cannot be re-roled, removed or leave.
 - **Pagination**: task lists use keyset pagination (`cursor`, `limit`; the response is
   `{items, next_cursor, prev_cursor, has_next, has_prev}`, plus `total_count` with `with_total=true`).

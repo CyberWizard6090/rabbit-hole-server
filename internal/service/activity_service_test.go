@@ -56,11 +56,11 @@ func TestDiffTaskReportsOnlyChangedFields(t *testing.T) {
 	parent := uint(4)
 	before := &domain.Task{
 		Model: domain.Model{ID: 9}, Title: "old", Description: "secret old", StatusID: 1, Priority: 2, ListID: 7,
-		Assignees: []domain.User{{ID: 3}, {ID: 1}}, Tags: []domain.Tag{{ID: 5}},
+		Assignees: []domain.CommentUser{{ID: 3}, {ID: 1}}, Tags: []domain.Tag{{ID: 5}},
 	}
 	after := &domain.Task{
 		Model: domain.Model{ID: 9}, Title: "new", Description: "secret new", StatusID: 1, Priority: 2, ListID: 8,
-		DueDate: &due, ParentID: &parent, Assignees: []domain.User{{ID: 1}, {ID: 3}, {ID: 6}}, Tags: []domain.Tag{{ID: 5}},
+		DueDate: &due, ParentID: &parent, Assignees: []domain.CommentUser{{ID: 1}, {ID: 3}, {ID: 6}}, Tags: []domain.Tag{{ID: 5}},
 	}
 
 	entries := diffTask(9, 42, snapshotTask(before), snapshotTask(after))
@@ -95,7 +95,7 @@ func TestDiffTaskReportsOnlyChangedFields(t *testing.T) {
 }
 
 func TestDiffTaskIsEmptyWhenNothingChanged(t *testing.T) {
-	task := &domain.Task{Model: domain.Model{ID: 1}, Title: "same", Assignees: []domain.User{{ID: 2}}}
+	task := &domain.Task{Model: domain.Model{ID: 1}, Title: "same", Assignees: []domain.CommentUser{{ID: 2}}}
 	if entries := diffTask(1, 7, snapshotTask(task), snapshotTask(task)); len(entries) != 0 {
 		t.Fatalf("entries = %+v", entries)
 	}

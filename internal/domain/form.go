@@ -193,6 +193,8 @@ type SubmissionFile struct {
 	TaskAttachmentID *uint  `json:"task_attachment_id,omitempty"`
 }
 
+const TaskCreationFailureCode = "TASK_CREATION_FAILED"
+
 type TaskCreationStatus string
 
 const (

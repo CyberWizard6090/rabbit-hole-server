@@ -10,71 +10,67 @@ import (
 )
 
 func TestContactServiceDelegatesOperations(t *testing.T) {
-	users := []domain.User{{ID: 1, Username: "alice"}}
-	var gotUID, gotContact uint
-	repo := &contactRepositoryMock{
-		getContactsFn: func(uid uint) ([]domain.User, error) { gotUID = uid; return users, nil },
-		getContactsPageFn: func(uid uint, limit, offset int) ([]domain.User, int64, error) {
-			gotUID = uid
-			if limit != 10 || offset != 5 {
-				t.Fatalf("limit=%d offset=%d", limit, offset)
-			}
-			return users, int64(len(users)), nil
-		},
-		addContactFn:    func(uid, contactID uint) error { gotUID, gotContact = uid, contactID; return nil },
-		deleteContactFn: func(uid, contactID uint) error { gotUID, gotContact = uid, contactID; return nil },
-		searchUsersFn: func(q string, excludeID uint) ([]domain.User, error) {
-			gotUID = excludeID
-			if q != "bob" {
-				t.Fatalf("query=%q", q)
-			}
-			return users, nil
-		},
-	}
+	users := []domain.CommentUser{{ID: 1, Username: "alice"}}
+	requests := []domain.ContactRequest{{User: users[0]}}
+	repo := &contactRepositoryMock{users: users, requests: requests}
 	s := NewContactService(repo)
+	ctx := context.Background()
 
-	got, err := s.GetContacts(context.Background(), 7)
-	if err != nil || !reflect.DeepEqual(got, users) || gotUID != 7 {
-		t.Fatalf("GetContacts: got=%v err=%v uid=%d", got, err, gotUID)
+	got, total, err := s.ListContacts(ctx, 7, 10, 5)
+	if err != nil || !reflect.DeepEqual(got, users) || total != 1 || repo.gotUser != 7 || repo.gotLimit != 10 || repo.gotOffset != 5 {
+		t.Fatalf("ListContacts: got=%v total=%d err=%v repo=%+v", got, total, err, repo)
 	}
-	got, total, err := s.GetContactsPage(context.Background(), 7, 10, 5)
-	if err != nil || !reflect.DeepEqual(got, users) || total != 1 || gotUID != 7 {
-		t.Fatalf("GetContactsPage: got=%v total=%d err=%v uid=%d", got, total, err, gotUID)
+	if err := s.RequestContact(ctx, 7, 8); err != nil || repo.gotUser != 7 || repo.gotOther != 8 {
+		t.Fatalf("RequestContact: err=%v repo=%+v", err, repo)
 	}
-	if err := s.AddContact(context.Background(), 7, 8); err != nil || gotUID != 7 || gotContact != 8 {
-		t.Fatalf("AddContact: err=%v uid=%d contact=%d", err, gotUID, gotContact)
+	gotRequests, _, err := s.ListRequests(ctx, 7, true, 3, 6)
+	if err != nil || !reflect.DeepEqual(gotRequests, requests) || !repo.gotIn || repo.gotLimit != 3 || repo.gotOffset != 6 {
+		t.Fatalf("ListRequests: got=%v err=%v repo=%+v", gotRequests, err, repo)
 	}
-	if err := s.DeleteContact(context.Background(), 7, 8); err != nil || gotUID != 7 || gotContact != 8 {
-		t.Fatalf("DeleteContact: err=%v uid=%d contact=%d", err, gotUID, gotContact)
+	for name, call := range map[string]func(context.Context, uint, uint) error{
+		"accept": s.AcceptRequest, "decline": s.DeclineRequest, "cancel": s.CancelRequest, "remove": s.RemoveContact,
+	} {
+		if err := call(ctx, 7, 9); err != nil || repo.calls[len(repo.calls)-1] != name || repo.gotUser != 7 || repo.gotOther != 9 {
+			t.Fatalf("%s: err=%v repo=%+v", name, err, repo)
+		}
 	}
-	got, err = s.SearchUsers(context.Background(), 7, "bob")
-	if err != nil || !reflect.DeepEqual(got, users) || gotUID != 7 {
-		t.Fatalf("SearchUsers: got=%v err=%v uid=%d", got, err, gotUID)
+	got, err = s.SearchUsers(ctx, 7, "  bob ")
+	if err != nil || !reflect.DeepEqual(got, users) || repo.gotUser != 7 || repo.gotQuery != "bob" {
+		t.Fatalf("SearchUsers: got=%v err=%v repo=%+v", got, err, repo)
+	}
+}
+
+func TestContactServiceRejectsRequestingSelf(t *testing.T) {
+	repo := &contactRepositoryMock{}
+	if err := NewContactService(repo).RequestContact(context.Background(), 4, 4); !errors.Is(err, domain.ErrCannotAddSelf) {
+		t.Fatalf("err=%v", err)
+	}
+	if len(repo.calls) != 0 {
+		t.Fatalf("repository was called: %v", repo.calls)
 	}
 }
 
 func TestContactServicePropagatesRepositoryError(t *testing.T) {
 	want := errors.New("db down")
-	s := NewContactService(&contactRepositoryMock{
-		getContactsFn:     func(uint) ([]domain.User, error) { return nil, want },
-		getContactsPageFn: func(uint, int, int) ([]domain.User, int64, error) { return nil, 0, want },
-		addContactFn:      func(uint, uint) error { return want },
-		deleteContactFn:   func(uint, uint) error { return want },
-		searchUsersFn:     func(string, uint) ([]domain.User, error) { return nil, want },
-	})
-	if _, err := s.GetContacts(context.Background(), 1); !errors.Is(err, want) {
-		t.Fatalf("GetContacts err=%v", err)
+	s := NewContactService(&contactRepositoryMock{err: want})
+	ctx := context.Background()
+	if _, _, err := s.ListContacts(ctx, 1, 10, 0); !errors.Is(err, want) {
+		t.Fatalf("ListContacts err=%v", err)
 	}
-	if _, _, err := s.GetContactsPage(context.Background(), 1, 10, 0); !errors.Is(err, want) {
-		t.Fatalf("GetContactsPage err=%v", err)
+	if err := s.RequestContact(ctx, 1, 2); !errors.Is(err, want) {
+		t.Fatalf("RequestContact err=%v", err)
 	}
-	if err := s.AddContact(context.Background(), 1, 2); !errors.Is(err, want) {
-		t.Fatalf("AddContact err=%v", err)
+	if _, _, err := s.ListRequests(ctx, 1, false, 10, 0); !errors.Is(err, want) {
+		t.Fatalf("ListRequests err=%v", err)
 	}
-	if err := s.DeleteContact(context.Background(), 1, 2); !errors.Is(err, want) {
-		t.Fatalf("DeleteContact err=%v", err)
+	for name, call := range map[string]func(context.Context, uint, uint) error{
+		"accept": s.AcceptRequest, "decline": s.DeclineRequest, "cancel": s.CancelRequest, "remove": s.RemoveContact,
+	} {
+		if err := call(ctx, 1, 2); !errors.Is(err, want) {
+			t.Fatalf("%s err=%v", name, err)
+		}
 	}
-	if _, err := s.SearchUsers(context.Background(), 1, "x"); !errors.Is(err, want) {
+	if _, err := s.SearchUsers(ctx, 1, "xyz"); !errors.Is(err, want) {
 		t.Fatalf("SearchUsers err=%v", err)
 	}
 }

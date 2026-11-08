@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -469,11 +470,12 @@ func (r *formRepository) ProcessSubmission(
 		}).Error
 	})
 	if err != nil {
+		slog.Warn("form submission task creation failed", "submission_id", submissionID, "error", err)
 		updateErr := database.DBFromContext(ctx, r.db).Model(&persistence.FormSubmission{}).
 			Where("id = ? AND task_creation_status <> ?", submissionID, string(domain.TaskCreationSucceeded)).
 			Updates(map[string]any{
 				"task_creation_status": string(domain.TaskCreationFailed),
-				"task_creation_error":  truncateTaskError(err.Error()),
+				"task_creation_error":  domain.TaskCreationFailureCode,
 			}).Error
 		if updateErr != nil {
 			return domain.TaskCreationFailed, errors.Join(err, mapErr(updateErr))
@@ -513,14 +515,6 @@ func (r *formRepository) GetSubmissionWorkspace(ctx context.Context, submissionI
 		return 0, domain.ErrNotFound
 	}
 	return workspaceID, nil
-}
-
-func truncateTaskError(message string) string {
-	const maxLength = 2000
-	if len(message) > maxLength {
-		return message[:maxLength]
-	}
-	return message
 }
 
 func (r *formRepository) GetPublishedBySlug(ctx context.Context, slug string) (*domain.Form, error) {

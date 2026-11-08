@@ -58,7 +58,7 @@ func TestTaskMappingRoundTripsEveryField(t *testing.T) {
 	original := domain.Task{
 		Model: domain.Model{ID: 9}, SpaceID: 1, ListID: 2, StatusID: 4, ParentID: &parent,
 		Title: "t", Description: "d", Priority: 5, UserID: 6, TimeEstimate: 7, TimeSpent: 8,
-		Assignees: []domain.User{{ID: 10, Email: "a@b.c"}},
+		Assignees: []domain.CommentUser{{ID: 10, Username: "a"}},
 		Tags:      []domain.Tag{{ID: 11, SpaceID: 1, Name: "x", Color: "#000000"}},
 	}
 	back := taskToDomain(taskFromDomain(original))

@@ -87,6 +87,8 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	ticketLimiter := middleware.RateLimiter(60, time.Minute)
 	uploadLimiter := middleware.RateLimiter(60, time.Minute)
 	channelMailLimiter := middleware.RateLimiter(20, time.Minute)
+	contactRequestLimiter := middleware.RateLimiter(20, time.Minute)
+	userSearchLimiter := middleware.RateLimiter(30, time.Minute)
 	rehostLimiter := middleware.RateLimiter(30, time.Minute)
 	formUploadLimiter := middleware.RateLimiter(30, time.Minute)
 
@@ -140,12 +142,17 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				}
 				profile.POST("/avatar", uploadLimiter, deps.FileHandler.SetAvatar)
 				profile.DELETE("/avatar", deps.FileHandler.RemoveAvatar)
-				protected.GET("/users/search", deps.ContactHandler.Search)
+				protected.GET("/users/search", userSearchLimiter, deps.ContactHandler.Search)
 
 				contacts := protected.Group("/contacts")
 				{
 					contacts.GET("", deps.ContactHandler.List)
-					contacts.POST("", deps.ContactHandler.Add)
+					contacts.POST("", contactRequestLimiter, deps.ContactHandler.Add)
+					contacts.GET("/requests/incoming", deps.ContactHandler.ListIncoming)
+					contacts.GET("/requests/outgoing", deps.ContactHandler.ListOutgoing)
+					contacts.POST("/requests/:user_id/accept", deps.ContactHandler.Accept)
+					contacts.POST("/requests/:user_id/decline", deps.ContactHandler.Decline)
+					contacts.DELETE("/requests/:user_id", deps.ContactHandler.Cancel)
 					contacts.DELETE("/:contact_id", deps.ContactHandler.Delete)
 				}
 
