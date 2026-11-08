@@ -191,7 +191,7 @@ func stronger(current string, candidate string) bool {
 func resolveRecipients(plan *notificationPlan, watchers []uint) map[uint]string {
 	chosen := map[uint]string{}
 	consider := func(userID uint, typeKey string) {
-		if userID == 0 || userID == plan.ActorID {
+		if userID == 0 || (plan.Actor.IsUser() && userID == plan.Actor.ID) {
 			return
 		}
 		if current, ok := chosen[userID]; !ok || stronger(current, typeKey) {
@@ -239,7 +239,7 @@ func (d *NotificationDispatcher) process(ctx context.Context, plan *notification
 	if err != nil {
 		return err
 	}
-	actor, err := d.source.User(ctx, plan.ActorID)
+	actor, err := d.actorFor(ctx, plan)
 	if err != nil {
 		return err
 	}
@@ -265,11 +265,26 @@ func (d *NotificationDispatcher) process(ctx context.Context, plan *notification
 			RecipientID: userID,
 			Content: NotificationContent{
 				Type: typeDef, TaskID: plan.TaskID, TaskTitle: info.Title, WorkspaceID: info.WorkspaceID,
-				Actor: *actor, ActorID: plan.ActorID, Payload: plan.Payload,
+				Actor: *actor, ActorID: plan.Actor.UserID(), Payload: plan.Payload,
 			},
 		})
 	}
 	return nil
+}
+
+func (d *NotificationDispatcher) actorFor(ctx context.Context, plan *notificationPlan) (*domain.CommentUser, error) {
+	if plan.Actor.IsUser() {
+		return d.source.User(ctx, plan.Actor.ID)
+	}
+	label := plan.Actor.Normalized().Label
+	payload := make(map[string]any, len(plan.Payload)+2)
+	for k, v := range plan.Payload {
+		payload[k] = v
+	}
+	payload["actor_type"] = string(plan.Actor.Type)
+	payload["actor_name"] = label
+	plan.Payload = payload
+	return &domain.CommentUser{FirstName: label}, nil
 }
 
 func (d *NotificationDispatcher) deliver(ctx context.Context, userID uint, base Delivery) {

@@ -238,8 +238,12 @@ func (h *FormHandler) Submit(c *gin.Context) {
 		response.ValidationError(c, err)
 		return
 	}
+	var respondentID *uint
+	if uid, err := contextutil.GetUserID(c); err == nil {
+		respondentID = &uid
+	}
 	submission, replay, err := h.service.Submit(
-		c.Request.Context(), c.Param("slug"), c.GetHeader("Idempotency-Key"), req.Answers,
+		c.Request.Context(), c.Param("slug"), c.GetHeader("Idempotency-Key"), respondentID, req.Answers,
 	)
 	if err != nil {
 		h.writeError(c, "FORM_SUBMISSION_FAILED", err)

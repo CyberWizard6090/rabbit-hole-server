@@ -93,7 +93,7 @@ func NewFileService(
 }
 
 func (s *fileService) recordAttachment(ctx context.Context, action string, userID, taskID uint, file *domain.File) {
-	entry := domain.ActivityEntry{TaskID: taskID, ActorID: userID, Action: action}
+	entry := domain.ActivityEntry{TaskID: taskID, Actor: domain.UserActor(userID), Action: action}
 	value := map[string]any{"id": file.ID, "name": file.Name, "size": file.Size}
 	if action == domain.ActivityAttachmentDeleted {
 		value["deleted_by"] = userID

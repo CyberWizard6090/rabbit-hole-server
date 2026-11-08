@@ -26,6 +26,7 @@ type ApplyTaskTemplateRequest struct {
 
 type FormTaskConfigurationRequest struct {
 	Enabled      bool                     `json:"enabled"`
+	OwnerID      *uint                    `json:"owner_id" binding:"omitempty,gt=0"`
 	Target       FormTaskTargetRequest    `json:"target"`
 	Template     *FormTaskTemplateRequest `json:"template"`
 	TaskDefaults FormTaskDefaultsRequest  `json:"task_defaults"`

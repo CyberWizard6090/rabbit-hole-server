@@ -40,12 +40,21 @@ type Task struct {
 	Position          int64         `json:"position"`
 	Source            TaskSource    `json:"source"`
 	SourceReferenceID *uint         `json:"source_reference_id,omitempty"`
+	Actor             Actor         `json:"-"`
+	CreatedBy         ActorView     `json:"created_by"`
+	RequesterInfo     *Requester    `json:"-"`
+	Requester         *Requester    `json:"requester,omitempty"`
 
 	ChecklistItemsTotal    int `json:"checklist_items_total"`
 	ChecklistItemsResolved int `json:"checklist_items_resolved"`
 
 	SortStatusPosition int     `json:"-"`
 	SortAssignee       *string `json:"-"`
+}
+
+func (t Task) RevealRequester() Task {
+	t.Requester = t.RequesterInfo
+	return t
 }
 
 type TaskSource string

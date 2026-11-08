@@ -86,7 +86,17 @@ func (h *FormTaskHandler) ListSubmissionTasks(c *gin.Context) {
 		h.writeError(c, err)
 		return
 	}
-	response.Success(c, http.StatusOK, []domain.Task{*task})
+	shown := *task
+	if userID, err := contextutil.GetUserID(c); err == nil {
+		workspaceID, err := h.forms.GetSubmissionWorkspace(c.Request.Context(), submissionID)
+		if err == nil {
+			allowed, err := h.permissions.HasWorkspacePermission(c.Request.Context(), userID, workspaceID, domain.PermTaskUpdate)
+			if err == nil && allowed {
+				shown = shown.RevealRequester()
+			}
+		}
+	}
+	response.Success(c, http.StatusOK, []domain.Task{shown})
 }
 
 func (h *FormTaskHandler) TaskStatus(c *gin.Context) {

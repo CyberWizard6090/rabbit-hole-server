@@ -44,7 +44,8 @@ func (s *submissionTaskProcessor) attachFiles(ctx context.Context, submission do
 	}
 	for _, file := range files {
 		recordActivity(ctx, s.activity, domain.ActivityEntry{
-			TaskID: taskID, ActorID: submission.CreatedBy, Action: domain.ActivityAttachmentCreated,
+			TaskID: taskID, Actor: domain.FormActor(submission.FormID, submission.FormName),
+			Action:   domain.ActivityAttachmentCreated,
 			NewValue: mustJSON(map[string]any{"id": file.ID, "name": file.Name, "size": file.Size}),
 		})
 	}
@@ -96,15 +97,29 @@ func (s *submissionTaskProcessor) process(
 			}
 		}
 
-		taskInput, customValues, mappingSnapshot, err := resolveSubmissionTask(
-			submission, config, templateConfig,
-		)
+		members, err := s.forms.WorkspaceMemberIDs(txCtx, submission.WorkspaceID, submissionUserCandidates(submission, config))
+		if err != nil {
+			return 0, nil, fmt.Errorf("load workspace members: %w", err)
+		}
+		resolved, err := resolveSubmissionTask(submission, config, templateConfig, memberSet(members))
 		if err != nil {
 			return 0, nil, err
 		}
-		task, err := s.tasks.CreateTaskFromSubmission(txCtx, submission.CreatedBy,
+		taskInput, customValues, mappingSnapshot := resolved.input, resolved.customValues, resolved.snapshot
+		ownerID := submission.CreatedBy
+		if config.OwnerID != nil {
+			if resolved.ownerIsMember {
+				ownerID = *config.OwnerID
+			} else {
+				slog.Info("form task owner is no longer a workspace member, using the form creator",
+					"submission_id", submission.ID, "owner_id", *config.OwnerID)
+			}
+		}
+		task, err := s.tasks.CreateTaskFromSubmission(txCtx, ownerID,
 			CreateTaskFromSubmissionParams{
 				WorkspaceID: submission.WorkspaceID, SubmissionID: submission.ID, Task: taskInput,
+				Actor:     domain.FormActor(submission.FormID, submission.FormName),
+				Requester: resolved.requester,
 			})
 		if err != nil {
 			return 0, nil, err
@@ -136,7 +151,8 @@ func resolveSubmissionTask(
 	submission domain.FormSubmission,
 	config domain.FormTaskConfiguration,
 	template TaskTemplateConfiguration,
-) (CreateTaskParams, map[uint]any, json.RawMessage, error) {
+	members map[uint]bool,
+) (resolvedSubmissionTask, error) {
 	input := CreateTaskParams{
 		ListID:   config.Target.ListID,
 		Priority: taskPriorityValue(config.TaskDefaults.Priority),
@@ -154,7 +170,7 @@ func resolveSubmissionTask(
 	if template.Task.DueDate != nil {
 		date, err := time.Parse("2006-01-02", *template.Task.DueDate)
 		if err != nil {
-			return CreateTaskParams{}, nil, nil, domain.ErrInvalidTaskTemplate
+			return resolvedSubmissionTask{}, domain.ErrInvalidTaskTemplate
 		}
 		input.DueDate = &date
 	}
@@ -179,7 +195,7 @@ func resolveSubmissionTask(
 	for _, field := range template.CustomFields {
 		var value any
 		if err := json.Unmarshal(field.Value, &value); err != nil {
-			return CreateTaskParams{}, nil, nil, domain.ErrInvalidTaskTemplate
+			return resolvedSubmissionTask{}, domain.ErrInvalidTaskTemplate
 		}
 		customValues[field.FieldID] = value
 	}
@@ -187,14 +203,16 @@ func resolveSubmissionTask(
 	for _, answer := range submission.Answers {
 		answers[answer.QuestionID] = answer.Value
 	}
-	for _, mapping := range config.Mappings {
+	failures := make(map[int]string)
+	requester := domain.Requester{}
+	for index, mapping := range config.Mappings {
 		raw, exists := answers[mapping.QuestionID]
 		if !exists {
 			continue
 		}
 		value, err := resolveMappedValue(raw, mapping)
 		if err != nil {
-			return CreateTaskParams{}, nil, nil, err
+			return resolvedSubmissionTask{}, err
 		}
 		switch mapping.Target.Type {
 		case "task_field":
@@ -206,47 +224,154 @@ func resolveSubmissionTask(
 			case "priority":
 				priority, ok := value.(string)
 				if !ok || !domain.ValidTaskPriorityName(priority) {
-					return CreateTaskParams{}, nil, nil, domain.ErrInvalidSubmission
+					return resolvedSubmissionTask{}, domain.ErrInvalidSubmission
 				}
 				input.Priority = taskPriorityValue(priority)
 			case "status_id":
 				id, ok := value.(uint)
 				if !ok || id == 0 {
-					return CreateTaskParams{}, nil, nil, domain.ErrInvalidSubmission
+					return resolvedSubmissionTask{}, domain.ErrInvalidSubmission
 				}
 				input.StatusID = id
 			case "assignee_id":
 				id, ok := value.(uint)
 				if !ok || id == 0 {
-					return CreateTaskParams{}, nil, nil, domain.ErrInvalidSubmission
+					return resolvedSubmissionTask{}, domain.ErrInvalidSubmission
+				}
+				input.AssigneeIDs = []uint{id}
+			case "assignee":
+				id, failure := memberFromAnswer(value, members)
+				if failure != "" {
+					failures[index] = failure
+					break
 				}
 				input.AssigneeIDs = []uint{id}
 			case "due_date":
 				dateText, ok := value.(string)
 				if !ok {
-					return CreateTaskParams{}, nil, nil, domain.ErrInvalidSubmission
+					return resolvedSubmissionTask{}, domain.ErrInvalidSubmission
 				}
 				date, err := time.Parse("2006-01-02", dateText)
 				if err != nil {
-					return CreateTaskParams{}, nil, nil, domain.ErrInvalidSubmission
+					return resolvedSubmissionTask{}, domain.ErrInvalidSubmission
 				}
 				input.DueDate = &date
 			}
 		case "custom_field":
 			customValues[mapping.Target.FieldID] = value
+		case "requester":
+			text, ok := value.(string)
+			if !ok {
+				failures[index] = "INVALID_VALUE"
+				break
+			}
+			text = strings.TrimSpace(text)
+			switch mapping.Target.Field {
+			case "name":
+				requester.Name = truncateRunes(text, maxRequesterNameRunes)
+			case "email":
+				requester.Email = truncateRunes(text, maxRequesterEmailRunes)
+			}
 		}
 	}
 	if strings.TrimSpace(input.Title) == "" {
 		input.Title = fmt.Sprintf("Form submission %d", submission.ID)
 	}
 	if input.StatusID == 0 {
-		return CreateTaskParams{}, nil, nil, domain.ErrInvalidSubmission
+		return resolvedSubmissionTask{}, domain.ErrInvalidSubmission
 	}
-	snapshot, err := json.Marshal(config.Mappings)
+	if submission.RespondentID != nil {
+		requester = domain.Requester{UserID: submission.RespondentID}
+	}
+	var requesterResult *domain.Requester
+	if !requester.Empty() {
+		requesterResult = &requester
+	}
+	snapshotItems := make([]mappingSnapshotEntry, len(config.Mappings))
+	for i, mapping := range config.Mappings {
+		snapshotItems[i] = mappingSnapshotEntry{FormTaskMapping: mapping, Failure: failures[i]}
+	}
+	snapshot, err := json.Marshal(snapshotItems)
 	if err != nil {
-		return CreateTaskParams{}, nil, nil, fmt.Errorf("encode form mapping snapshot: %w", err)
+		return resolvedSubmissionTask{}, fmt.Errorf("encode form mapping snapshot: %w", err)
 	}
-	return input, customValues, snapshot, nil
+	ownerIsMember := config.OwnerID != nil && members[*config.OwnerID]
+	return resolvedSubmissionTask{
+		input: input, customValues: customValues, snapshot: snapshot,
+		requester: requesterResult, ownerIsMember: ownerIsMember,
+	}, nil
+}
+
+type resolvedSubmissionTask struct {
+	input         CreateTaskParams
+	customValues  map[uint]any
+	snapshot      json.RawMessage
+	requester     *domain.Requester
+	ownerIsMember bool
+}
+
+type mappingSnapshotEntry struct {
+	domain.FormTaskMapping
+	Failure string `json:"failure,omitempty"`
+}
+
+const (
+	maxRequesterNameRunes  = 200
+	maxRequesterEmailRunes = 254
+)
+
+func memberSet(ids []uint) map[uint]bool {
+	set := make(map[uint]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set
+}
+
+func parseUserIDText(value any) (uint, bool) {
+	text, ok := value.(string)
+	if !ok {
+		return 0, false
+	}
+	id, err := strconv.ParseUint(strings.TrimSpace(text), 10, 64)
+	if err != nil || id == 0 {
+		return 0, false
+	}
+	return uint(id), true
+}
+
+func memberFromAnswer(value any, members map[uint]bool) (uint, string) {
+	id, ok := parseUserIDText(value)
+	if !ok {
+		return 0, "INVALID_ID"
+	}
+	if !members[id] {
+		return 0, "NOT_A_MEMBER"
+	}
+	return id, ""
+}
+
+func submissionUserCandidates(submission domain.FormSubmission, config domain.FormTaskConfiguration) []uint {
+	var ids []uint
+	if config.OwnerID != nil {
+		ids = append(ids, *config.OwnerID)
+	}
+	answers := make(map[uint]json.RawMessage, len(submission.Answers))
+	for _, answer := range submission.Answers {
+		answers[answer.QuestionID] = answer.Value
+	}
+	for _, mapping := range config.Mappings {
+		if mapping.Target.Type != "task_field" || mapping.Target.Field != "assignee" {
+			continue
+		}
+		var value any
+		if raw, ok := answers[mapping.QuestionID]; ok && json.Unmarshal(raw, &value) == nil {
+			if id, ok := parseUserIDText(value); ok {
+				ids = append(ids, id)
+			}
+		}
+	}
+	return ids
 }
 
 func resolveMappedValue(raw json.RawMessage, mapping domain.FormTaskMapping) (any, error) {

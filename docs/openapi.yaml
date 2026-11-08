@@ -814,7 +814,7 @@ paths:
       tags: [forms]
       summary: "Submit answers to a published form"
       description: |
-        Public. Limited to 5 requests per minute per client IP and to FORM_SUBMISSIONS_PER_HOUR (default 200) per form (code FORM_SUBMISSIONS_LIMITED); the body is capped at 128 KiB. Idempotency-Key is required; matching retries within 24 hours return the original submission (200), while reuse with a different payload returns 409.
+        Public; an optional valid `Authorization: Bearer` token marks the respondent as signed in (`respondent_id`; an invalid token is treated as anonymous) and becomes the task `requester`. Limited to 5 requests per minute per client IP and to FORM_SUBMISSIONS_PER_HOUR (default 200) per form (code FORM_SUBMISSIONS_LIMITED); the body is capped at 128 KiB. Idempotency-Key is required; matching retries within 24 hours return the original submission (200), while reuse with a different payload returns 409.
         Conditional questions: a question whose `settings.visible_if` is not satisfied by the (effective) answers is hidden; a hidden question is never required and an answer sent for it is silently dropped (not validated, not stored, not echoed).
         `file` questions take an array of upload ids from `POST /public/forms/{slug}/uploads`.
         Restrictions of the published version: after `closes_at` the answer is 410 `FORM_CLOSED`, once `max_submissions` submissions exist it is 409 `FORM_FULL` (counted inside the submit transaction, so concurrent requests cannot overshoot); idempotent replays of an accepted submission keep returning it. New submissions notify the members listed in `notify_on_submit` (in-app notification of type `form_submission`).
@@ -2060,6 +2060,14 @@ paths:
         in `new_value` (created) or `old_value` (deleted, plus `deleted_by`, the acting user; the uploader or a moderator).
         Editor images and avatars are not logged. Reordering inside a list changes nothing and is not logged.
 
+        `actor` says who or what initiated the entry: `{type, id, name}` with `type` one of `user`, `form`,
+        `automation`, `integration`, `system` (see ActorView). For `user` it also carries the public user
+        fields (`username`, `first_name`, `last_name`, `avatar_url`, never an e-mail address) as before and `name`
+        is the display name. For `form` the `id` is the form id and `name` is the form name at the time of the
+        event, so the history survives a rename or deletion of the form. `task.created` and the attachment
+        entries of a task created from a public form have actor type `form`; for them `new_value` of
+        `task.created` also carries `owner_id`, the technical owner.
+
         Entries are written after the change succeeds; if writing fails the change still stands and the
         failure is only logged.
       x-permission: task.read
@@ -2924,13 +2932,44 @@ components:
         type: {type: integer, minimum: 1, maximum: 3}
     Task:
       type: object
-      description: Task as returned by every task endpoint, the dashboard and realtime events (only the progress fields are described here).
+      description: Task as returned by every task endpoint, the dashboard and realtime events (only the progress and origin fields are described here).
       properties:
         id: {type: integer}
+        user_id: {type: integer, description: "The technical owner. Permission rules such as 'the author can edit own task' point at it. For a task created from a form it is `owner_id` of the task configuration when that user is still a workspace member, otherwise the form creator; for every other task it is the creating user."}
+        created_by: {$ref: '#/components/schemas/ActorView'}
+        requester:
+          allOf:
+            - $ref: '#/components/schemas/TaskRequester'
+          description: "Only present on tasks created from a form that identified a requester, and only for callers with `task.update` on the task (members and above). Guests and realtime events never carry it."
+
         position: {type: integer}
         priority: {$ref: '#/components/schemas/TaskPriority'}
         checklist_items_total: {type: integer, minimum: 0, description: "Number of items over all checklists of the task; 0 without checklists. Subtasks are not counted."}
         checklist_items_resolved: {type: integer, minimum: 0, description: "Number of resolved items; never above checklist_items_total."}
+    ActorView:
+      type: object
+      required: [type, id, name]
+      description: "Public projection of who or what initiated something. `created_by` of a task and `actor` of an activity entry."
+      properties:
+        type: {type: string, enum: [user, form, automation, integration, system]}
+        id: {type: integer, nullable: true, description: "The user id, the form id or the automation id depending on `type`; null for `system`."}
+        name: {type: string, description: "Display name of the user, or the label recorded at event time (the form name at creation for `form`)."}
+        username: {type: string, description: "Only for `user`."}
+        first_name: {type: string, description: "Only for `user`."}
+        last_name: {type: string, description: "Only for `user`."}
+        avatar_url: {type: string, description: "Only for `user`."}
+    TaskRequester:
+      type: object
+      description: |
+        Who asked for the task. If the respondent of the form was signed in (a valid Bearer token on the public
+        submission), `user` holds their public projection and `name` the display name; no e-mail address is ever
+        shown for a user. Otherwise `name` and `email` come from the optional answers mapped to the `requester`
+        targets and are given by the respondent themselves; this is a deliberate disclosure to members who can
+        update the task.
+      properties:
+        name: {type: string}
+        email: {type: string}
+        user: {$ref: '#/components/schemas/CommentUser'}
     CreateTaskRequest:
       type: object
       required: [title, status_id]
@@ -3168,6 +3207,7 @@ components:
       required: [enabled, target, task_defaults, mappings]
       properties:
         enabled: {type: boolean}
+        owner_id: {type: integer, nullable: true, description: "Optional technical owner (`tasks.user_id`) of the created tasks. Must be a current workspace member when saved (400 with detail `owner_id`) and is checked again for every submission; if that user has left the workspace the form creator is used instead. Tasks are always attributed to the form (`created_by.type = form`), not to the owner."}
         target:
           type: object
           required: [workspace_id]
@@ -3200,8 +3240,8 @@ components:
                 type: object
                 required: [type]
                 properties:
-                  type: {type: string, enum: [task_field, custom_field]}
-                  field: {type: string, enum: [title, description, priority, status_id, assignee_id, due_date]}
+                  type: {type: string, enum: [task_field, custom_field, requester]}
+                  field: {type: string, enum: [title, description, priority, status_id, assignee_id, assignee, due_date, name, email], description: "`task_field`: title, description, priority, status_id, assignee_id, assignee, due_date. `requester`: `name` (a text question) or `email` (an email question); both optional answers, ignored when the respondent was signed in. `task_field` `assignee` takes a single_choice or dropdown question without transform whose option values are workspace member user ids (every option is checked when the configuration is saved). At processing time a value that is not a current member is not applied: the task is created without that assignee (falling back to `task_defaults.assignee_id`) and the mapping entry in the stored mapping snapshot carries `failure` (`INVALID_ID` or `NOT_A_MEMBER`); the submission never fails because of it."}
                   field_id: {type: integer}
               transform:
                 type: object

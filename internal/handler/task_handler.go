@@ -65,6 +65,22 @@ func (h *TaskHandler) publishTask(eventType string, actorID uint, task *domain.T
 	})
 }
 
+func (h *TaskHandler) canSeeRequester(c *gin.Context, userID, listID uint) bool {
+	if h.permissions == nil {
+		return false
+	}
+	allowed, err := h.permissions.HasListPermission(c.Request.Context(), userID, listID, domain.PermTaskUpdate)
+	return err == nil && allowed
+}
+
+func (h *TaskHandler) present(c *gin.Context, userID uint, task *domain.Task) *domain.Task {
+	if task == nil || task.RequesterInfo == nil || !h.canSeeRequester(c, userID, task.ListID) {
+		return task
+	}
+	shown := task.RevealRequester()
+	return &shown
+}
+
 func (h *TaskHandler) Create(c *gin.Context) {
 	uid, err := contextutil.GetUserID(c)
 	if err != nil {
@@ -112,7 +128,7 @@ func (h *TaskHandler) Create(c *gin.Context) {
 	}
 
 	h.publishTask(realtime.EventTaskCreated, uid, task)
-	response.Success(c, http.StatusCreated, task)
+	response.Success(c, http.StatusCreated, h.present(c, uid, task))
 }
 
 func (h *TaskHandler) Update(c *gin.Context) {
@@ -161,11 +177,11 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	}
 
 	h.publishTask(realtime.EventTaskUpdated, uid, task)
-	response.Success(c, http.StatusOK, task)
+	response.Success(c, http.StatusOK, h.present(c, uid, task))
 }
 
 func (h *TaskHandler) List(c *gin.Context) {
-	_, err := contextutil.GetUserID(c)
+	uid, err := contextutil.GetUserID(c)
 	if err != nil {
 		response.Unauthorized(c)
 		return
@@ -194,11 +210,16 @@ func (h *TaskHandler) List(c *gin.Context) {
 		response.HandleError(c, httperrors.Internal("TASKS_FETCH_FAILED", "internal server error", err))
 		return
 	}
+	if h.canSeeRequester(c, uid, uint(listID)) {
+		for i := range tasks.Items {
+			tasks.Items[i] = tasks.Items[i].RevealRequester()
+		}
+	}
 	response.Success(c, http.StatusOK, tasks)
 }
 
 func (h *TaskHandler) Get(c *gin.Context) {
-	_, err := contextutil.GetUserID(c)
+	uid, err := contextutil.GetUserID(c)
 	if err != nil {
 		response.Unauthorized(c)
 		return
@@ -220,7 +241,7 @@ func (h *TaskHandler) Get(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, http.StatusOK, task)
+	response.Success(c, http.StatusOK, h.present(c, uid, task))
 }
 
 func (h *TaskHandler) Delete(c *gin.Context) {
@@ -348,5 +369,5 @@ func (h *TaskHandler) Move(c *gin.Context) {
 	} else {
 		h.publishTask(realtime.EventTaskUpdated, uid, task)
 	}
-	response.Success(c, http.StatusOK, task)
+	response.Success(c, http.StatusOK, h.present(c, uid, task))
 }

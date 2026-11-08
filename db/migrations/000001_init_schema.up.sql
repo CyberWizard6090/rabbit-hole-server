@@ -347,11 +347,19 @@ CREATE TABLE task_activities (
     id BIGSERIAL PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     task_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
+    user_id BIGINT,
+    actor_type TEXT NOT NULL DEFAULT 'user',
+    actor_id BIGINT,
+    actor_label TEXT,
     action TEXT NOT NULL,
     field TEXT,
     old_value JSONB,
     new_value JSONB,
+    CONSTRAINT chk_task_activities_actor_type CHECK (actor_type IN ('user', 'form', 'automation', 'integration', 'system')),
+    CONSTRAINT chk_task_activities_actor CHECK (
+        (actor_type = 'user' AND user_id IS NOT NULL AND (actor_id IS NULL OR actor_id = user_id))
+        OR (actor_type <> 'user' AND user_id IS NULL)
+    ),
     CONSTRAINT fk_task_activities_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
     CONSTRAINT fk_task_activities_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT
 );
@@ -494,13 +502,21 @@ CREATE INDEX idx_notifications_user_unread ON notifications (user_id, type) WHER
 
 ALTER TABLE tasks
     ADD COLUMN source VARCHAR(30) NOT NULL DEFAULT 'manual',
-    ADD COLUMN source_reference_id BIGINT;
+    ADD COLUMN source_reference_id BIGINT,
+    ADD COLUMN actor_type TEXT NOT NULL DEFAULT 'user',
+    ADD COLUMN actor_id BIGINT,
+    ADD COLUMN actor_label TEXT,
+    ADD COLUMN requester JSONB;
 
 ALTER TABLE tasks
     ADD CONSTRAINT chk_tasks_source
         CHECK (source IN ('manual', 'form', 'api', 'automation')),
     ADD CONSTRAINT chk_tasks_source_reference
-        CHECK (source <> 'form' OR source_reference_id IS NOT NULL);
+        CHECK (source <> 'form' OR source_reference_id IS NOT NULL),
+    ADD CONSTRAINT chk_tasks_actor_type
+        CHECK (actor_type IN ('user', 'form', 'automation', 'integration', 'system')),
+    ADD CONSTRAINT chk_tasks_actor_id
+        CHECK (actor_type <> 'user' OR actor_id IS NULL OR actor_id = user_id);
 
 CREATE INDEX idx_tasks_source_reference_id
     ON tasks (source_reference_id)

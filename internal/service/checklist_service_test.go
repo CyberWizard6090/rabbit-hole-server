@@ -73,7 +73,7 @@ func TestChecklistServiceRecordsCreationAndDeletion(t *testing.T) {
 		t.Fatalf("entries = %+v", rec.entries)
 	}
 	created, deleted := rec.entries[0], rec.entries[1]
-	if created.Action != domain.ActivityChecklistCreated || created.ActorID != 7 || created.TaskID != 9 ||
+	if created.Action != domain.ActivityChecklistCreated || created.Actor.ID != 7 || created.TaskID != 9 ||
 		string(created.NewValue) != `{"checklist_id":3,"name":"Release"}` {
 		t.Errorf("created = %+v (%s)", created, created.NewValue)
 	}

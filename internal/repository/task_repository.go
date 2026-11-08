@@ -60,7 +60,7 @@ func (r *taskRepository) Create(ctx context.Context, task *domain.Task, assignee
 		return mapErr(err)
 	}
 	*task = taskToDomain(m)
-	return nil
+	return mapErr(decorateTask(database.DBFromContext(ctx, r.db), task))
 }
 
 func (r *taskRepository) List(
@@ -125,6 +125,9 @@ func (r *taskRepository) List(
 	}
 
 	tasks := mapSlice(rows, taskToDomain)
+	if err := decorateTasks(database.DBFromContext(ctx, r.db), tasks); err != nil {
+		return nil, false, false, mapErr(err)
+	}
 	hasMore := len(tasks) > params.Limit
 	if hasMore {
 		tasks = tasks[:params.Limit]
@@ -430,6 +433,9 @@ func loadTask(tx *gorm.DB, id uint) (*domain.Task, error) {
 		return nil, err
 	}
 	task := taskToDomain(m)
+	if err := decorateTask(tx, &task); err != nil {
+		return nil, err
+	}
 	return &task, nil
 }
 

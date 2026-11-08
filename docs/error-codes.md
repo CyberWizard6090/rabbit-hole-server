@@ -226,6 +226,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `INVALID_LIST_ID`
 - `INVALID_MENTION`
 - `INVALID_OPTION`
+- `INVALID_OPTION_VALUE`
 - `INVALID_ORDER`
 - `INVALID_PAGINATION`
 - `INVALID_QUERY`

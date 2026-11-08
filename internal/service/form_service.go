@@ -32,7 +32,7 @@ type FormService interface {
 	ReorderQuestions(ctx context.Context, workspaceID, formID uint, questionIDs []uint) error
 	Publish(ctx context.Context, workspaceID, formID uint) (*domain.Form, error)
 	GetPublic(ctx context.Context, slug string) (*PublicForm, error)
-	Submit(ctx context.Context, slug, idempotencyKey string, answers map[uint]json.RawMessage) (*domain.FormSubmission, bool, error)
+	Submit(ctx context.Context, slug, idempotencyKey string, respondentID *uint, answers map[uint]json.RawMessage) (*domain.FormSubmission, bool, error)
 	ListSubmissions(
 		ctx context.Context,
 		workspaceID, formID uint,
@@ -463,6 +463,7 @@ func (s *formService) GetPublic(ctx context.Context, slug string) (*PublicForm, 
 func (s *formService) Submit(
 	ctx context.Context,
 	slug, idempotencyKey string,
+	respondentID *uint,
 	input map[uint]json.RawMessage,
 ) (*domain.FormSubmission, bool, error) {
 	if len(idempotencyKey) == 0 || len(idempotencyKey) > 255 {
@@ -505,7 +506,7 @@ func (s *formService) Submit(
 	}
 	hash := sha256.Sum256(requestBody)
 	submission, replay, err := s.repo.CreateSubmission(
-		ctx, form.ID, nil, idempotencyKey, hex.EncodeToString(hash[:]), answers,
+		ctx, form.ID, respondentID, idempotencyKey, hex.EncodeToString(hash[:]), answers,
 		domain.SubmissionOptions{
 			ClosesAt: snapshot.Settings.ClosesAt, MaxSubmissions: snapshot.Settings.MaxSubmissions, Uploads: claims,
 		},

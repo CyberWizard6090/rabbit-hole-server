@@ -46,3 +46,19 @@ func AuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+func OptionalAuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		header := c.GetHeader("Authorization")
+		if !strings.HasPrefix(header, "Bearer ") {
+			c.Next()
+			return
+		}
+		claims, err := authService.Authenticate(c.Request.Context(), strings.TrimPrefix(header, "Bearer "))
+		if err == nil {
+			c.Set("userID", claims.UserID)
+			c.Set(contextutil.TokenVersionKey, claims.TokenVersion)
+		}
+		c.Next()
+	}
+}
