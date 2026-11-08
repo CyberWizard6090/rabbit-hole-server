@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -29,7 +30,7 @@ func (r *activityRepository) Record(ctx context.Context, entries []domain.Activi
 	if len(entries) == 0 {
 		return nil
 	}
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		for _, e := range entries {
 			var field any
 			if e.Field != "" {
@@ -60,7 +61,7 @@ type activityRow struct {
 }
 
 func (r *activityRepository) ListByTask(ctx context.Context, taskID uint, limit, offset int) ([]domain.Activity, int64, error) {
-	db := r.db.WithContext(ctx)
+	db := database.DBFromContext(ctx, r.db)
 
 	var total int64
 	if err := db.Raw("SELECT count(*) FROM task_activities WHERE task_id = ?", taskID).Scan(&total).Error; err != nil {

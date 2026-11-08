@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -86,11 +87,11 @@ func oneFile(tx *gorm.DB, query string, args ...any) (*domain.File, error) {
 }
 
 func (r *fileRepository) Create(ctx context.Context, file domain.NewFile) (*domain.File, error) {
-	row, err := insertFile(r.db.WithContext(ctx), file)
+	row, err := insertFile(database.DBFromContext(ctx, r.db), file)
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	files, err := hydrateFiles(r.db.WithContext(ctx), []fileRow{row})
+	files, err := hydrateFiles(database.DBFromContext(ctx, r.db), []fileRow{row})
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -102,7 +103,7 @@ func (r *fileRepository) CreateAttachment(ctx context.Context, file domain.NewFi
 		return nil, domain.ErrNotFound
 	}
 	var created *domain.File
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var taskIDs []uint
 		if err := tx.Raw(
 			"SELECT id FROM tasks WHERE id = ? AND deleted_at IS NULL FOR UPDATE", *file.TaskID,
@@ -141,7 +142,7 @@ func (r *fileRepository) CreateAttachment(ctx context.Context, file domain.NewFi
 }
 
 func (r *fileRepository) ListAttachments(ctx context.Context, taskID uint) ([]domain.File, error) {
-	db := r.db.WithContext(ctx)
+	db := database.DBFromContext(ctx, r.db)
 	var rows []fileRow
 	if err := db.Raw(
 		"SELECT "+fileColumns+" FROM files WHERE kind = 'attachment' AND task_id = ? ORDER BY id ASC", taskID,
@@ -153,19 +154,20 @@ func (r *fileRepository) ListAttachments(ctx context.Context, taskID uint) ([]do
 }
 
 func (r *fileRepository) GetAttachment(ctx context.Context, taskID, id uint) (*domain.File, error) {
-	file, err := oneFile(r.db.WithContext(ctx),
+	file, err := oneFile(database.DBFromContext(ctx, r.db),
 		"SELECT "+fileColumns+" FROM files WHERE kind = 'attachment' AND task_id = ? AND id = ?", taskID, id)
 	return file, mapErr(err)
 }
 
 func (r *fileRepository) GetPublic(ctx context.Context, publicID string) (*domain.File, error) {
-	file, err := oneFile(r.db.WithContext(ctx),
-		"SELECT "+fileColumns+" FROM files WHERE kind IN ('image', 'avatar') AND public_id = ?", publicID)
+	file, err := oneFile(database.DBFromContext(ctx, r.db),
+		"SELECT "+fileColumns+" FROM files WHERE kind IN ('image', 'avatar') AND public_id = ? AND "+
+			"(workspace_id IS NULL OR "+liveWorkspacePredicate("files.workspace_id")+")", publicID)
 	return file, mapErr(err)
 }
 
 func (r *fileRepository) Delete(ctx context.Context, id uint) error {
-	res := r.db.WithContext(ctx).Exec("DELETE FROM files WHERE id = ?", id)
+	res := database.DBFromContext(ctx, r.db).Exec("DELETE FROM files WHERE id = ?", id)
 	if res.Error != nil {
 		return mapErr(res.Error)
 	}
@@ -190,7 +192,7 @@ func (r *fileRepository) ReplaceAvatar(ctx context.Context, file domain.NewFile,
 		created  *domain.File
 		replaced []domain.File
 	)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var err error
 		if replaced, err = takeAvatars(tx, file.UserID); err != nil {
 			return err
@@ -214,7 +216,7 @@ func (r *fileRepository) ReplaceAvatar(ctx context.Context, file domain.NewFile,
 
 func (r *fileRepository) ClearAvatar(ctx context.Context, userID uint) ([]domain.File, error) {
 	var replaced []domain.File
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var err error
 		if replaced, err = takeAvatars(tx, userID); err != nil {
 			return err

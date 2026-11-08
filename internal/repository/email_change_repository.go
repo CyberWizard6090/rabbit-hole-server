@@ -6,6 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -20,7 +21,7 @@ func NewEmailChangeRepository(db *gorm.DB) *EmailChangeRepository {
 }
 
 func (r *EmailChangeRepository) Create(ctx context.Context, userID uint, newEmail, tokenHash string, expiresAt time.Time) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("DELETE FROM email_tokens WHERE user_id = ? AND kind = ?", userID, TokenKindChangeEmail).Error; err != nil {
 			return err
 		}
@@ -32,14 +33,14 @@ func (r *EmailChangeRepository) Create(ctx context.Context, userID uint, newEmai
 }
 
 func (r *EmailChangeRepository) Discard(ctx context.Context, tokenHash string) error {
-	return mapErr(r.db.WithContext(ctx).Exec(
+	return mapErr(database.DBFromContext(ctx, r.db).Exec(
 		"DELETE FROM email_tokens WHERE token_hash = ? AND kind = ? AND used_at IS NULL", tokenHash, TokenKindChangeEmail,
 	).Error)
 }
 
 func (r *EmailChangeRepository) LastCreatedAt(ctx context.Context, userID uint) (*time.Time, error) {
 	var times []time.Time
-	err := r.db.WithContext(ctx).Raw(
+	err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT created_at FROM email_tokens WHERE user_id = ? AND kind = ? ORDER BY created_at DESC LIMIT 1", userID, TokenKindChangeEmail,
 	).Scan(&times).Error
 	if err != nil {
@@ -53,7 +54,7 @@ func (r *EmailChangeRepository) LastCreatedAt(ctx context.Context, userID uint) 
 
 func (r *EmailChangeRepository) Pending(ctx context.Context, userID uint) (string, error) {
 	var addresses []string
-	err := r.db.WithContext(ctx).Raw(
+	err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT payload FROM email_tokens WHERE user_id = ? AND kind = ? AND used_at IS NULL AND expires_at > now() "+
 			"ORDER BY created_at DESC LIMIT 1", userID, TokenKindChangeEmail,
 	).Scan(&addresses).Error
@@ -67,7 +68,7 @@ func (r *EmailChangeRepository) Pending(ctx context.Context, userID uint) (strin
 }
 
 func (r *EmailChangeRepository) Cancel(ctx context.Context, userID uint) error {
-	return mapErr(r.db.WithContext(ctx).Exec(
+	return mapErr(database.DBFromContext(ctx, r.db).Exec(
 		"UPDATE email_tokens SET used_at = now(), payload = NULL WHERE user_id = ? AND kind = ? AND used_at IS NULL",
 		userID, TokenKindChangeEmail,
 	).Error)
@@ -75,7 +76,7 @@ func (r *EmailChangeRepository) Cancel(ctx context.Context, userID uint) error {
 
 func (r *EmailChangeRepository) Confirm(ctx context.Context, tokenHash string) (domain.EmailChange, error) {
 	var change domain.EmailChange
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var rows []struct {
 			UserID  uint
 			Payload string

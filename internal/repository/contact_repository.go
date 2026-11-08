@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/persistence"
 )
@@ -21,7 +22,7 @@ func NewContactRepository(db *gorm.DB) *ContactRepository {
 }
 
 func (r *ContactRepository) AddContact(ctx context.Context, userID, contactID uint) error {
-	err := r.db.WithContext(ctx).Exec("INSERT INTO user_contacts (user_id, contact_id) VALUES (?, ?)", userID, contactID).Error
+	err := database.DBFromContext(ctx, r.db).Exec("INSERT INTO user_contacts (user_id, contact_id) VALUES (?, ?)", userID, contactID).Error
 	if err != nil && isContactDuplicate(err) {
 		return domain.ErrContactAlreadyAdded
 	}
@@ -42,7 +43,7 @@ func (r *ContactRepository) GetContactsPage(ctx context.Context, userID uint, li
 	var rows []persistence.User
 	var total int64
 
-	baseQuery := r.db.WithContext(ctx).Table("users").
+	baseQuery := database.DBFromContext(ctx, r.db).Table("users").
 		Joins("JOIN user_contacts ON user_contacts.contact_id = users.id").
 		Where("user_contacts.user_id = ?", userID)
 
@@ -62,7 +63,7 @@ func (r *ContactRepository) GetContactsPage(ctx context.Context, userID uint, li
 }
 
 func (r *ContactRepository) DeleteContact(ctx context.Context, userID, contactID uint) error {
-	res := r.db.WithContext(ctx).Exec("DELETE FROM user_contacts WHERE user_id = ? AND contact_id = ?", userID, contactID)
+	res := database.DBFromContext(ctx, r.db).Exec("DELETE FROM user_contacts WHERE user_id = ? AND contact_id = ?", userID, contactID)
 	if res.Error != nil {
 		return mapErr(res.Error)
 	}
@@ -80,7 +81,7 @@ func (r *ContactRepository) SearchUsers(ctx context.Context, query string, exclu
 	var rows []persistence.User
 
 	query = strings.ToLower(strings.TrimSpace(query))
-	err := r.db.WithContext(ctx).
+	err := database.DBFromContext(ctx, r.db).
 		Where(`(LOWER(username) LIKE ? ESCAPE '\' OR LOWER(email) = ?) AND id != ?`,
 			escapeLike(query)+"%", query, excludeID).
 		Order("username ASC, id ASC").

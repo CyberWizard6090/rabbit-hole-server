@@ -403,7 +403,7 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
     delete:
       tags: [workspaces]
-      summary: "Delete a workspace (soft delete; removes memberships and spaces)"
+      summary: "Delete a workspace (soft delete; memberships and everything below it become unreachable in the same transaction)"
       x-permission: workspace.delete
       security:
         - bearerAuth: []
@@ -685,7 +685,8 @@ paths:
       tags: [forms]
       summary: "Get the published public form schema"
       description: |
-        Public. Serves the current published version. `settings` carries the presentation settings of that version
+        Public. Answers 404 once the workspace is deleted or the target list of the published task configuration
+        (or its folder or space) is deleted; the same holds for submissions and uploads. Serves the current published version. `settings` carries the presentation settings of that version
         (`submit_button_text`, `success_message`, `redirect_url`, `accent_color`, `logo_url`, `cover_url`, `closes_at`; empty
         strings and `null` mean "not set"). `closed` is true once `closes_at` has passed and `full` once `max_submissions` is
         reached; a closed or full form is still returned so the page can explain it, and submissions are refused with
@@ -1433,7 +1434,7 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
     delete:
       tags: [spaces]
-      summary: "Delete a space (soft delete; nested resources become unreachable)"
+      summary: "Delete a space (soft delete cascading to its folders, lists and tasks in one transaction)"
       x-permission: space.delete
       security:
         - bearerAuth: []
@@ -1689,7 +1690,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     delete:
       tags: [folders]
-      summary: "Delete a folder"
+      summary: "Delete a folder (soft delete cascading to nested folders, their lists and tasks in one transaction)"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -1723,7 +1724,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     delete:
       tags: [lists]
-      summary: "Delete a list"
+      summary: "Delete a list (soft delete cascading to its tasks in one transaction)"
       x-permission: space.update
       security:
         - bearerAuth: []
@@ -1966,7 +1967,7 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     delete:
       tags: [tasks]
-      summary: "Delete a task"
+      summary: "Delete a task (soft delete cascading to its subtasks in one transaction)"
       x-permission: task.delete
       security:
         - bearerAuth: []

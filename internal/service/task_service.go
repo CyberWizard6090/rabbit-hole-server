@@ -279,58 +279,56 @@ func (s *taskService) GetTaskByID(ctx context.Context, taskID uint) (*domain.Tas
 }
 
 func (s *taskService) UpdateTask(ctx context.Context, userID, id uint, params UpdateTaskParams) (*domain.Task, error) {
-	task, err := s.repo.GetByID(ctx, id)
+	current, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	before := snapshotTask(task)
 
-	newTagIDs, err := s.resolveNewTags(ctx, task.SpaceID, params.AddTagNames)
+	newTagIDs, err := s.resolveNewTags(ctx, current.SpaceID, params.AddTagNames)
 	if err != nil {
 		return nil, err
 	}
 	tagIDsToAdd := append(append([]uint{}, params.AddTagIDs...), newTagIDs...)
 
-	if params.Title != nil {
-		task.Title = *params.Title
-	}
-	if params.Description != nil {
-		task.Description = *params.Description
-	}
-	if params.StatusID != nil {
-		task.StatusID = *params.StatusID
-	}
-	if params.Priority != nil {
-		task.Priority = *params.Priority
-	}
-	if params.ParentID.Set {
-		if params.ParentID.Value != nil && *params.ParentID.Value == task.ID {
-			return nil, domain.ErrInvalidParentReference
+	apply := func(task *domain.Task) error {
+		if params.Title != nil {
+			task.Title = *params.Title
 		}
-		task.ParentID = params.ParentID.Value
-	}
-	if params.StartDate.Set {
-		task.StartDate = params.StartDate.Value
-	}
-	if params.DueDate.Set {
-		task.DueDate = params.DueDate.Value
-	}
-	if err := checkDateRange(task.StartDate, task.DueDate); err != nil {
-		return nil, err
-	}
-	if params.TimeEstimate != nil {
-		task.TimeEstimate = *params.TimeEstimate
+		if params.Description != nil {
+			task.Description = *params.Description
+		}
+		if params.StatusID != nil {
+			task.StatusID = *params.StatusID
+		}
+		if params.Priority != nil {
+			task.Priority = *params.Priority
+		}
+		if params.ParentID.Set {
+			if params.ParentID.Value != nil && *params.ParentID.Value == task.ID {
+				return domain.ErrInvalidParentReference
+			}
+			task.ParentID = params.ParentID.Value
+		}
+		if params.StartDate.Set {
+			task.StartDate = params.StartDate.Value
+		}
+		if params.DueDate.Set {
+			task.DueDate = params.DueDate.Value
+		}
+		if err := checkDateRange(task.StartDate, task.DueDate); err != nil {
+			return err
+		}
+		if params.TimeEstimate != nil {
+			task.TimeEstimate = *params.TimeEstimate
+		}
+		return nil
 	}
 
-	if err := s.repo.Update(ctx, task, tagIDsToAdd, params.AssigneeIDs); err != nil {
-		return nil, err
-	}
-
-	updated, err := s.repo.GetByID(ctx, task.ID)
+	before, updated, err := s.repo.Update(ctx, id, apply, tagIDsToAdd, params.AssigneeIDs)
 	if err != nil {
 		return nil, err
 	}
-	recordActivity(ctx, s.activity, diffTask(updated.ID, userID, before, snapshotTask(updated))...)
+	recordActivity(ctx, s.activity, diffTask(updated.ID, userID, snapshotTask(before), snapshotTask(updated))...)
 	return updated, nil
 }
 

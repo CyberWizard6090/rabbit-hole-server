@@ -46,7 +46,7 @@ func (row formUploadRow) toDomain() domain.FormUpload {
 
 func (r *formUploadRepository) Create(ctx context.Context, upload domain.NewFormUpload) (*domain.FormUpload, error) {
 	var created domain.FormUpload
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var pending int64
 		if err := tx.Raw(
 			"SELECT count(*) FROM form_uploads WHERE form_id = ? AND claimed_at IS NULL AND expires_at > now()",
@@ -80,7 +80,7 @@ func (r *formUploadRepository) ListExpired(ctx context.Context, now time.Time, l
 		ID         uint
 		StorageKey string
 	}
-	if err := r.db.WithContext(ctx).Raw(
+	if err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT id, storage_key FROM form_uploads WHERE claimed_at IS NULL AND expires_at <= ? ORDER BY id LIMIT ?",
 		now, limit,
 	).Scan(&rows).Error; err != nil {
@@ -97,7 +97,7 @@ func (r *formUploadRepository) DeleteExpired(ctx context.Context, now time.Time,
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	res := r.db.WithContext(ctx).Exec(
+	res := database.DBFromContext(ctx, r.db).Exec(
 		"DELETE FROM form_uploads WHERE id IN ? AND claimed_at IS NULL AND expires_at <= ?", ids, now,
 	)
 	return res.RowsAffected, mapErr(res.Error)
@@ -107,7 +107,7 @@ func (r *formUploadRepository) GetForSubmission(
 	ctx context.Context, workspaceID, submissionID, uploadID uint,
 ) (*domain.FormUpload, error) {
 	var rows []formUploadRow
-	if err := r.db.WithContext(ctx).Raw(
+	if err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT fu.id, fu.public_id, fu.form_id, fu.question_id, fu.storage_key, fu.name, fu.content_type, fu.size, "+
 			"fu.created_at, fu.expires_at, fu.claimed_at, fu.file_id FROM form_uploads fu "+
 			"JOIN form_submissions fs ON fs.id = fu.submission_id "+
@@ -139,7 +139,7 @@ func (r *formUploadRepository) ListSubmissionFiles(
 		Size         int64
 		FileID       *uint
 	}
-	if err := r.db.WithContext(ctx).Raw(
+	if err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT id, submission_id, question_id, name, content_type, size, file_id FROM form_uploads "+
 			"WHERE submission_id IN ? ORDER BY id", submissionIDs,
 	).Scan(&rows).Error; err != nil {

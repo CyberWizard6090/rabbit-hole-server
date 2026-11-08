@@ -25,7 +25,7 @@ func NewCustomFieldRepository(db *gorm.DB) domain.CustomFieldRepository {
 
 func (r *customFieldRepository) Create(ctx context.Context, field *domain.CustomField) error {
 	model := customFieldFromDomain(*field)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Omit("Options").Create(&model).Error; err != nil {
 			return err
 		}
@@ -76,7 +76,7 @@ func (r *customFieldRepository) GetByID(ctx context.Context, fieldID uint) (*dom
 
 func (r *customFieldRepository) Update(ctx context.Context, field *domain.CustomField) error {
 	model := customFieldFromDomain(*field)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var existingType string
 		selectResult := tx.Model(&persistence.CustomField{}).
 			Select("type").

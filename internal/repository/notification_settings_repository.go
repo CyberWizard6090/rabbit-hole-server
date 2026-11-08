@@ -5,6 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -22,7 +23,7 @@ func (r *notificationSettingsRepository) ListPreferences(ctx context.Context, us
 		Channel string
 		Enabled bool
 	}
-	err := r.db.WithContext(ctx).Raw(
+	err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT type, channel, enabled FROM notification_preferences WHERE user_id = ?", userID,
 	).Scan(&rows).Error
 	if err != nil {
@@ -36,7 +37,7 @@ func (r *notificationSettingsRepository) ListPreferences(ctx context.Context, us
 }
 
 func (r *notificationSettingsRepository) SavePreferences(ctx context.Context, userID uint, prefs []domain.NotificationPreference) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		for _, p := range prefs {
 			if err := tx.Exec(
 				"INSERT INTO notification_preferences (user_id, type, channel, enabled) VALUES (?, ?, ?, ?) "+
@@ -52,7 +53,7 @@ func (r *notificationSettingsRepository) SavePreferences(ctx context.Context, us
 
 func (r *notificationSettingsRepository) Locale(ctx context.Context, userID uint) (string, error) {
 	var locales []string
-	err := r.db.WithContext(ctx).Raw("SELECT locale FROM notification_settings WHERE user_id = ?", userID).Scan(&locales).Error
+	err := database.DBFromContext(ctx, r.db).Raw("SELECT locale FROM notification_settings WHERE user_id = ?", userID).Scan(&locales).Error
 	if err != nil {
 		return "", mapErr(err)
 	}
@@ -63,7 +64,7 @@ func (r *notificationSettingsRepository) Locale(ctx context.Context, userID uint
 }
 
 func (r *notificationSettingsRepository) SaveLocale(ctx context.Context, userID uint, locale string) error {
-	return mapErr(r.db.WithContext(ctx).Exec(
+	return mapErr(database.DBFromContext(ctx, r.db).Exec(
 		"INSERT INTO notification_settings (user_id, locale) VALUES (?, ?) "+
 			"ON CONFLICT (user_id) DO UPDATE SET locale = EXCLUDED.locale, updated_at = now()", userID, locale,
 	).Error)

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/persistence"
 )
@@ -23,7 +24,7 @@ func NewUserRepository(db *gorm.DB) *UserRepository {
 
 func (r *UserRepository) CreateUser(ctx context.Context, user *domain.User) error {
 	m := userFromDomain(*user)
-	err := r.db.WithContext(ctx).Create(&m).Error
+	err := database.DBFromContext(ctx, r.db).Create(&m).Error
 	if err != nil && isEmailUniqueViolation(err) {
 		return domain.ErrEmailTaken
 	}
@@ -65,7 +66,7 @@ func isUniqueViolationForConstraints(err error, constraints ...string) bool {
 
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	var m persistence.User
-	if err := r.db.WithContext(ctx).Where("lower(email) = lower(?)", email).First(&m).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Where("lower(email) = lower(?)", email).First(&m).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	user := userToDomain(m)
@@ -74,7 +75,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.
 
 func (r *UserRepository) GetByID(ctx context.Context, id uint) (*domain.User, error) {
 	var m persistence.User
-	if err := r.db.WithContext(ctx).First(&m, id).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).First(&m, id).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	user := userToDomain(m)
@@ -83,7 +84,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id uint) (*domain.User, er
 
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	m := userFromDomain(*user)
-	if err := r.db.WithContext(ctx).Omit("PasswordHash", "TokenVersion").Save(&m).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Omit("PasswordHash", "TokenVersion").Save(&m).Error; err != nil {
 		return mapErr(err)
 	}
 	user.UpdatedAt = m.UpdatedAt
@@ -92,7 +93,7 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 
 func (r *UserRepository) CreateSession(ctx context.Context, session *domain.UserSession) error {
 	m := sessionFromDomain(*session)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("user_id = ? AND expires_at < NOW()", session.UserID).
 			Delete(&persistence.UserSession{}).Error; err != nil {
 			return err
@@ -108,7 +109,7 @@ func (r *UserRepository) CreateSession(ctx context.Context, session *domain.User
 
 func (r *UserRepository) FindSession(ctx context.Context, tokenHash string) (*domain.UserSession, error) {
 	var m persistence.UserSession
-	err := r.db.WithContext(ctx).Where("token_hash = ? AND expires_at > NOW()", tokenHash).First(&m).Error
+	err := database.DBFromContext(ctx, r.db).Where("token_hash = ? AND expires_at > NOW()", tokenHash).First(&m).Error
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -117,12 +118,12 @@ func (r *UserRepository) FindSession(ctx context.Context, tokenHash string) (*do
 }
 
 func (r *UserRepository) DeleteSession(ctx context.Context, tokenHash string) error {
-	return mapErr(r.db.WithContext(ctx).Where("token_hash = ?", tokenHash).Delete(&persistence.UserSession{}).Error)
+	return mapErr(database.DBFromContext(ctx, r.db).Where("token_hash = ?", tokenHash).Delete(&persistence.UserSession{}).Error)
 }
 
 func (r *UserRepository) RotateSession(ctx context.Context, tokenHash string, replacement *domain.UserSession) error {
 	m := sessionFromDomain(*replacement)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("user_id = ? AND expires_at < NOW()", replacement.UserID).
 			Delete(&persistence.UserSession{}).Error; err != nil {
 			return err
@@ -145,12 +146,12 @@ func (r *UserRepository) RotateSession(ctx context.Context, tokenHash string, re
 }
 
 func (r *UserRepository) DeleteAllUserSessions(ctx context.Context, userID uint) error {
-	return mapErr(r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&persistence.UserSession{}).Error)
+	return mapErr(database.DBFromContext(ctx, r.db).Where("user_id = ?", userID).Delete(&persistence.UserSession{}).Error)
 }
 
 func (r *UserRepository) GetTokenVersion(ctx context.Context, userID uint) (int, error) {
 	var version int
-	res := r.db.WithContext(ctx).Model(&persistence.User{}).Select("token_version").Where("id = ?", userID).Limit(1).Scan(&version)
+	res := database.DBFromContext(ctx, r.db).Model(&persistence.User{}).Select("token_version").Where("id = ?", userID).Limit(1).Scan(&version)
 	if res.Error != nil {
 		return 0, mapErr(res.Error)
 	}
@@ -162,7 +163,7 @@ func (r *UserRepository) GetTokenVersion(ctx context.Context, userID uint) (int,
 
 func (r *UserRepository) RevokeAll(ctx context.Context, userID uint) (int, error) {
 	var version int
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		return revokeAll(tx, userID, &version)
 	})
 	return version, mapErr(err)
@@ -185,7 +186,7 @@ func revokeAll(tx *gorm.DB, userID uint, version *int) error {
 
 func (r *UserRepository) UpdatePasswordAndRevoke(ctx context.Context, userID uint, passwordHash string) (int, error) {
 	var version int
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&persistence.User{}).Where("id = ?", userID).
 			UpdateColumn("password_hash", passwordHash).Error; err != nil {
 			return err
@@ -199,7 +200,7 @@ func (r *UserRepository) UpdatePasswordAndRevoke(ctx context.Context, userID uin
 }
 
 func (r *UserRepository) AnonymizeIfNoOwnedWorkspaces(ctx context.Context, userID uint) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var users []struct {
 			ID           uint
 			PasswordHash string
@@ -265,7 +266,7 @@ func (r *UserRepository) AnonymizeIfNoOwnedWorkspaces(ctx context.Context, userI
 
 func (r *UserRepository) HasSessionCreatedSince(ctx context.Context, userID uint, since time.Time) (bool, error) {
 	var count int64
-	err := r.db.WithContext(ctx).Model(&persistence.UserSession{}).
+	err := database.DBFromContext(ctx, r.db).Model(&persistence.UserSession{}).
 		Where("user_id = ? AND created_at >= ?", userID, since).
 		Count(&count).Error
 	return count > 0, mapErr(err)

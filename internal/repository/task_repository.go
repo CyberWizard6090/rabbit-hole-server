@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
@@ -28,10 +27,10 @@ func NewTaskRepository(db *gorm.DB) domain.TaskRepository {
 func (r *taskRepository) Create(ctx context.Context, task *domain.Task, assigneeIDs []uint, tagIDs []uint) error {
 	m := taskFromDomain(*task)
 	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
-		if err := validateTaskReferences(tx, task, assigneeIDs, tagIDs); err != nil {
+		if err := lockExistingLists(tx, task.ListID); err != nil {
 			return err
 		}
-		if err := lockLists(tx, task.ListID); err != nil {
+		if err := validateTaskReferences(tx, task, assigneeIDs, tagIDs); err != nil {
 			return err
 		}
 		last, err := lastPosition(tx, task.ListID, 0)
@@ -89,7 +88,7 @@ func (r *taskRepository) List(
 		}
 	}
 
-	db := r.db.WithContext(ctx).
+	db := database.DBFromContext(ctx, r.db).
 		Model(&persistence.Task{}).
 		Select(strings.Join(selects, ", ")).
 		Joins(checklistCountsJoin).
@@ -149,7 +148,7 @@ func (r *taskRepository) List(
 
 func (r *taskRepository) Count(ctx context.Context, listID uint, filter domain.TaskFilter) (int64, error) {
 	var total int64
-	db := r.db.WithContext(ctx).Model(&persistence.Task{}).Where("tasks.list_id = ?", listID)
+	db := database.DBFromContext(ctx, r.db).Model(&persistence.Task{}).Where("tasks.list_id = ?", listID)
 	if err := applyTaskFilter(db, filter).Count(&total).Error; err != nil {
 		return 0, mapErr(err)
 	}
@@ -418,9 +417,9 @@ func hasPreviousPage(cursor *pagination.Cursor, hasMore bool) bool {
 	}
 }
 
-func (r *taskRepository) GetByID(ctx context.Context, id uint) (*domain.Task, error) {
+func loadTask(tx *gorm.DB, id uint) (*domain.Task, error) {
 	var m persistence.Task
-	err := r.db.WithContext(ctx).
+	err := tx.
 		Select(append([]string{"tasks.*"}, checklistCountSelects...)).
 		Joins(checklistCountsJoin).
 		Where("tasks.id = ?", id).
@@ -428,66 +427,157 @@ func (r *taskRepository) GetByID(ctx context.Context, id uint) (*domain.Task, er
 		Preload("Tags").
 		First(&m).Error
 	if err != nil {
-		return nil, mapErr(err)
+		return nil, err
 	}
 	task := taskToDomain(m)
 	return &task, nil
 }
 
-func (r *taskRepository) Update(ctx context.Context, task *domain.Task, addTagIDs []uint, replaceAssigneeIDs *[]uint) error {
-	m := taskFromDomain(*task)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+func (r *taskRepository) GetByID(ctx context.Context, id uint) (*domain.Task, error) {
+	task, err := loadTask(database.DBFromContext(ctx, r.db), id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return task, nil
+}
+
+func changedTaskColumns(before, after *domain.Task) map[string]any {
+	changes := map[string]any{}
+	if before.Title != after.Title {
+		changes["title"] = after.Title
+	}
+	if before.Description != after.Description {
+		changes["description"] = after.Description
+	}
+	if before.StatusID != after.StatusID {
+		changes["status_id"] = after.StatusID
+	}
+	if before.Priority != after.Priority {
+		changes["priority"] = after.Priority
+	}
+	if !sameUintPtr(before.ParentID, after.ParentID) {
+		changes["parent_id"] = uintPtrValue(after.ParentID)
+	}
+	if !sameTimePtr(before.StartDate, after.StartDate) {
+		changes["start_date"] = timePtrValue(after.StartDate)
+	}
+	if !sameTimePtr(before.DueDate, after.DueDate) {
+		changes["due_date"] = timePtrValue(after.DueDate)
+	}
+	if before.TimeEstimate != after.TimeEstimate {
+		changes["time_estimate"] = after.TimeEstimate
+	}
+	return changes
+}
+
+func sameUintPtr(a, b *uint) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func sameTimePtr(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
+}
+
+func uintPtrValue(v *uint) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+func timePtrValue(v *time.Time) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+func (r *taskRepository) Update(
+	ctx context.Context,
+	id uint,
+	apply func(*domain.Task) error,
+	addTagIDs []uint,
+	replaceAssigneeIDs *[]uint,
+) (*domain.Task, *domain.Task, error) {
+	var before, after *domain.Task
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		if _, err := lockTaskRow(tx, id); err != nil {
+			return err
+		}
+		current, err := loadTask(tx, id)
+		if err != nil {
+			return err
+		}
+		before = current
+		next := *current
+		if err := apply(&next); err != nil {
+			return err
+		}
+
 		addTagIDs = uniqueIDs(addTagIDs)
 		var assigneeIDs []uint
 		if replaceAssigneeIDs != nil {
-			assigneeIDs = *replaceAssigneeIDs
+			assigneeIDs = uniqueIDs(*replaceAssigneeIDs)
 		}
-		if err := validateTaskReferences(tx, task, assigneeIDs, addTagIDs); err != nil {
+		if err := validateTaskReferences(tx, &next, assigneeIDs, addTagIDs); err != nil {
 			return err
 		}
-		if err := validateParentChain(tx, task); err != nil {
+		if err := validateParentChain(tx, &next); err != nil {
 			return err
 		}
-		if err := tx.Omit(clause.Associations).Save(&m).Error; err != nil {
+
+		changes := changedTaskColumns(current, &next)
+		if len(changes) == 0 {
+			changes["updated_at"] = gorm.Expr("now()")
+		}
+		if err := tx.Model(&persistence.Task{}).Where("id = ?", id).Updates(changes).Error; err != nil {
 			return err
 		}
 		if replaceAssigneeIDs != nil {
-			var users []persistence.User
-			if ids := uniqueIDs(assigneeIDs); len(ids) > 0 {
-				if err := tx.Find(&users, ids).Error; err != nil {
-					return err
-				}
-			}
-			if err := tx.Model(&m).Omit("Assignees.*").Association("Assignees").Replace(users); err != nil {
+			if err := replaceTaskAssignees(tx, id, assigneeIDs); err != nil {
 				return err
 			}
 		}
-		if len(addTagIDs) == 0 {
-			return nil
+		if len(addTagIDs) > 0 {
+			if err := tx.Exec(
+				"INSERT INTO task_tags (task_id, tag_id) SELECT ?, id FROM tags WHERE id IN ? ON CONFLICT DO NOTHING",
+				id, addTagIDs,
+			).Error; err != nil {
+				return err
+			}
 		}
-
-		var tags []persistence.Tag
-		if err := tx.Find(&tags, addTagIDs).Error; err != nil {
-			return err
-		}
-		return tx.Model(&m).Omit("Tags.*").Association("Tags").Append(tags)
+		after, err = loadTask(tx, id)
+		return err
 	})
 	if err != nil {
-		return mapErr(err)
+		return nil, nil, mapErr(err)
 	}
-	task.UpdatedAt = m.UpdatedAt
-	return nil
+	return before, after, nil
+}
+
+func replaceTaskAssignees(tx *gorm.DB, taskID uint, userIDs []uint) error {
+	if len(userIDs) == 0 {
+		return tx.Exec("DELETE FROM task_assignees WHERE task_id = ?", taskID).Error
+	}
+	if err := tx.Exec("DELETE FROM task_assignees WHERE task_id = ? AND user_id NOT IN ?", taskID, userIDs).Error; err != nil {
+		return err
+	}
+	return tx.Exec(
+		"INSERT INTO task_assignees (task_id, user_id) SELECT ?, id FROM users WHERE id IN ? ON CONFLICT DO NOTHING",
+		taskID, userIDs,
+	).Error
 }
 
 func (r *taskRepository) Delete(ctx context.Context, id uint) error {
-	res := r.db.WithContext(ctx).Where("id = ?", id).Delete(&persistence.Task{})
-	if res.Error != nil {
-		return mapErr(res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		return softDeleteTaskTree(tx, id)
+	}))
 }
 
 func validateTaskReferences(tx *gorm.DB, task *domain.Task, assigneeIDs, tagIDs []uint) error {

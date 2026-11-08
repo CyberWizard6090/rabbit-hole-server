@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 
 	"gorm.io/gorm"
 
@@ -28,9 +29,12 @@ func WithTransaction(ctx context.Context, db *gorm.DB, fn func(context.Context) 
 		return fn(ctx)
 	}
 	hookCtx, collect := txhook.With(ctx)
+	handle := &transactionHandle{}
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return fn(context.WithValue(hookCtx, transactionContextKey{}, tx))
+		handle.db = tx
+		return fn(context.WithValue(hookCtx, transactionContextKey{}, handle))
 	})
+	handle.finished.Store(true)
 	if err != nil {
 		return err
 	}
@@ -47,9 +51,17 @@ func DBFromContext(ctx context.Context, fallback *gorm.DB) *gorm.DB {
 	return fallback.WithContext(ctx)
 }
 
+type transactionHandle struct {
+	db       *gorm.DB
+	finished atomic.Bool
+}
+
 func transactionFromContext(ctx context.Context) *gorm.DB {
-	tx, _ := ctx.Value(transactionContextKey{}).(*gorm.DB)
-	return tx
+	handle, _ := ctx.Value(transactionContextKey{}).(*transactionHandle)
+	if handle == nil || handle.finished.Load() {
+		return nil
+	}
+	return handle.db
 }
 
 var ErrTransactionRequired = errors.New("database transaction required")

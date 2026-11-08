@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 )
 
@@ -227,7 +228,7 @@ func applyOrder(tx *gorm.DB, table string, existing, ids []uint) error {
 
 func (r *checklistRepository) CreateChecklist(ctx context.Context, taskID uint, name string) (*domain.Checklist, error) {
 	var created *domain.Checklist
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := lockTask(tx, taskID); err != nil {
 			return err
 		}
@@ -263,7 +264,7 @@ func (r *checklistRepository) CreateChecklist(ctx context.Context, taskID uint, 
 }
 
 func (r *checklistRepository) ListByTask(ctx context.Context, taskID uint) ([]domain.Checklist, error) {
-	db := r.db.WithContext(ctx)
+	db := database.DBFromContext(ctx, r.db)
 	var rows []checklistRow
 	if err := db.Raw(
 		"SELECT "+checklistColumns+" FROM task_checklists WHERE task_id = ? ORDER BY position, id", taskID,
@@ -275,13 +276,13 @@ func (r *checklistRepository) ListByTask(ctx context.Context, taskID uint) ([]do
 }
 
 func (r *checklistRepository) GetChecklist(ctx context.Context, taskID, checklistID uint) (*domain.Checklist, error) {
-	list, err := oneChecklist(r.db.WithContext(ctx), taskID, checklistID)
+	list, err := oneChecklist(database.DBFromContext(ctx, r.db), taskID, checklistID)
 	return list, mapErr(err)
 }
 
 func (r *checklistRepository) RenameChecklist(ctx context.Context, taskID, checklistID uint, name string) (*domain.Checklist, error) {
 	var renamed *domain.Checklist
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := lockChecklist(tx, taskID, checklistID); err != nil {
 			return err
 		}
@@ -299,7 +300,7 @@ func (r *checklistRepository) RenameChecklist(ctx context.Context, taskID, check
 }
 
 func (r *checklistRepository) DeleteChecklist(ctx context.Context, taskID, checklistID uint) error {
-	res := r.db.WithContext(ctx).Exec("DELETE FROM task_checklists WHERE id = ? AND task_id = ?", checklistID, taskID)
+	res := database.DBFromContext(ctx, r.db).Exec("DELETE FROM task_checklists WHERE id = ? AND task_id = ?", checklistID, taskID)
 	if res.Error != nil {
 		return mapErr(res.Error)
 	}
@@ -310,7 +311,7 @@ func (r *checklistRepository) DeleteChecklist(ctx context.Context, taskID, check
 }
 
 func (r *checklistRepository) ReorderChecklists(ctx context.Context, taskID uint, ids []uint) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := lockTask(tx, taskID); err != nil {
 			return err
 		}
@@ -340,7 +341,7 @@ func validateItemAssignee(tx *gorm.DB, taskID, userID uint) error {
 
 func (r *checklistRepository) CreateItem(ctx context.Context, taskID, checklistID uint, text string, assigneeID *uint) (*domain.ChecklistItem, error) {
 	var created *domain.ChecklistItem
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := lockChecklist(tx, taskID, checklistID); err != nil {
 			return err
 		}
@@ -378,7 +379,7 @@ func (r *checklistRepository) CreateItem(ctx context.Context, taskID, checklistI
 }
 
 func (r *checklistRepository) GetItem(ctx context.Context, taskID, checklistID, itemID uint) (*domain.ChecklistItem, error) {
-	item, err := oneItem(r.db.WithContext(ctx), taskID, checklistID, itemID)
+	item, err := oneItem(database.DBFromContext(ctx, r.db), taskID, checklistID, itemID)
 	return item, mapErr(err)
 }
 
@@ -386,7 +387,7 @@ func (r *checklistRepository) UpdateItem(
 	ctx context.Context, taskID, checklistID, itemID, actorID uint, update domain.ChecklistItemUpdate,
 ) (*domain.ChecklistItem, error) {
 	var updated *domain.ChecklistItem
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := lockChecklist(tx, taskID, checklistID); err != nil {
 			return err
 		}
@@ -433,7 +434,7 @@ func (r *checklistRepository) UpdateItem(
 }
 
 func (r *checklistRepository) DeleteItem(ctx context.Context, taskID, checklistID, itemID uint) error {
-	res := r.db.WithContext(ctx).Exec(
+	res := database.DBFromContext(ctx, r.db).Exec(
 		"DELETE FROM task_checklist_items i USING task_checklists c "+
 			"WHERE i.id = ? AND i.checklist_id = ? AND c.id = i.checklist_id AND c.task_id = ?",
 		itemID, checklistID, taskID,
@@ -448,7 +449,7 @@ func (r *checklistRepository) DeleteItem(ctx context.Context, taskID, checklistI
 }
 
 func (r *checklistRepository) ReorderItems(ctx context.Context, taskID, checklistID uint, ids []uint) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := lockChecklist(tx, taskID, checklistID); err != nil {
 			return err
 		}

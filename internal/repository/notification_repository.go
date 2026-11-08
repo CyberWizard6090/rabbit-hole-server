@@ -7,17 +7,18 @@ import (
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 )
 
-const readableTaskFilter = "((n.task_id IS NOT NULL AND EXISTS (SELECT 1 FROM tasks t " +
+var readableTaskFilter = "((n.task_id IS NOT NULL AND EXISTS (SELECT 1 FROM tasks t " +
 	"JOIN spaces s ON s.id = t.space_id AND s.deleted_at IS NULL " +
 	"JOIN workspaces w ON w.id = s.workspace_id AND w.deleted_at IS NULL " +
 	"JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = n.user_id AND wm.deleted_at IS NULL " +
 	"JOIN roles r ON r.id = wm.role_id AND r.deleted_at IS NULL " +
 	"JOIN role_permissions rp ON rp.role_id = r.id AND rp.deleted_at IS NULL " +
 	"JOIN permissions p ON p.id = rp.permission_id AND p.deleted_at IS NULL AND p.code = '" + domain.PermTaskRead + "' " +
-	"WHERE t.id = n.task_id AND t.deleted_at IS NULL)) OR " +
+	"WHERE t.id = n.task_id AND " + liveTaskPredicate("t") + ")) OR " +
 	"(n.task_id IS NULL AND EXISTS (SELECT 1 FROM workspaces w " +
 	"JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = n.user_id AND wm.deleted_at IS NULL " +
 	"JOIN roles r ON r.id = wm.role_id AND r.deleted_at IS NULL " +
@@ -39,7 +40,7 @@ func (r *notificationRepository) Create(ctx context.Context, d domain.Notificati
 		payload = json.RawMessage("{}")
 	}
 	var ref domain.NotificationRef
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var rows []struct {
 			ID        uint
 			CreatedAt time.Time
@@ -94,7 +95,7 @@ func (r *notificationRepository) List(
 		where += " AND n.type = ?"
 		args = append(args, filter.Type)
 	}
-	db := r.db.WithContext(ctx)
+	db := database.DBFromContext(ctx, r.db)
 
 	var total int64
 	if err := db.Raw("SELECT count(*) FROM notifications n WHERE "+where, args...).Scan(&total).Error; err != nil {
@@ -141,7 +142,7 @@ func (r *notificationRepository) UnreadCounts(ctx context.Context, userID uint) 
 		Type  string
 		Count int64
 	}
-	err := r.db.WithContext(ctx).Raw(
+	err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT n.type, count(*) AS count FROM notifications n "+
 			"WHERE n.user_id = ? AND n.read_at IS NULL AND "+readableTaskFilter+" GROUP BY n.type", userID,
 	).Scan(&rows).Error
@@ -166,12 +167,12 @@ func (r *notificationRepository) MarkRead(ctx context.Context, userID uint, ids 
 		query += " AND n.type = ?"
 		args = append(args, typeKey)
 	}
-	res := r.db.WithContext(ctx).Exec(query, args...)
+	res := database.DBFromContext(ctx, r.db).Exec(query, args...)
 	return res.RowsAffected, mapErr(res.Error)
 }
 
 func (r *notificationRepository) Delete(ctx context.Context, userID, id uint) error {
-	res := r.db.WithContext(ctx).Exec("DELETE FROM notifications WHERE id = ? AND user_id = ?", id, userID)
+	res := database.DBFromContext(ctx, r.db).Exec("DELETE FROM notifications WHERE id = ? AND user_id = ?", id, userID)
 	if res.Error != nil {
 		return mapErr(res.Error)
 	}
@@ -191,9 +192,9 @@ func NewNotificationSourceRepository(db *gorm.DB) domain.NotificationSourceRepos
 
 func (r *notificationSourceRepository) TaskInfo(ctx context.Context, taskID uint) (*domain.TaskNotificationInfo, error) {
 	var rows []domain.TaskNotificationInfo
-	err := r.db.WithContext(ctx).Raw(
+	err := database.DBFromContext(ctx, r.db).Raw(
 		"SELECT t.id, t.title, s.workspace_id FROM tasks t JOIN spaces s ON s.id = t.space_id "+
-			"WHERE t.id = ? AND t.deleted_at IS NULL", taskID,
+			"WHERE t.id = ? AND "+liveTaskPredicate("t"), taskID,
 	).Scan(&rows).Error
 	if err != nil {
 		return nil, mapErr(err)
@@ -206,7 +207,7 @@ func (r *notificationSourceRepository) TaskInfo(ctx context.Context, taskID uint
 
 func (r *notificationSourceRepository) StatusName(ctx context.Context, statusID uint) (string, error) {
 	var names []string
-	err := r.db.WithContext(ctx).Raw("SELECT name FROM task_statuses WHERE id = ?", statusID).Scan(&names).Error
+	err := database.DBFromContext(ctx, r.db).Raw("SELECT name FROM task_statuses WHERE id = ?", statusID).Scan(&names).Error
 	if err != nil {
 		return "", mapErr(err)
 	}
@@ -218,7 +219,7 @@ func (r *notificationSourceRepository) StatusName(ctx context.Context, statusID 
 
 func (r *notificationSourceRepository) User(ctx context.Context, userID uint) (*domain.CommentUser, error) {
 	var rows []commentUserRow
-	err := r.db.WithContext(ctx).Table("users").Select("id, username, first_name, last_name, avatar_url").
+	err := database.DBFromContext(ctx, r.db).Table("users").Select("id, username, first_name, last_name, avatar_url").
 		Where("id = ?", userID).Scan(&rows).Error
 	if err != nil {
 		return nil, mapErr(err)
@@ -235,7 +236,7 @@ func (r *notificationSourceRepository) AccountMail(ctx context.Context, userID u
 		Email           string
 		EmailVerifiedAt *time.Time
 	}
-	err := r.db.WithContext(ctx).Raw("SELECT email, email_verified_at FROM users WHERE id = ?", userID).Scan(&rows).Error
+	err := database.DBFromContext(ctx, r.db).Raw("SELECT email, email_verified_at FROM users WHERE id = ?", userID).Scan(&rows).Error
 	if err != nil {
 		return nil, mapErr(err)
 	}

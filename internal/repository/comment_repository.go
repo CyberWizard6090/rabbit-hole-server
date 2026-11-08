@@ -5,6 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/persistence"
 )
@@ -136,7 +137,7 @@ func (r *commentRepository) one(tx *gorm.DB, taskID, commentID uint) (*domain.Co
 func (r *commentRepository) Create(ctx context.Context, taskID, authorID uint, body string, mentionIDs []uint) (*domain.Comment, error) {
 	mentionIDs = uniqueIDs(mentionIDs)
 	var created *domain.Comment
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := validateMentions(tx, taskID, mentionIDs); err != nil {
 			return err
 		}
@@ -158,7 +159,7 @@ func (r *commentRepository) Create(ctx context.Context, taskID, authorID uint, b
 }
 
 func (r *commentRepository) ListByTask(ctx context.Context, taskID uint, limit, offset int) ([]domain.Comment, int64, error) {
-	db := r.db.WithContext(ctx)
+	db := database.DBFromContext(ctx, r.db)
 	var total int64
 	if err := db.Model(&persistence.TaskComment{}).Where("task_id = ?", taskID).Count(&total).Error; err != nil {
 		return nil, 0, mapErr(err)
@@ -175,13 +176,13 @@ func (r *commentRepository) ListByTask(ctx context.Context, taskID uint, limit, 
 }
 
 func (r *commentRepository) GetByID(ctx context.Context, taskID, commentID uint) (*domain.Comment, error) {
-	comment, err := r.one(r.db.WithContext(ctx), taskID, commentID)
+	comment, err := r.one(database.DBFromContext(ctx, r.db), taskID, commentID)
 	return comment, mapErr(err)
 }
 
 func (r *commentRepository) Update(ctx context.Context, taskID, commentID uint, body *string, mentionIDs *[]uint) (*domain.Comment, error) {
 	var updated *domain.Comment
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var row persistence.TaskComment
 		if err := tx.Where("id = ? AND task_id = ?", commentID, taskID).First(&row).Error; err != nil {
 			return err
@@ -211,7 +212,7 @@ func (r *commentRepository) Update(ctx context.Context, taskID, commentID uint, 
 }
 
 func (r *commentRepository) Delete(ctx context.Context, taskID, commentID uint) error {
-	res := r.db.WithContext(ctx).Where("id = ? AND task_id = ?", commentID, taskID).Delete(&persistence.TaskComment{})
+	res := database.DBFromContext(ctx, r.db).Where("id = ? AND task_id = ?", commentID, taskID).Delete(&persistence.TaskComment{})
 	if res.Error != nil {
 		return mapErr(res.Error)
 	}

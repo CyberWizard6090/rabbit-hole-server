@@ -28,7 +28,7 @@ func (r *taskTemplateRepository) Create(ctx context.Context, template *domain.Ta
 		WorkspaceID: template.WorkspaceID, Name: template.Name, Description: template.Description,
 		Status: "active", CreatedBy: template.CreatedBy, CreatedAt: now, UpdatedAt: now,
 	}
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
@@ -46,7 +46,7 @@ func (r *taskTemplateRepository) Create(ctx context.Context, template *domain.Ta
 
 func (r *taskTemplateRepository) List(ctx context.Context, workspaceID uint) ([]domain.TaskTemplate, error) {
 	var rows []persistence.TaskTemplate
-	if err := r.db.WithContext(ctx).Where("workspace_id = ?", workspaceID).
+	if err := database.DBFromContext(ctx, r.db).Where("workspace_id = ?", workspaceID).
 		Order("updated_at DESC, id DESC").Find(&rows).Error; err != nil {
 		return nil, mapErr(err)
 	}
@@ -72,7 +72,7 @@ func (r *taskTemplateRepository) Get(ctx context.Context, templateID uint) (*dom
 }
 
 func (r *taskTemplateRepository) Update(ctx context.Context, template *domain.TaskTemplate) error {
-	result := r.db.WithContext(ctx).Model(&persistence.TaskTemplate{}).
+	result := database.DBFromContext(ctx, r.db).Model(&persistence.TaskTemplate{}).
 		Where("id = ? AND status = 'active'", template.ID).
 		Updates(map[string]any{"name": template.Name, "description": template.Description})
 	if result.Error != nil {
@@ -85,7 +85,7 @@ func (r *taskTemplateRepository) Update(ctx context.Context, template *domain.Ta
 }
 
 func (r *taskTemplateRepository) Archive(ctx context.Context, templateID uint) error {
-	result := r.db.WithContext(ctx).Model(&persistence.TaskTemplate{}).
+	result := database.DBFromContext(ctx, r.db).Model(&persistence.TaskTemplate{}).
 		Where("id = ?", templateID).Update("status", "archived")
 	if result.Error != nil {
 		return mapErr(result.Error)
@@ -98,7 +98,7 @@ func (r *taskTemplateRepository) Archive(ctx context.Context, templateID uint) e
 
 func (r *taskTemplateRepository) CreateVersion(ctx context.Context, templateID uint, configuration json.RawMessage) (*domain.TaskTemplateVersion, error) {
 	var result persistence.TaskTemplateVersion
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var template persistence.TaskTemplate
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			First(&template, "id = ? AND status = 'active'", templateID).Error; err != nil {
