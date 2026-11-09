@@ -222,9 +222,11 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		cfg.Storage.PublicBaseURL,
 		activityRecorder,
 		service.RehostConfig{Fetcher: options.remoteFetcher, MaxBytes: cfg.Storage.RehostLimit()},
-	).WithTransactions(transactions)
+	).WithTransactions(transactions).WithWorkspaceAudit(repository.NewWorkspaceAuditRepository(db))
 	authServ.WithAvatarRemover(fileService)
-	workspaceService := service.NewWorkspaceServiceWithAvatars(workspaceRepo, hub, permissionChecker, fileService)
+	workspaceAudit := repository.NewWorkspaceAuditRepository(db)
+	workspaceService := service.NewWorkspaceServiceWithAvatars(workspaceRepo, hub, permissionChecker, fileService).
+		WithAudit(workspaceAudit, transactions)
 	formUploadService := service.NewFormUploadService(
 		formRepo, formUploadRepo, store, cfg.Forms.UploadMaxBytes, cfg.Forms.UploadTTL,
 	)

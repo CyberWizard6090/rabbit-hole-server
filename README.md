@@ -69,6 +69,7 @@ relies on:
   single-use link goes to the new address (`FRONTEND_URL/confirm-email-change?token=...`, posted to
   `/auth/confirm-email-change`), `DELETE /profile/email-change` cancels it, `GET /profile` shows
   `pending_email`. Confirming revokes every session like a password change and warns the old address.
+- **Workspace history**: `GET /workspaces/{id}/audit-log` (Owner and Admin) lists who renamed the workspace, changed its description or avatar, added, re-roled, removed or let leave a member, with old and new values; entries are written in the transaction of the change and carry only public user fields.
 - **Contacts and privacy**: contacts are consent based (`POST /contacts` sends a request that looks the
   same for every id, the other user accepts or declines under `/contacts/requests`); only accepted
   contacts can be added to a workspace. Other users are exposed as id, username, name and avatar only

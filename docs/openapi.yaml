@@ -66,6 +66,7 @@ info:
     | Invite contacts as Member or Guest, change their role, remove them | yes | yes | no | no |
     | Grant the Admin role, demote or remove an Admin | yes | no | no | no |
     | Rename the workspace, edit its description, change its avatar | yes | yes | no | no |
+    | Read the workspace change history (`GET /workspaces/{id}/audit-log`) | yes | yes | no | no |
     | Delete the workspace | yes | no | no | no |
     | Leave the workspace (`DELETE /workspaces/{id}/members/me`) | no (403 `OWNER_IMMUTABLE`) | yes | yes | yes |
 
@@ -549,6 +550,30 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/audit-log:
+    get:
+      tags: [workspaces]
+      summary: "Workspace change history, newest first"
+      description: |
+        Who changed what in the workspace: `workspace.updated` (changes.name / changes.description with `from` and `to`),
+        `workspace.avatar_changed`, `workspace.avatar_removed`, `member.added` (changes.role), `member.role_changed`
+        (changes.from, changes.to), `member.removed` and `member.left` (changes.role). Every entry has `actor` and, for
+        member events, `target`, both as public users (id, username, name, avatar; never e-mail). Entries are written in
+        the same transaction as the change; a repeated rename to the same name or removing an absent avatar writes nothing.
+        Filter with `action`, paginate with `page` and `limit` (default 50, max 100). Owner and Admin only.
+      x-permission: member.manage
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: action, in: query, required: false, schema: {type: string}}
+        - {name: page, in: query, required: false, schema: {type: integer}}
+        - {name: limit, in: query, required: false, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
   /workspaces/{workspace_id}/members:
     get:

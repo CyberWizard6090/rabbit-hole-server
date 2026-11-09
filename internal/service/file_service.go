@@ -65,6 +65,7 @@ type FileService interface {
 	RemoveAvatar(ctx context.Context, userID uint) error
 	SetWorkspaceAvatar(ctx context.Context, userID, workspaceID uint, upload Upload) (string, error)
 	RemoveWorkspaceAvatar(ctx context.Context, workspaceID uint) error
+	ClearWorkspaceAvatar(ctx context.Context, userID, workspaceID uint) error
 }
 
 type fileService struct {
@@ -76,6 +77,19 @@ type fileService struct {
 	activity      ActivityRecorder
 	rehost        RehostConfig
 	tx            TransactionRunner
+	audit         domain.WorkspaceAuditRepository
+}
+
+func (s *fileService) WithWorkspaceAudit(audit domain.WorkspaceAuditRepository) *fileService {
+	s.audit = audit
+	return s
+}
+
+func (s *fileService) recordAvatar(ctx context.Context, workspaceID, userID uint, action string) error {
+	if s.audit == nil {
+		return nil
+	}
+	return s.audit.Record(ctx, domain.WorkspaceAuditDraft{WorkspaceID: workspaceID, ActorID: userID, Action: action})
 }
 
 func NewFileService(
@@ -461,10 +475,18 @@ func (s *fileService) SetWorkspaceAvatar(ctx context.Context, userID, workspaceI
 		return "", err
 	}
 	url := s.publicURL(publicID)
-	_, replaced, err := s.repo.ReplaceWorkspaceAvatar(ctx, domain.NewFile{
-		Kind: domain.FileKindWorkspaceAvatar, PublicID: publicID, StorageKey: key, UserID: userID, WorkspaceID: &workspaceID,
-		Name: "avatar", ContentType: contentType, Size: int64(len(rendered)),
-	}, url)
+	var replaced []domain.File
+	err = runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		_, old, replaceErr := s.repo.ReplaceWorkspaceAvatar(txCtx, domain.NewFile{
+			Kind: domain.FileKindWorkspaceAvatar, PublicID: publicID, StorageKey: key, UserID: userID, WorkspaceID: &workspaceID,
+			Name: "avatar", ContentType: contentType, Size: int64(len(rendered)),
+		}, url)
+		if replaceErr != nil {
+			return replaceErr
+		}
+		replaced = old
+		return s.recordAvatar(txCtx, workspaceID, userID, domain.AuditWorkspaceAvatarChanged)
+	})
 	if err != nil {
 		s.discard(key)
 		return "", err
@@ -473,6 +495,28 @@ func (s *fileService) SetWorkspaceAvatar(ctx context.Context, userID, workspaceI
 		s.discard(old.StorageKey)
 	}
 	return url, nil
+}
+
+func (s *fileService) ClearWorkspaceAvatar(ctx context.Context, userID, workspaceID uint) error {
+	var replaced []domain.File
+	err := runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		old, clearErr := s.repo.ClearWorkspaceAvatar(txCtx, workspaceID)
+		if clearErr != nil {
+			return clearErr
+		}
+		replaced = old
+		if len(old) == 0 {
+			return nil
+		}
+		return s.recordAvatar(txCtx, workspaceID, userID, domain.AuditWorkspaceAvatarRemoved)
+	})
+	if err != nil {
+		return err
+	}
+	for _, old := range replaced {
+		s.discard(old.StorageKey)
+	}
+	return nil
 }
 
 func (s *fileService) RemoveWorkspaceAvatar(ctx context.Context, workspaceID uint) error {

@@ -239,6 +239,9 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					workspaces.PATCH("/:workspace_id",
 						inWorkspace(domain.PermWorkspaceUpdate),
 						deps.WorkspaceHandler.Update)
+					workspaces.GET("/:workspace_id/audit-log",
+						inWorkspace(domain.PermMemberManage),
+						deps.WorkspaceHandler.AuditLog)
 					workspaces.POST("/:workspace_id/avatar",
 						inWorkspace(domain.PermWorkspaceUpdate),
 						uploadLimiter,

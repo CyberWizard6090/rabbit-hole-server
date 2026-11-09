@@ -316,11 +316,16 @@ func (h *FileHandler) SetWorkspaceAvatar(c *gin.Context) {
 }
 
 func (h *FileHandler) RemoveWorkspaceAvatar(c *gin.Context) {
+	uid, err := contextutil.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
 	workspaceID, ok := parseUintParam(c, "workspace_id")
 	if !ok {
 		return
 	}
-	if err := h.service.RemoveWorkspaceAvatar(c.Request.Context(), workspaceID); err != nil {
+	if err := h.service.ClearWorkspaceAvatar(c.Request.Context(), uid, workspaceID); err != nil {
 		h.handleError(c, "WORKSPACE_AVATAR_DELETE_FAILED", err)
 		return
 	}

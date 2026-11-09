@@ -1,3 +1,4 @@
+DROP TABLE workspace_audit_log;
 DROP TABLE login_lockouts;
 DROP TABLE rate_limit_windows;
 DROP TRIGGER trg_validate_form_task_config_workspace ON form_task_configs;
