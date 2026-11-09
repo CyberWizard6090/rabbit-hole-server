@@ -44,6 +44,7 @@ var (
 		"GET /api/v1/users/search":                        "public projection only",
 		"GET /api/v1/form-templates":                      "static catalog of form presets, no workspace data",
 		"GET /api/v1/list-templates":                      "static catalog of list templates, no workspace data",
+		"POST /api/v1/tasks/bulk":                         "permission is checked for every task in the body, covered by TestBulkTasks_PermissionsAreCheckedForEveryTask",
 		"GET /api/v1/contacts":                            "caller's own contacts",
 		"POST /api/v1/contacts":                           "creates a pending request from the caller; the answer is identical for every target",
 		"GET /api/v1/contacts/requests/incoming":          "caller's own incoming contact requests",

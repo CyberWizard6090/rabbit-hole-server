@@ -2327,6 +2327,30 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /tasks/bulk:
+    post:
+      tags: [tasks]
+      summary: "Change, move or delete up to 100 tasks in one request"
+      description: |
+        `action` is `update`, `move` or `delete`. `update` takes `status_id`, `priority` (1-5), `due_date` (null clears it),
+        `assignee_ids` (replaces the set), `add_tag_ids` and `remove_tag_ids`; at least one field is required. `move` takes
+        `list_id` and optionally `status_id`. `delete` takes no other field. Duplicate ids are processed once.
+
+        Every task is handled on its own, with the same rules, history, notifications and realtime events as the single task
+        routes, and the permission is checked for each task: `task.update` (`task.create` in the target list for a move to
+        another list) or `task.delete`. A foreign, a deleted and a missing task all answer `FORBIDDEN`, so ids cannot be
+        probed. The request is not atomic: the answer is always 200 with `results` (`task_id`, `ok`, `code` when it failed)
+        and the counters `succeeded` and `failed`. Codes: `FORBIDDEN`, `INVALID_TASK_REFERENCE`, `INVALID_DATE_RANGE`,
+        `CONFLICTING_TAG_CHANGE`, `TASK_HAS_SUBTASKS`, `TASK_MOVE_CONFLICT`, `INTERNAL_ERROR`. 400 `VALIDATION_FAILED` for a
+        malformed request (no ids, more than 100, unknown action, missing or mixed action body). 30 requests per minute.
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
   /tasks/{task_id}:
     get:
       tags: [tasks]
