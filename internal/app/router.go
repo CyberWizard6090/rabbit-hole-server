@@ -229,56 +229,56 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						deps.SearchHandler.Search)
 
 					workspaces.POST("/:workspace_id/forms",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFormManage),
 						deps.FormHandler.Create)
 					workspaces.GET("/:workspace_id/forms",
-						inWorkspace(domain.PermWorkspaceRead),
+						inWorkspace(domain.PermFormRead),
 						deps.FormHandler.List)
 					workspaces.GET("/:workspace_id/forms/:form_id",
-						inWorkspace(domain.PermWorkspaceRead),
+						inWorkspace(domain.PermFormRead),
 						deps.FormHandler.Get)
 					workspaces.PATCH("/:workspace_id/forms/:form_id",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFormManage),
 						deps.FormHandler.Update)
 					workspaces.DELETE("/:workspace_id/forms/:form_id",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFormManage),
 						deps.FormHandler.Delete)
 					workspaces.POST("/:workspace_id/forms/:form_id/publish",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFormManage),
 						deps.FormHandler.Publish)
 					workspaces.POST("/:workspace_id/forms/:form_id/archive",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFormManage),
 						deps.FormHandler.Archive)
 					workspaces.POST("/:workspace_id/forms/:form_id/questions",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFormManage),
 						deps.FormHandler.CreateQuestion)
 					workspaces.PATCH("/:workspace_id/forms/:form_id/questions/:question_id",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFormManage),
 						deps.FormHandler.UpdateQuestion)
 					workspaces.DELETE("/:workspace_id/forms/:form_id/questions/:question_id",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFormManage),
 						deps.FormHandler.DeleteQuestion)
 					workspaces.PUT("/:workspace_id/forms/:form_id/questions/reorder",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFormManage),
 						deps.FormHandler.ReorderQuestions)
 					workspaces.GET("/:workspace_id/forms/:form_id/submissions",
-						inWorkspace(domain.PermWorkspaceRead),
+						inWorkspace(domain.PermFormRead),
 						deps.FormHandler.ListSubmissions)
 					workspaces.GET("/:workspace_id/forms/:form_id/task-config",
-						inWorkspace(domain.PermWorkspaceRead),
+						inWorkspace(domain.PermFormRead),
 						deps.FormTaskHandler.GetConfig)
 					workspaces.PUT("/:workspace_id/forms/:form_id/task-config",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFormManage),
 						deps.FormTaskHandler.SetConfig)
 					workspaces.GET("/:workspace_id/submissions/:submission_id",
-						inWorkspace(domain.PermWorkspaceRead),
+						inWorkspace(domain.PermFormRead),
 						deps.FormHandler.GetSubmission)
 					workspaces.GET("/:workspace_id/submissions/:submission_id/files/:file_id",
-						inWorkspace(domain.PermWorkspaceRead),
+						inWorkspace(domain.PermFormRead),
 						deps.FormUploadHandler.DownloadSubmissionFile)
 
 					workspaces.POST("/:workspace_id/custom-fields",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFieldManage),
 						deps.CustomFieldHandler.Create)
 					workspaces.GET("/:workspace_id/custom-fields",
 						inWorkspace(domain.PermWorkspaceRead),
@@ -287,16 +287,16 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						inWorkspace(domain.PermWorkspaceRead),
 						deps.CustomFieldHandler.Get)
 					workspaces.PATCH("/:workspace_id/custom-fields/:field_id",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFieldManage),
 						deps.CustomFieldHandler.Update)
 					workspaces.DELETE("/:workspace_id/custom-fields/:field_id",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermFieldManage),
 						deps.CustomFieldHandler.Delete)
 					workspaces.POST("/:workspace_id/task-templates",
-						inWorkspace(domain.PermWorkspaceUpdate),
+						inWorkspace(domain.PermTemplateManage),
 						deps.TaskTemplateHandler.Create)
 					workspaces.GET("/:workspace_id/task-templates",
-						inWorkspace(domain.PermWorkspaceRead),
+						inWorkspace(domain.PermTemplateRead),
 						deps.TaskTemplateHandler.List)
 
 					workspaces.POST("/:workspace_id/images",

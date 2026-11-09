@@ -10,6 +10,8 @@ import (
 	"rabbit-hole-server/internal/domain"
 )
 
+const adminRoleName = "Admin"
+
 var (
 	ErrWorkspaceNameRequired = errors.New("workspace name is required")
 	ErrWorkspaceNotFound     = errors.New("workspace not found")
@@ -17,6 +19,7 @@ var (
 	ErrInvalidMemberRole    = errors.New("role cannot be assigned")
 	ErrMemberNotContact     = errors.New("user must be one of your contacts")
 	ErrOwnerImmutable       = errors.New("the workspace owner cannot be changed or removed")
+	ErrAdminOwnerOnly       = errors.New("only the workspace owner can grant, change or remove the Admin role")
 	ErrMemberTargetNotFound = errors.Join(domain.ErrMemberNotFound, domain.ErrNotFound)
 )
 
@@ -30,12 +33,13 @@ type WorkspaceService interface {
 
 	GetWorkspaceByID(ctx context.Context, id uint) (*domain.Workspace, error)
 
-	GetAllForUser(ctx context.Context, userID uint) ([]domain.Workspace, error)
+	ListForUser(ctx context.Context, userID uint, limit, offset int) ([]domain.WorkspaceSummary, int64, error)
 
 	ListMembers(ctx context.Context, workspaceID uint) ([]domain.MemberDetail, error)
 	AddMember(ctx context.Context, workspaceID, actorID, targetID uint, roleName string) error
-	ChangeMemberRole(ctx context.Context, workspaceID, targetID uint, roleName string) error
-	RemoveMember(ctx context.Context, workspaceID, targetID uint) error
+	ChangeMemberRole(ctx context.Context, workspaceID, actorID, targetID uint, roleName string) error
+	RemoveMember(ctx context.Context, workspaceID, actorID, targetID uint) error
+	Leave(ctx context.Context, workspaceID, userID uint) error
 	UpdateWorkspace(ctx context.Context, id uint, name, description *string) (*domain.Workspace, error)
 	DeleteWorkspace(ctx context.Context, id uint) error
 }
@@ -45,24 +49,27 @@ type WorkspaceAvatarRemover interface {
 }
 
 type workspaceService struct {
-	repo    domain.WorkspaceRepository
-	revoker ConnectionRevoker
-	avatars WorkspaceAvatarRemover
+	repo        domain.WorkspaceRepository
+	revoker     ConnectionRevoker
+	avatars     WorkspaceAvatarRemover
+	permissions PermissionChecker
 }
 
-func NewWorkspaceServiceWithRevoker(repo domain.WorkspaceRepository, revoker ConnectionRevoker) WorkspaceService {
-	return &workspaceService{repo: repo, revoker: revoker}
+func NewWorkspaceServiceWithRevoker(repo domain.WorkspaceRepository, revoker ConnectionRevoker, permissions PermissionChecker) WorkspaceService {
+	return &workspaceService{repo: repo, revoker: revoker, permissions: permissions}
 }
 
-func NewWorkspaceServiceWithAvatars(repo domain.WorkspaceRepository, revoker ConnectionRevoker, avatars WorkspaceAvatarRemover) WorkspaceService {
-	return &workspaceService{repo: repo, revoker: revoker, avatars: avatars}
+func NewWorkspaceServiceWithAvatars(repo domain.WorkspaceRepository, revoker ConnectionRevoker, permissions PermissionChecker, avatars WorkspaceAvatarRemover) WorkspaceService {
+	return &workspaceService{repo: repo, revoker: revoker, avatars: avatars, permissions: permissions}
 }
 
 func NewWorkspaceService(
 	repo domain.WorkspaceRepository,
+	permissions PermissionChecker,
 ) WorkspaceService {
 	return &workspaceService{
-		repo: repo,
+		repo:        repo,
+		permissions: permissions,
 	}
 }
 
@@ -114,11 +121,12 @@ func (s *workspaceService) GetWorkspaceByID(
 	return workspace, nil
 }
 
-func (s *workspaceService) GetAllForUser(
+func (s *workspaceService) ListForUser(
 	ctx context.Context,
 	userID uint,
-) ([]domain.Workspace, error) {
-	return s.repo.GetAllForUser(ctx, userID)
+	limit, offset int,
+) ([]domain.WorkspaceSummary, int64, error) {
+	return s.repo.ListForUser(ctx, userID, limit, offset)
 }
 
 func (s *workspaceService) ListMembers(ctx context.Context, workspaceID uint) ([]domain.MemberDetail, error) {
@@ -132,10 +140,26 @@ func (s *workspaceService) assignableRole(ctx context.Context, workspaceID uint,
 	return s.repo.GetRoleByName(ctx, workspaceID, roleName)
 }
 
+func (s *workspaceService) requireAdminManagement(ctx context.Context, workspaceID, actorID uint) error {
+	allowed, err := s.permissions.HasWorkspacePermission(ctx, actorID, workspaceID, domain.PermAdminManage)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrAdminOwnerOnly
+	}
+	return nil
+}
+
 func (s *workspaceService) AddMember(ctx context.Context, workspaceID, actorID, targetID uint, roleName string) error {
 	role, err := s.assignableRole(ctx, workspaceID, roleName)
 	if err != nil {
 		return err
+	}
+	if roleName == adminRoleName {
+		if err := s.requireAdminManagement(ctx, workspaceID, actorID); err != nil {
+			return err
+		}
 	}
 
 	isContact, err := s.repo.IsContact(ctx, actorID, targetID)
@@ -160,13 +184,36 @@ func (s *workspaceService) ensureNotOwner(ctx context.Context, workspaceID, targ
 	return nil
 }
 
-func (s *workspaceService) ChangeMemberRole(ctx context.Context, workspaceID, targetID uint, roleName string) error {
+func (s *workspaceService) currentRole(ctx context.Context, workspaceID, targetID uint) (string, error) {
+	member, err := s.repo.GetMember(ctx, workspaceID, targetID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrMemberNotFound) {
+			return "", ErrMemberTargetNotFound
+		}
+		return "", err
+	}
+	if member == nil {
+		return "", ErrMemberTargetNotFound
+	}
+	return member.Role.Name, nil
+}
+
+func (s *workspaceService) ChangeMemberRole(ctx context.Context, workspaceID, actorID, targetID uint, roleName string) error {
 	role, err := s.assignableRole(ctx, workspaceID, roleName)
 	if err != nil {
 		return err
 	}
 	if err := s.ensureNotOwner(ctx, workspaceID, targetID); err != nil {
 		return err
+	}
+	current, err := s.currentRole(ctx, workspaceID, targetID)
+	if err != nil {
+		return err
+	}
+	if roleName == adminRoleName || current == adminRoleName {
+		if err := s.requireAdminManagement(ctx, workspaceID, actorID); err != nil {
+			return err
+		}
 	}
 	if err := s.repo.UpdateMemberRole(ctx, workspaceID, targetID, role.ID); err != nil {
 		if errors.Is(err, domain.ErrMemberNotFound) {
@@ -177,10 +224,30 @@ func (s *workspaceService) ChangeMemberRole(ctx context.Context, workspaceID, ta
 	return nil
 }
 
-func (s *workspaceService) RemoveMember(ctx context.Context, workspaceID, targetID uint) error {
+func (s *workspaceService) RemoveMember(ctx context.Context, workspaceID, actorID, targetID uint) error {
 	if err := s.ensureNotOwner(ctx, workspaceID, targetID); err != nil {
 		return err
 	}
+	current, err := s.currentRole(ctx, workspaceID, targetID)
+	if err != nil {
+		return err
+	}
+	if current == adminRoleName {
+		if err := s.requireAdminManagement(ctx, workspaceID, actorID); err != nil {
+			return err
+		}
+	}
+	return s.remove(ctx, workspaceID, targetID)
+}
+
+func (s *workspaceService) Leave(ctx context.Context, workspaceID, userID uint) error {
+	if err := s.ensureNotOwner(ctx, workspaceID, userID); err != nil {
+		return err
+	}
+	return s.remove(ctx, workspaceID, userID)
+}
+
+func (s *workspaceService) remove(ctx context.Context, workspaceID, targetID uint) error {
 	if err := s.repo.RemoveMember(ctx, workspaceID, targetID); err != nil {
 		if errors.Is(err, domain.ErrMemberNotFound) {
 			return ErrMemberTargetNotFound

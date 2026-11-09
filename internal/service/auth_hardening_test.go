@@ -214,10 +214,10 @@ func TestSessionRevocationsDisconnectRealtimeConnections(t *testing.T) {
 func TestWorkspaceRemovalDisconnectsOnlyTheFeeds(t *testing.T) {
 	revoker := &recordingRevoker{}
 	repo := &deletingMemberRepo{memberRepoStub: memberRepoStub{ownerID: 1}, members: []domain.MemberDetail{{UserID: 3}, {UserID: 4}}}
-	svc := NewWorkspaceServiceWithRevoker(repo, revoker)
+	svc := NewWorkspaceServiceWithRevoker(repo, revoker, ownerOnlyAdminManagement{ownerID: 1})
 	ctx := context.Background()
 
-	if err := svc.RemoveMember(ctx, 10, 3); err != nil {
+	if err := svc.RemoveMember(ctx, 10, 1, 3); err != nil {
 		t.Fatal(err)
 	}
 	if len(revoker.feeds) != 1 || revoker.feeds[0] != 3 || len(revoker.users) != 0 {

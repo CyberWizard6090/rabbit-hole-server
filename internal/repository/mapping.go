@@ -71,11 +71,17 @@ func publicUserFromDomain(u domain.CommentUser) persistence.User {
 }
 
 func sessionToDomain(s persistence.UserSession) domain.UserSession {
-	return domain.UserSession{ID: s.ID, UserID: s.UserID, TokenHash: s.TokenHash, ExpiresAt: s.ExpiresAt, CreatedAt: s.CreatedAt}
+	return domain.UserSession{
+		ID: s.ID, UserID: s.UserID, TokenHash: s.TokenHash, FamilyID: s.FamilyID, RotatedAt: s.RotatedAt,
+		ExpiresAt: s.ExpiresAt, CreatedAt: s.CreatedAt,
+	}
 }
 
 func sessionFromDomain(s domain.UserSession) persistence.UserSession {
-	return persistence.UserSession{ID: s.ID, UserID: s.UserID, TokenHash: s.TokenHash, ExpiresAt: s.ExpiresAt, CreatedAt: s.CreatedAt}
+	return persistence.UserSession{
+		ID: s.ID, UserID: s.UserID, TokenHash: s.TokenHash, FamilyID: s.FamilyID, RotatedAt: s.RotatedAt,
+		ExpiresAt: s.ExpiresAt, CreatedAt: s.CreatedAt,
+	}
 }
 
 func workspaceToDomain(w persistence.Workspace) domain.Workspace {

@@ -23,7 +23,7 @@ var readableTaskFilter = "((n.task_id IS NOT NULL AND EXISTS (SELECT 1 FROM task
 	"JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = n.user_id AND wm.deleted_at IS NULL " +
 	"JOIN roles r ON r.id = wm.role_id AND r.deleted_at IS NULL " +
 	"JOIN role_permissions rp ON rp.role_id = r.id AND rp.deleted_at IS NULL " +
-	"JOIN permissions p ON p.id = rp.permission_id AND p.deleted_at IS NULL AND p.code = '" + domain.PermWorkspaceRead + "' " +
+	"JOIN permissions p ON p.id = rp.permission_id AND p.deleted_at IS NULL AND p.code = '" + domain.PermFormRead + "' " +
 	"WHERE w.id = n.workspace_id AND w.deleted_at IS NULL)))"
 
 type notificationRepository struct {

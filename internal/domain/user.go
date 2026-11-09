@@ -33,12 +33,21 @@ type User struct {
 }
 
 type UserSession struct {
-	ID        uint      `json:"-"`
-	UserID    uint      `json:"-"`
-	TokenHash string    `json:"-"`
-	ExpiresAt time.Time `json:"-"`
-	CreatedAt time.Time `json:"-"`
+	ID        uint       `json:"-"`
+	UserID    uint       `json:"-"`
+	TokenHash string     `json:"-"`
+	FamilyID  string     `json:"-"`
+	RotatedAt *time.Time `json:"-"`
+	ExpiresAt time.Time  `json:"-"`
+	CreatedAt time.Time  `json:"-"`
 }
+
+type SessionReplay struct {
+	FamilyID string
+	Age      time.Duration
+}
+
+func (e *SessionReplay) Error() string { return "refresh token was already rotated" }
 
 type UserRepository interface {
 	GetByID(ctx context.Context, id uint) (*User, error)

@@ -69,7 +69,7 @@ func (h *TaskTemplateHandler) List(c *gin.Context) {
 }
 
 func (h *TaskTemplateHandler) Get(c *gin.Context) {
-	template, ok := h.authorizedTemplate(c, domain.PermWorkspaceRead)
+	template, ok := h.authorizedTemplate(c, domain.PermTemplateRead)
 	if !ok {
 		return
 	}
@@ -77,7 +77,7 @@ func (h *TaskTemplateHandler) Get(c *gin.Context) {
 }
 
 func (h *TaskTemplateHandler) Update(c *gin.Context) {
-	template, ok := h.authorizedTemplate(c, domain.PermWorkspaceUpdate)
+	template, ok := h.authorizedTemplate(c, domain.PermTemplateManage)
 	if !ok {
 		return
 	}
@@ -95,7 +95,7 @@ func (h *TaskTemplateHandler) Update(c *gin.Context) {
 }
 
 func (h *TaskTemplateHandler) Archive(c *gin.Context) {
-	template, ok := h.authorizedTemplate(c, domain.PermWorkspaceUpdate)
+	template, ok := h.authorizedTemplate(c, domain.PermTemplateManage)
 	if !ok {
 		return
 	}
@@ -107,7 +107,7 @@ func (h *TaskTemplateHandler) Archive(c *gin.Context) {
 }
 
 func (h *TaskTemplateHandler) CreateVersion(c *gin.Context) {
-	template, ok := h.authorizedTemplate(c, domain.PermWorkspaceUpdate)
+	template, ok := h.authorizedTemplate(c, domain.PermTemplateManage)
 	if !ok {
 		return
 	}
@@ -125,7 +125,7 @@ func (h *TaskTemplateHandler) CreateVersion(c *gin.Context) {
 }
 
 func (h *TaskTemplateHandler) ListVersions(c *gin.Context) {
-	template, ok := h.authorizedTemplate(c, domain.PermWorkspaceRead)
+	template, ok := h.authorizedTemplate(c, domain.PermTemplateRead)
 	if !ok {
 		return
 	}
@@ -173,6 +173,10 @@ func (h *TaskTemplateHandler) authorizedTemplate(c *gin.Context, permission stri
 	}
 	template, err := h.service.Get(c.Request.Context(), templateID)
 	if err != nil {
+		if errors.Is(err, domain.ErrTaskTemplateNotFound) || errors.Is(err, domain.ErrNotFound) {
+			response.Forbidden(c)
+			return nil, false
+		}
 		h.writeError(c, err)
 		return nil, false
 	}

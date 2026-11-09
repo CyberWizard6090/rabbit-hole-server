@@ -242,8 +242,10 @@ func TestEventActors_RequesterVisibilityByRole(t *testing.T) {
 		t.Fatal("members must see the requester")
 	}
 
+	if rec := request(t, tc.Router, http.MethodGet, "/api/v1/submissions/"+itoa(anonymous)+"/tasks", env.guestToken, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("guest must not read form submissions: %d: %s", rec.Code, rec.Body.String())
+	}
 	guestSources := []string{
-		"/api/v1/submissions/" + itoa(anonymous) + "/tasks",
 		"/api/v1/tasks/" + itoa(taskID),
 		"/api/v1/lists/" + itoa(env.listID) + "/tasks",
 		"/api/v1/spaces/" + itoa(env.owner.spaceID),
@@ -257,7 +259,7 @@ func TestEventActors_RequesterVisibilityByRole(t *testing.T) {
 			t.Fatalf("guest %s sees the requester: %s", path, rec.Body.String())
 		}
 	}
-	for _, path := range guestSources[1:3] {
+	for _, path := range guestSources[0:2] {
 		rec := request(t, tc.Router, http.MethodGet, path, env.memberToken, nil)
 		if !strings.Contains(rec.Body.String(), "pat@visitor.test") {
 			t.Fatalf("member %s must see the requester: %s", path, rec.Body.String())
