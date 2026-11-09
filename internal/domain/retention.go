@@ -27,3 +27,18 @@ func (r RetentionResult) Total() int64 {
 type RetentionRepository interface {
 	Purge(ctx context.Context, policy RetentionPolicy) (RetentionResult, error)
 }
+
+type AccessSyncResult struct {
+	Permissions int64
+	Roles       int64
+	Granted     int64
+	Revoked     int64
+}
+
+func (r AccessSyncResult) Changed() bool {
+	return r.Permissions+r.Roles+r.Granted+r.Revoked > 0
+}
+
+type AccessSyncRepository interface {
+	SyncDefaultRoles(ctx context.Context) (AccessSyncResult, error)
+}

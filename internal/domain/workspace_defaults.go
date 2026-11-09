@@ -64,6 +64,7 @@ func DefaultRoles() []DefaultRole {
 			Name: "Admin",
 			PermissionCodes: []string{
 				PermWorkspaceRead,
+				PermWorkspaceUpdate,
 				PermMemberManage,
 				PermSpaceRead,
 				PermSpaceCreate,

@@ -31,6 +31,16 @@ func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create app dependencies: %w", err)
 	}
+	if container.SyncAccess != nil {
+		synced, err := container.SyncAccess(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("synchronize default roles: %w", err)
+		}
+		if synced.Changed() {
+			slog.Info("access: default roles synchronized", "permissions", synced.Permissions, "roles", synced.Roles,
+				"granted", synced.Granted, "revoked", synced.Revoked)
+		}
+	}
 	r := SetupRouter(container, cfg)
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	a := &App{

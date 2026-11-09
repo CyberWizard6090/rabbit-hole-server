@@ -38,7 +38,8 @@ func (h *EmailChangeHandler) Request(c *gin.Context) {
 	switch {
 	case passwordBusy(c, err):
 	case errors.Is(err, service.ErrInvalidCredentials):
-		response.HandleError(c, httperrors.Unauthorized("INVALID_CREDENTIALS", "password is incorrect", err))
+		response.HandleError(c, httperrors.BadRequest("INVALID_CURRENT_PASSWORD", "password is incorrect", err).
+			WithDetails(httperrors.Detail{Field: "password", Code: "INVALID_VALUE"}))
 	case errors.Is(err, service.ErrSameEmail):
 		response.HandleError(c, httperrors.BadRequest("SAME_EMAIL", err.Error(), err))
 	case errors.Is(err, domain.ErrEmailTaken):

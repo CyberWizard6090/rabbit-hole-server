@@ -208,7 +208,8 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 	case passwordBusy(c, err):
 		return
 	case errors.Is(err, service.ErrInvalidCredentials):
-		response.HandleError(c, httperrors.Unauthorized("INVALID_CREDENTIALS", "password is incorrect", err))
+		response.HandleError(c, httperrors.BadRequest("INVALID_CURRENT_PASSWORD", "password is incorrect", err).
+			WithDetails(httperrors.Detail{Field: "password", Code: "INVALID_VALUE"}))
 		return
 	case errors.Is(err, service.ErrOwnsWorkspaces):
 		response.HandleError(c, httperrors.Conflict("OWNS_WORKSPACES", err.Error(), err))

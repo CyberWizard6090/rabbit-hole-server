@@ -75,7 +75,7 @@ relies on:
   (never e-mail, bio or time zone), and `/users/search` does not match e-mail addresses.
 - **Members**: workspace members are managed under `/workspaces/:id/members`; only accepted contacts can be
   added, and the owner cannot be re-roled, removed or leave. Only the owner grants Admin or demotes/removes an
-  Admin (`ADMIN_ROLE_OWNER_ONLY`); Admins manage Members, Guests, forms, templates and custom fields.
+  Admin (`ADMIN_ROLE_OWNER_ONLY`); Admins manage Members, Guests, forms, templates, custom fields and the workspace name, description and avatar.
   Guests are read-only for the work structure and cannot read forms, submissions or templates (role table in
   `docs/openapi.yaml`). `GET /workspaces` is paginated (default 50, max 100) and returns the caller's `role` in each.
 - **Pagination**: task lists use keyset pagination (`cursor`, `limit`; the response is
