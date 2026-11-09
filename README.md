@@ -146,6 +146,7 @@ relies on:
   WebSocket feed `GET /notifications/events` (single-use ticket from `POST /notifications/events/ticket`):
   `notification.created`, `.read`, `.deleted` and `.unread_count`.
 - **Bulk tasks**: `POST /tasks/bulk` updates (status, priority, due date, assignees, tags), moves or deletes up to 100 tasks in one request; each task is checked and handled like its single route and reported in `results`, so one forbidden or invalid task does not stop the others.
+- **Time tracking**: `/tasks/{id}/time` logs time by hand or with one timer per user (`start` / `stop`, `GET /time/running`); `time_spent` of the task (seconds) is recalculated in the same transaction from the finished entries, authors and admins edit entries, and `GET /workspaces/{id}/time-report` totals the time per user for a date range (managers see everyone, others only themselves).
 - **Task order**: every task has an integer `position` within its list; new tasks go to the end and
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.

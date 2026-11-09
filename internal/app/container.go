@@ -59,6 +59,7 @@ type Container struct {
 	FormUploads         service.FormUploadService
 	FormTaskHandler     *handler.FormTaskHandler
 	TaskTemplateHandler *handler.TaskTemplateHandler
+	TimeHandler         *handler.TimeHandler
 
 	PermissionChecker service.PermissionChecker
 
@@ -275,6 +276,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		TaskTemplateHandler: handler.NewTaskTemplateHandler(
 			templateService, permissionChecker, templateApplier,
 		),
+		TimeHandler:       handler.NewTimeHandler(service.NewTimeService(repository.NewTimeEntryRepository(db)), taskService, permissionChecker).WithPublisher(hub),
 		WorkspaceHandler:  handler.NewWorkspaceHandler(workspaceService),
 		FolderHandler:     handler.NewFolderHandler(folderService),
 		ListHandler:       handler.NewListHandler(spaceServ, folderService),

@@ -168,6 +168,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					profile.DELETE("/email-change", limit("profile.email-change", 10, time.Minute), deps.EmailChangeHandler.Cancel)
 					profile.DELETE("", limit("profile.delete", 5, time.Minute), deps.AuthHandler.DeleteAccount)
 				}
+				protected.GET("/time/running", deps.TimeHandler.Running)
 				protected.POST("/tasks/bulk", limit("tasks.bulk", 30, time.Minute), deps.TaskHandler.Bulk)
 				profile.POST("/avatar", uploadLimiter, deps.FileHandler.SetAvatar)
 				profile.DELETE("/avatar", deps.FileHandler.RemoveAvatar)
@@ -241,6 +242,9 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					workspaces.PATCH("/:workspace_id",
 						inWorkspace(domain.PermWorkspaceUpdate),
 						deps.WorkspaceHandler.Update)
+					workspaces.GET("/:workspace_id/time-report",
+						inWorkspace(domain.PermTaskRead),
+						deps.TimeHandler.Report)
 					workspaces.GET("/:workspace_id/audit-log",
 						inWorkspace(domain.PermMemberManage),
 						deps.WorkspaceHandler.AuditLog)
@@ -469,6 +473,24 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					tasks.DELETE("",
 						inTask(domain.PermTaskDelete),
 						deps.TaskHandler.Delete)
+					tasks.GET("/time",
+						inTask(domain.PermTaskRead),
+						deps.TimeHandler.List)
+					tasks.POST("/time",
+						inTask(domain.PermTaskUpdate),
+						deps.TimeHandler.Add)
+					tasks.POST("/time/start",
+						inTask(domain.PermTaskUpdate),
+						deps.TimeHandler.Start)
+					tasks.POST("/time/stop",
+						inTask(domain.PermTaskUpdate),
+						deps.TimeHandler.Stop)
+					tasks.PATCH("/time/:entry_id",
+						inTask(domain.PermTaskUpdate),
+						deps.TimeHandler.Update)
+					tasks.DELETE("/time/:entry_id",
+						inTask(domain.PermTaskUpdate),
+						deps.TimeHandler.Delete)
 					tasks.GET("/watchers",
 						inTask(domain.PermTaskRead),
 						deps.NotificationHandler.Watchers)

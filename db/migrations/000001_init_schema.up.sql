@@ -957,3 +957,23 @@ CREATE TABLE workspace_audit_log (
 );
 CREATE INDEX idx_workspace_audit_log_workspace ON workspace_audit_log (workspace_id, id DESC);
 
+CREATE TABLE task_time_entries (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    task_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL,
+    ended_at TIMESTAMPTZ,
+    seconds INTEGER NOT NULL DEFAULT 0,
+    note TEXT NOT NULL DEFAULT '',
+    CONSTRAINT chk_time_entries_seconds CHECK (seconds >= 0 AND seconds <= 86400),
+    CONSTRAINT chk_time_entries_running CHECK (ended_at IS NOT NULL OR seconds = 0),
+    CONSTRAINT chk_time_entries_order CHECK (ended_at IS NULL OR ended_at >= started_at),
+    CONSTRAINT fk_time_entries_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+    CONSTRAINT fk_time_entries_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);
+CREATE INDEX idx_time_entries_task ON task_time_entries (task_id, id DESC);
+CREATE INDEX idx_time_entries_user_started ON task_time_entries (user_id, started_at);
+CREATE UNIQUE INDEX uq_time_entries_one_running_timer ON task_time_entries (user_id) WHERE ended_at IS NULL;
+

@@ -2254,6 +2254,121 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/time:
+    get:
+      tags: [tasks]
+      summary: "Time entries of a task and their total"
+      description: "Newest first (at most 500). `total_seconds` counts finished entries; a running entry shows its elapsed `seconds` so far (capped at 24 hours) and `running: true`. Users are public projections."
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [tasks]
+      summary: "Log time by hand"
+      description: "`seconds` (1 to 86400); `started_at` optional (default: now minus the duration), the entry may not end more than a minute in the future (400 `VALIDATION_FAILED`, detail `started_at` `IN_THE_FUTURE`); `note` up to 2000 characters. `time_spent` of the task is recalculated in the same transaction."
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/time/start:
+    post:
+      tags: [tasks]
+      summary: "Start a timer on the task"
+      description: "One running timer per user: 409 `TIMER_ALREADY_RUNNING` while another is running (stop it first). The running time is not part of `time_spent` until the timer stops."
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/time/stop:
+    post:
+      tags: [tasks]
+      summary: "Stop the caller's timer on the task"
+      description: "Closes the caller's running entry, stores its duration (at most 24 hours) and recalculates `time_spent`. 404 `NO_RUNNING_TIMER` if the caller has no timer on this task."
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/time/{entry_id}:
+    patch:
+      tags: [tasks]
+      summary: "Change the duration or the note of an entry"
+      description: "The author changes their own entry; the Owner and Admin (`space.update`) change any entry, otherwise 403 `TIME_ENTRY_FORBIDDEN`. A running entry only takes a note (400 `INVALID_TIME_ENTRY` for `seconds`)."
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+        - {name: entry_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [tasks]
+      summary: "Delete an entry (same rules as changing it)"
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+        - {name: entry_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /time/running:
+    get:
+      tags: [tasks]
+      summary: "The caller's running timer, if any"
+      description: "`data.timer` is null or `{entry_id, task_id, task_title, started_at, seconds}`; a timer on a task the caller can no longer reach is not returned."
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/time-report:
+    get:
+      tags: [workspaces]
+      summary: "Logged time per user"
+      description: "Finished entries of live tasks whose `started_at` is in `[from, to + 1 day)`; `from` and `to` are UTC dates (default the last 30 days, at most 366 days, 400 `VALIDATION_FAILED` otherwise). Owner and Admin (`member.manage`) see everyone and may filter with `user_id`; everyone else gets only their own row."
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: from, in: query, required: false, schema: {type: string, format: date}}
+        - {name: to, in: query, required: false, schema: {type: string, format: date}}
+        - {name: user_id, in: query, required: false, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
   /tasks/bulk:
     post:
       tags: [tasks]
