@@ -168,6 +168,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					profile.DELETE("/email-change", limit("profile.email-change", 10, time.Minute), deps.EmailChangeHandler.Cancel)
 					profile.DELETE("", limit("profile.delete", 5, time.Minute), deps.AuthHandler.DeleteAccount)
 				}
+				protected.POST("/tasks/bulk", limit("tasks.bulk", 30, time.Minute), deps.TaskHandler.Bulk)
 				profile.POST("/avatar", uploadLimiter, deps.FileHandler.SetAvatar)
 				profile.DELETE("/avatar", deps.FileHandler.RemoveAvatar)
 				protected.GET("/users/search", userSearchLimiter, deps.ContactHandler.Search)

@@ -37,3 +37,43 @@ type UpdateTaskRequest struct {
 	AddTagNames  []string                   `json:"add_tag_names,omitempty" binding:"max=50,dive,max=50"`
 	RemoveTagIDs []uint                     `json:"remove_tag_ids,omitempty" binding:"max=100,dive,gt=0"`
 }
+
+const MaxBulkTasks = 100
+
+type BulkUpdateFields struct {
+	StatusID     *uint                      `json:"status_id,omitempty"`
+	Priority     *int                       `json:"priority,omitempty" binding:"omitempty,gte=1,lte=5"`
+	DueDate      domain.Nullable[time.Time] `json:"due_date"`
+	AssigneeIDs  *[]uint                    `json:"assignee_ids,omitempty" binding:"omitempty,max=100"`
+	AddTagIDs    []uint                     `json:"add_tag_ids,omitempty" binding:"max=100,dive,gt=0"`
+	RemoveTagIDs []uint                     `json:"remove_tag_ids,omitempty" binding:"max=100,dive,gt=0"`
+}
+
+func (f BulkUpdateFields) Empty() bool {
+	return f.StatusID == nil && f.Priority == nil && !f.DueDate.Set && f.AssigneeIDs == nil &&
+		len(f.AddTagIDs) == 0 && len(f.RemoveTagIDs) == 0
+}
+
+type BulkMoveFields struct {
+	ListID   uint  `json:"list_id" binding:"required,gt=0"`
+	StatusID *uint `json:"status_id,omitempty"`
+}
+
+type BulkTasksRequest struct {
+	TaskIDs []uint            `json:"task_ids" binding:"required,min=1,max=100,dive,gt=0"`
+	Action  string            `json:"action" binding:"required,oneof=update move delete"`
+	Update  *BulkUpdateFields `json:"update"`
+	Move    *BulkMoveFields   `json:"move"`
+}
+
+type BulkTaskResult struct {
+	TaskID uint   `json:"task_id"`
+	OK     bool   `json:"ok"`
+	Code   string `json:"code,omitempty"`
+}
+
+type BulkTasksResponse struct {
+	Results   []BulkTaskResult `json:"results"`
+	Succeeded int              `json:"succeeded"`
+	Failed    int              `json:"failed"`
+}
