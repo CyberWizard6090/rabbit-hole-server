@@ -61,7 +61,7 @@ func TestWorkspaceRepository_CreateSeedsRolesPermissionsAndOwner(t *testing.T) {
 	}
 }
 
-func TestWorkspaceRepository_GetAllForUserOnlyReturnsMemberships(t *testing.T) {
+func TestWorkspaceRepository_ListForUserOnlyReturnsMemberships(t *testing.T) {
 	tc := newTestContext(t)
 	alice, bob := repoUser(t, tc, "alice"), repoUser(t, tc, "bob")
 	aliceA := repoWorkspace(t, tc, alice, "Alice A")
@@ -72,13 +72,13 @@ func TestWorkspaceRepository_GetAllForUserOnlyReturnsMemberships(t *testing.T) {
 	if err := repo.RemoveMember(context.Background(), aliceA.ID, alice); err != nil {
 		t.Fatalf("remove alice membership: %v", err)
 	}
-	got, err := repo.GetAllForUser(context.Background(), alice)
-	if err != nil || len(got) != 1 || got[0].Name != "Alice B" {
-		t.Fatalf("alice workspaces = %+v err=%v, want only Alice B", got, err)
+	got, total, err := repo.ListForUser(context.Background(), alice, 50, 0)
+	if err != nil || total != 1 || len(got) != 1 || got[0].Name != "Alice B" || got[0].Role != "owner" {
+		t.Fatalf("alice workspaces = %+v total=%d err=%v, want only Alice B as owner", got, total, err)
 	}
-	got, err = repo.GetAllForUser(context.Background(), bob)
-	if err != nil || len(got) != 1 || got[0].Name != "Bob" {
-		t.Fatalf("bob workspaces = %+v err=%v", got, err)
+	got, total, err = repo.ListForUser(context.Background(), bob, 50, 0)
+	if err != nil || total != 1 || len(got) != 1 || got[0].Name != "Bob" {
+		t.Fatalf("bob workspaces = %+v total=%d err=%v", got, total, err)
 	}
 	if _, err := repo.GetByID(context.Background(), 999999); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("GetByID(missing) err = %v, want not found", err)

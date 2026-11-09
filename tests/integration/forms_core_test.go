@@ -429,8 +429,8 @@ func TestFormSubmissions_PaginationAndFilters(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("limit=100: %d", rec.Code)
 	}
-	if rec = request(t, tc.Router, http.MethodGet, listURL, f.guest, nil); rec.Code != http.StatusOK {
-		t.Fatalf("guest list: %d", rec.Code)
+	if rec = request(t, tc.Router, http.MethodGet, listURL, f.guest, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("guest list: %d, want 403 (guests cannot read submissions)", rec.Code)
 	}
 	if rec = request(t, tc.Router, http.MethodGet, listURL, f.outsider, nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("outsider list: %d", rec.Code)

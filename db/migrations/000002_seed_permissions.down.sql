@@ -16,7 +16,13 @@ BEGIN
             'task.create',
             'task.update',
             'task.delete',
-            'member.manage'
+            'member.manage',
+            'member.manage_admins',
+            'form.read',
+            'form.manage',
+            'template.read',
+            'template.manage',
+            'customfield.manage'
         )
     ) THEN
         RAISE EXCEPTION
@@ -36,6 +42,12 @@ BEGIN
         'task.create',
         'task.update',
         'task.delete',
-        'member.manage'
+        'member.manage',
+        'member.manage_admins',
+        'form.read',
+        'form.manage',
+        'template.read',
+        'template.manage',
+        'customfield.manage'
     );
 END $$;

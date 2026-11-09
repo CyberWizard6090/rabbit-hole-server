@@ -104,8 +104,13 @@ func TestMembers_OwnerInvitesContactWhoThenGainsAccess(t *testing.T) {
 	}
 	rec = request(t, tc.Router, http.MethodPatch, membersPath(owner.workspaceID, "/"+itoa(guestID)), guestToken,
 		map[string]any{"role": "Member"})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("admin demotes an admin: expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = request(t, tc.Router, http.MethodPatch, membersPath(owner.workspaceID, "/"+itoa(guestID)), owner.token,
+		map[string]any{"role": "Member"})
 	if rec.Code != http.StatusOK {
-		t.Fatalf("admin changes role: expected 200, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("owner demotes an admin: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

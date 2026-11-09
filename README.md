@@ -39,6 +39,8 @@ relies on:
 - **Auth**: `POST /auth/login` returns `access_token` and sets an HttpOnly `refresh_token` cookie
   (path `/api/v1/auth`). Call `/auth/refresh` (cookie, `credentials: 'include'`) to rotate.
   `/auth/logout` needs only the cookie, so it works after the access token expired.
+  Refresh tokens form a family per login: replaying an already rotated token after the 10 second parallel-tab
+  grace revokes the whole family (not the user's other logins).
 - **Revocation**: access tokens embed the user's token version. Changing the password
   (`POST /profile/password`), `POST /auth/logout-all` and `DELETE /profile` invalidate every token
   issued before, so the frontend must treat a 401 as "sign in again".
@@ -63,7 +65,10 @@ relies on:
   contacts can be added to a workspace. Other users are exposed as id, username, name and avatar only
   (never e-mail, bio or time zone), and `/users/search` does not match e-mail addresses.
 - **Members**: workspace members are managed under `/workspaces/:id/members`; only accepted contacts can be
-  added, and the owner cannot be re-roled, removed or leave.
+  added, and the owner cannot be re-roled, removed or leave. Only the owner grants Admin or demotes/removes an
+  Admin (`ADMIN_ROLE_OWNER_ONLY`); Admins manage Members, Guests, forms, templates and custom fields.
+  Guests are read-only for the work structure and cannot read forms, submissions or templates (role table in
+  `docs/openapi.yaml`). `GET /workspaces` is paginated (default 50, max 100) and returns the caller's `role` in each.
 - **Pagination**: task lists use keyset pagination (`cursor`, `limit`; the response is
   `{items, next_cursor, prev_cursor, has_next, has_prev}`, plus `total_count` with `with_total=true`).
   `GET /lists/{id}/tasks` also takes `sort` (e.g. `-priority,due_date`, NULLs last) and filters
@@ -131,8 +136,9 @@ relies on:
   (`POST /lists/:id/events/ticket` or `POST /spaces/:id/events/ticket`) and connect with it; see
   [`docs/realtime.md`](docs/realtime.md).
 - **Health**: `GET /healthz` is liveness, `GET /readyz` also pings the database.
-- **Authorization**: resource routes check workspace-scoped permissions. IDs that belong to another
-  workspace answer 403/404 and never leak data.
+- **Authorization**: resource routes check workspace-scoped permissions. Missing, deleted and foreign ids answer
+  the same `403 FORBIDDEN` on purpose (anti-enumeration); only a missing child object inside an accessible
+  container answers 404.
 
 ## Database migrations
 

@@ -10,8 +10,8 @@ info:
     Authenticated routes need `Authorization: Bearer <access_token>`. The refresh token lives in an
     HttpOnly `refresh_token` cookie scoped to `/api/v1/auth`.
     Resource routes additionally require a workspace permission (shown as `x-permission`); callers
-    without it, or who do not belong to the workspace, get 403/404.
-    Task lists use keyset pagination (`cursor`, `limit`); contact and space lists use `page`/`limit`.
+    without it, or who do not belong to the workspace, get 403 (see "Access policy" below).
+    Task lists use keyset pagination (`cursor`, `limit`); workspace, contact and space lists use `page`/`limit`.
     Request bodies are capped at 1 MiB (413 `PAYLOAD_TOO_LARGE`).
     Task changes can be followed over WebSocket: request a single-use ticket, then connect with it
     (see `docs/realtime.md`).
@@ -19,6 +19,39 @@ info:
     deletion invalidates every token issued before it.
     Auth endpoints are rate limited per client IP (register 5/min, login 10/min, refresh 30/min,
     logout 30/min) and answer 429 `RATE_LIMIT_EXCEEDED`.
+
+    ## Access policy: 403 versus 404
+
+    `403 FORBIDDEN` is returned both for objects the caller may not access and for objects that do not exist
+    or were deleted, deliberately: the answer must not reveal which ids exist (anti-enumeration). This holds
+    for every route addressed by a workspace, space, folder, list, task, task template or form submission id,
+    also for the owner of the workspace. Only after the caller proved access to the surrounding container
+    (workspace, space, task) does a missing child object (a form, submission, custom field, tag, comment,
+    attachment, ...) answer `404`. A 404 always means "no such object"; clients must not depend on a more
+    specific `*_NOT_FOUND` code and should treat the status as the contract. The code of the missing
+    permission is never disclosed.
+
+    ## Roles and permissions
+
+    Every workspace has the roles Owner, Admin, Member and Guest. The permission codes behind the table are
+    seeded with the database (`db/migrations/000002_seed_permissions.up.sql`) and attached to the roles when a
+    workspace is created (`internal/domain/workspace_defaults.go`); routes show the code they need as `x-permission`.
+
+    | Capability | Owner | Admin | Member | Guest |
+    |---|---|---|---|---|
+    | Read the workspace, spaces, folders, lists, statuses, tags, tasks, comments, checklists, attachments, activity, custom field definitions, search, and the member list (public projection: no e-mail addresses) | yes | yes | yes | yes |
+    | Create, edit and delete tasks, comments, checklists, attachments; apply task templates | yes | yes | yes | no |
+    | Read forms, their configuration and task configuration, submissions and their files, task templates and the submission notices | yes | yes | yes | no |
+    | Create, edit, publish and delete forms, task configuration, task templates and custom fields | yes | yes | no | no |
+    | Create and delete spaces; create, edit and delete folders, lists, statuses and tags | yes | yes | no | no |
+    | Invite contacts as Member or Guest, change their role, remove them | yes | yes | no | no |
+    | Grant the Admin role, demote or remove an Admin | yes | no | no | no |
+    | Rename or delete the workspace, change its avatar | yes | no | no | no |
+    | Leave the workspace (`DELETE /workspaces/{id}/members/me`) | no (403 `OWNER_IMMUTABLE`) | yes | yes | yes |
+
+    The Owner can never be demoted, removed or replaced through the API. An Admin who tries to touch another
+    Admin, to grant Admin, or to remove or demote themself through the member routes gets 403
+    `ADMIN_ROLE_OWNER_ONLY` (an Admin leaves with `DELETE /workspaces/{id}/members/me`).
 servers:
   - url: http://127.0.0.1:8080/api/v1
 tags:
@@ -153,6 +186,13 @@ paths:
     post:
       tags: [auth]
       summary: "Rotate the refresh cookie and issue a new access token"
+      description: |
+        Every login starts a token family; each refresh retires the presented token and issues the next member of the same family.
+        Presenting a token that was already rotated is answered 401. If that happens within 10 seconds after the rotation (two tabs
+        refreshing in parallel) nothing else changes and the newest token of the family keeps working. After the 10 seconds the replay
+        is treated as theft: the whole family is revoked (every descendant of that login), while the user's other logins stay signed in.
+        Access tokens already issued stay valid until they expire (`ACCESS_TTL`). Retired tokens are remembered for 48 hours.
+        Logout ends the family of the presented cookie.
       security: []
       responses:
         '200': {$ref: '#/components/responses/Ok'}
@@ -212,7 +252,8 @@ paths:
   /profile/password:
     post:
       tags: [profile]
-      summary: "Change password. Revokes all existing tokens and returns a fresh access token (and refresh cookie). 401 if current_password is wrong, 400 if the new one violates the 8-128 character policy."
+      summary: "Change password. Revokes all existing tokens and returns a fresh access token (and refresh cookie). 400 INVALID_CURRENT_PASSWORD (detail field `current_password`) if current_password is wrong, 400 WEAK_PASSWORD if the new one violates the 8-128 character policy."
+      description: "A wrong current password is deliberately not a 401: clients treat every 401 as an ended session and would sign the user out."
       security:
         - bearerAuth: []
       requestBody:
@@ -397,7 +438,7 @@ paths:
     delete:
       tags: [contacts]
       summary: "Remove an accepted contact"
-      description: "Either side can remove the contact. 404 `CONTACT_NOT_FOUND` when there is none."
+      description: "Either side can remove the contact. 404 when there is none."
       security:
         - bearerAuth: []
       parameters:
@@ -425,13 +466,21 @@ paths:
         '404': {$ref: '#/components/responses/Error'}
     get:
       tags: [workspaces]
-      summary: "List workspaces"
-      description: "Every workspace object, here and in create, get and update responses, carries `avatar_url` (empty string when no avatar is set)."
+      summary: "List the caller's workspaces (paginated)"
+      description: "Every workspace object, here and in create, get and update responses, carries `avatar_url` (empty string when no avatar is set). Ordered by id. Every item is a WorkspaceSummary: the workspace plus `role` (`owner`, `admin`, `member` or `guest`), the caller's role in it. Deleted workspaces are not listed. 400 `INVALID_PAGINATION` for an invalid `page` or `limit`."
       security:
         - bearerAuth: []
+      parameters:
+        - {name: page, in: query, schema: {type: integer, minimum: 1, maximum: 10000, default: 1}}
+        - {name: limit, in: query, description: "Must be 1-100; invalid values are rejected with 400 INVALID_PAGINATION.", schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200':
+          description: "`data` is an array of WorkspaceSummary; `pagination` carries `total`, `page`, `limit` and `pages`."
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Envelope'}
         '401': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
   /workspaces/{workspace_id}:
     get:
@@ -498,7 +547,7 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
     post:
       tags: [members]
-      summary: "Add an existing user. The target must be one of the caller's contacts (422 NOT_A_CONTACT). Role is Admin, Member or Guest; 409 if already a member."
+      summary: "Add an existing user. The target must be one of the caller's contacts (422 NOT_A_CONTACT). Role is Admin, Member or Guest; 409 if already a member. Only the owner may grant Admin (403 ADMIN_ROLE_OWNER_ONLY)."
       x-permission: member.manage
       security:
         - bearerAuth: []
@@ -533,7 +582,7 @@ paths:
   /workspaces/{workspace_id}/members/{user_id}:
     patch:
       tags: [members]
-      summary: "Change a member's role. The owner's role cannot be changed (403) and Owner cannot be assigned (400)."
+      summary: "Change a member's role. The owner's role cannot be changed (403 OWNER_IMMUTABLE) and Owner cannot be assigned (400). Only the owner may grant Admin or demote an Admin, an Admin included themself (403 ADMIN_ROLE_OWNER_ONLY); an Admin may change Members and Guests."
       x-permission: member.manage
       security:
         - bearerAuth: []
@@ -553,7 +602,7 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
     delete:
       tags: [members]
-      summary: "Remove a member (the owner cannot be removed)"
+      summary: "Remove a member (the owner cannot be removed: 403 OWNER_IMMUTABLE). Only the owner may remove an Admin (403 ADMIN_ROLE_OWNER_ONLY), including an Admin removing themself here; Admins leave with DELETE /workspaces/{workspace_id}/members/me. An Admin may remove Members and Guests."
       x-permission: member.manage
       security:
         - bearerAuth: []
@@ -721,7 +770,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateSpaceRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -753,7 +802,9 @@ paths:
         trigram similarity adds typo tolerance. `%`, `_` and `\` are matched literally. Tasks are
         matched on title and description (title ranks higher). Results are ordered by `score`
         (1.0 exact, 0.9 prefix, 0.8 substring, below 0.8 fuzzy), then by `updated_at` (newest first),
-        then by type and id. E-mail addresses are never searched or returned.
+        then by type and id. Free text written by users (task titles and descriptions, comments, checklist items) is
+        searched as written, so a query that looks like an e-mail address finds text that contains it and the snippet shows
+        it; the caller can already read that text. The e-mail addresses of user accounts are never searched or returned.
         `snippet.text` is plain text (markup removed, entities decoded, whitespace collapsed, long
         text shortened with a leading and/or trailing `…`). `snippet.matches` holds `start`/`end`
         offsets counted in Unicode code points (runes, not bytes or UTF-16 units) into `snippet.text`;
@@ -892,6 +943,7 @@ paths:
     get:
       tags: [forms]
       summary: "List forms in a workspace"
+      x-permission: form.read
       x-permission: workspace.read
       security:
         - bearerAuth: []
@@ -904,6 +956,7 @@ paths:
     post:
       tags: [forms]
       summary: "Create a form, optionally with its questions and task configuration"
+      x-permission: form.manage
       description: |
         Creates the form in status `draft`. `questions` and `task_config` are optional; when either is sent, the form,
         every question (with options and settings) and the task configuration are created in ONE database transaction:
@@ -964,6 +1017,7 @@ paths:
     get:
       tags: [forms]
       summary: "Get a form and its editable questions"
+      x-permission: form.read
       x-permission: workspace.read
       security:
         - bearerAuth: []
@@ -978,6 +1032,7 @@ paths:
     patch:
       tags: [forms]
       summary: "Replace form metadata"
+      x-permission: form.manage
       description: "`name` and `slug` are always replaced. `settings` replaces the whole settings object when present and leaves it untouched when omitted. Settings are validated (400 with FORM_SUBMIT_BUTTON_TEXT_INVALID, FORM_SUCCESS_MESSAGE_INVALID, FORM_REDIRECT_URL_INVALID, FORM_ACCENT_COLOR_INVALID, FORM_LOGO_INVALID, FORM_COVER_INVALID, FORM_NOTIFY_RECIPIENT_INVALID or FORM_MAX_SUBMISSIONS_INVALID) and take effect for visitors when the form is published again; every published version keeps its own copy."
       x-permission: workspace.update
       security:
@@ -1000,6 +1055,7 @@ paths:
     delete:
       tags: [forms]
       summary: "Delete a form without submissions"
+      x-permission: form.manage
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -1016,6 +1072,7 @@ paths:
     post:
       tags: [forms]
       summary: "Publish a new immutable form version"
+      x-permission: form.manage
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -1032,6 +1089,7 @@ paths:
     post:
       tags: [forms]
       summary: "Archive a form and disable public submissions"
+      x-permission: form.manage
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -1047,6 +1105,7 @@ paths:
     post:
       tags: [forms]
       summary: "Add a question to a form"
+      x-permission: form.manage
       description: |
         Position rules (all inside one transaction that locks the form row, so concurrent requests never produce duplicate positions):
         - `position` omitted: the question is appended with `max(position) + 1` over the non-deleted questions of the form (`0` for the first one);
@@ -1078,6 +1137,7 @@ paths:
     patch:
       tags: [forms]
       summary: "Replace a question"
+      x-permission: form.manage
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -1100,6 +1160,7 @@ paths:
     delete:
       tags: [forms]
       summary: "Delete a question that has no submitted answers"
+      x-permission: form.manage
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -1117,6 +1178,7 @@ paths:
     put:
       tags: [forms]
       summary: "Set the order of every question in a form"
+      x-permission: form.manage
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -1138,6 +1200,7 @@ paths:
     get:
       tags: [forms]
       summary: "List submissions to a form, newest first, with pagination and filters"
+      x-permission: form.read
       description: |
         Offset pagination like the other page lists: `data` is an array of FormSubmission, `pagination` is
         `{total, page, limit, pages}`; `total` counts all submissions that match the filters. Default `limit` is 20
@@ -1165,6 +1228,7 @@ paths:
     get:
       tags: [forms]
       summary: "Download a file uploaded with a form submission"
+      x-permission: form.read
       description: "Streams the file as an attachment (`Content-Disposition: attachment`, `Content-Security-Policy: default-src 'none'; sandbox`; types outside the safe list are served as `application/octet-stream`). `file_id` is the `id` of an entry of the submission's `files`. 404 when the file does not belong to the submission or the workspace. When the submission created a task the same file is also an ordinary task attachment (`task_attachment_id`); deleting that attachment removes the stored object."
       x-permission: workspace.read
       security:
@@ -1186,6 +1250,7 @@ paths:
     get:
       tags: [forms]
       summary: "Get a submission"
+      x-permission: form.read
       description: "`files` lists the files uploaded for `file` questions (`id`, `question_id`, `name`, `content_type`, `size`, `task_attachment_id` when attached to the created task); the answer value of a `file` question is the array of upload ids."
       x-permission: workspace.read
       security:
@@ -1202,6 +1267,7 @@ paths:
     get:
       tags: [forms]
       summary: "Get the draft task-creation configuration for a form"
+      x-permission: form.read
       description: "Published versions keep an immutable copy. Updating this configuration does not change submissions to an already published version."
       x-permission: workspace.read
       security:
@@ -1217,6 +1283,7 @@ paths:
     put:
       tags: [forms]
       summary: "Replace task-creation configuration for the next form publication"
+      x-permission: form.manage
       description: |
         Validates and stores the draft configuration; a form version keeps an immutable copy of it when the form is published.
         The response is the stored configuration (with the resolved `template.version_id`).
@@ -1255,6 +1322,7 @@ paths:
     get:
       tags: [task-templates]
       summary: "List task templates in a workspace"
+      x-permission: template.read
       x-permission: workspace.read
       security:
         - bearerAuth: []
@@ -1267,6 +1335,7 @@ paths:
     post:
       tags: [task-templates]
       summary: "Create a versioned task template"
+      x-permission: template.manage
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -1286,6 +1355,7 @@ paths:
     get:
       tags: [task-templates]
       summary: "Get a task template and its immutable versions"
+      x-permission: template.read
       security:
         - bearerAuth: []
       parameters:
@@ -1298,6 +1368,7 @@ paths:
     patch:
       tags: [task-templates]
       summary: "Update task template metadata"
+      x-permission: template.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1316,6 +1387,7 @@ paths:
     delete:
       tags: [task-templates]
       summary: "Archive a task template"
+      x-permission: template.manage
       description: "Templates and versions remain available to configurations that already reference them."
       security:
         - bearerAuth: []
@@ -1330,6 +1402,7 @@ paths:
     get:
       tags: [task-templates]
       summary: "List immutable task template versions"
+      x-permission: template.read
       security:
         - bearerAuth: []
       parameters:
@@ -1342,6 +1415,7 @@ paths:
     post:
       tags: [task-templates]
       summary: "Create a new immutable task template version"
+      x-permission: template.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1361,6 +1435,7 @@ paths:
     post:
       tags: [task-templates]
       summary: "Create a task from the latest template version"
+      x-permission: task.create
       security:
         - bearerAuth: []
       parameters:
@@ -1380,6 +1455,7 @@ paths:
     get:
       tags: [forms]
       summary: "Get the task created from a form submission"
+      x-permission: form.read
       security:
         - bearerAuth: []
       parameters:
@@ -1393,8 +1469,9 @@ paths:
     get:
       tags: [forms]
       summary: "Get task creation status for a form submission"
+      x-permission: form.read
       description: |
-        Requires workspace read permission. Response body (`status` is always present, `error` is an empty string unless the creation failed):
+        Requires `form.read`. Response body (`status` is always present, `error` is an empty string unless the creation failed):
         ```json
         {"data": {"status": "failed", "error": "invalid task template"}}
         ```
@@ -1404,9 +1481,9 @@ paths:
         `status` is a TaskCreationStatus. `error` is the diagnostic text of the last failed attempt (at most 2000 bytes; not a stable code, for display and logs only).
         Error responses use the usual envelope:
         ```json
-        {"error": {"code": "SUBMISSION_OR_FORM_NOT_FOUND", "request_id": "9f1c2a7b4d3e8a105c6b7d2e"}}
+        {"error": {"code": "FORBIDDEN", "request_id": "9f1c2a7b4d3e8a105c6b7d2e"}}
         ```
-        `404 SUBMISSION_OR_FORM_NOT_FOUND` for an unknown submission, `403 FORBIDDEN` (`"forbidden"`) without workspace read permission, `400 INVALID_ID` (`"invalid submission_id"`) for a malformed id.
+        `403 FORBIDDEN` for an unknown submission as well as without the `form.read` permission (an unknown id is indistinguishable from a foreign one), `400 INVALID_ID` for a malformed id.
       security:
         - bearerAuth: []
       parameters:
@@ -1421,7 +1498,8 @@ paths:
     post:
       tags: [forms]
       summary: "Retry task creation for a failed submission"
-      description: "Requires workspace update permission. Returns the same body as `task-status` after the attempt: `{\"data\": {\"status\": \"succeeded\", \"error\": \"\"}}`. Submissions that are already `succeeded` or `skipped` are returned unchanged."
+      x-permission: form.manage
+      description: "Requires `form.manage`; an unknown submission answers 403 like a foreign one. Returns the same body as `task-status` after the attempt: `{\"data\": {\"status\": \"succeeded\", \"error\": \"\"}}`. Submissions that are already `succeeded` or `skipped` are returned unchanged."
       security:
         - bearerAuth: []
       parameters:
@@ -1447,6 +1525,7 @@ paths:
     post:
       tags: [custom-fields]
       summary: "Create a custom field definition"
+      x-permission: customfield.manage
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -1481,6 +1560,7 @@ paths:
     patch:
       tags: [custom-fields]
       summary: "Replace a custom field definition"
+      x-permission: customfield.manage
       description: "The current implementation requires the full definition in the request body."
       x-permission: workspace.update
       security:
@@ -1503,6 +1583,7 @@ paths:
     delete:
       tags: [custom-fields]
       summary: "Delete a custom field definition"
+      x-permission: customfield.manage
       description: "Fields with stored task values are retained and cannot be deleted."
       x-permission: workspace.update
       security:
@@ -1608,7 +1689,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateTagRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1713,7 +1794,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateFolderRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1747,7 +1828,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateListRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1781,7 +1862,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateListRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1883,7 +1964,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateStatusRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1994,7 +2075,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateTaskRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Ok'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2837,7 +2918,7 @@ components:
         application/json:
           schema: {$ref: '#/components/schemas/Envelope'}
     Error:
-      description: Error envelope
+      description: "Error envelope. For 403 FORBIDDEN the object may be missing or deleted as well as inaccessible; that is deliberate (anti-enumeration), see Access policy in the API description."
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Envelope'}
@@ -2873,6 +2954,17 @@ components:
             page: {type: integer}
             limit: {type: integer}
             pages: {type: integer}
+    WorkspaceSummary:
+      type: object
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        description: {type: string}
+        avatar_url: {type: string}
+        owner_id: {type: integer}
+        role: {type: string, enum: [owner, admin, member, guest], description: "The caller's role in this workspace."}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
     SearchResult:
       type: object
       properties:
@@ -3246,7 +3338,7 @@ components:
             | `checkbox` | boolean (`false` is a valid answer, also for a required checkbox) |
             | `rating` | integer within `settings.min`..`settings.max` (defaults 1..5) |
             | `scale` | integer within `settings.min`..`settings.max` (defaults 1..10) |
-            | `file` | array of file ids (integers); the files are uploaded separately |
+            | `file` | array of upload ids (hex strings such as `"7d1c0a6ee2f94b3d8f7c2a91b4e5d630"`) returned by `POST /public/forms/{slug}/uploads`, at most `settings.max_files` of them |
             | `section`, `description`, `divider` | no answer |
           example:
             "11": "Cannot sign in"

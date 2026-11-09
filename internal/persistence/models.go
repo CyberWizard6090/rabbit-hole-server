@@ -26,9 +26,11 @@ type User struct {
 }
 
 type UserSession struct {
-	ID        uint      `gorm:"primaryKey"`
-	UserID    uint      `gorm:"not null;index"`
-	TokenHash string    `gorm:"unique;not null"`
+	ID        uint   `gorm:"primaryKey"`
+	UserID    uint   `gorm:"not null;index"`
+	TokenHash string `gorm:"unique;not null"`
+	FamilyID  string `gorm:"not null;index"`
+	RotatedAt *time.Time
 	ExpiresAt time.Time `gorm:"not null"`
 	CreatedAt time.Time `gorm:"not null"`
 }
