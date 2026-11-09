@@ -73,7 +73,7 @@ func (h *FormTaskHandler) SetConfig(c *gin.Context) {
 
 func (h *FormTaskHandler) ListSubmissionTasks(c *gin.Context) {
 	submissionID, ok := parseSubmissionID(c)
-	if !ok || !h.authorizeSubmission(c, submissionID, domain.PermWorkspaceRead) {
+	if !ok || !h.authorizeSubmission(c, submissionID, domain.PermFormRead) {
 		return
 	}
 	taskID, err := h.forms.GetSubmissionTask(c.Request.Context(), submissionID)
@@ -101,7 +101,7 @@ func (h *FormTaskHandler) ListSubmissionTasks(c *gin.Context) {
 
 func (h *FormTaskHandler) TaskStatus(c *gin.Context) {
 	submissionID, ok := parseSubmissionID(c)
-	if !ok || !h.authorizeSubmission(c, submissionID, domain.PermWorkspaceRead) {
+	if !ok || !h.authorizeSubmission(c, submissionID, domain.PermFormRead) {
 		return
 	}
 	status, taskError, err := h.forms.GetSubmissionTaskStatus(c.Request.Context(), submissionID)
@@ -114,7 +114,7 @@ func (h *FormTaskHandler) TaskStatus(c *gin.Context) {
 
 func (h *FormTaskHandler) Retry(c *gin.Context) {
 	submissionID, ok := parseSubmissionID(c)
-	if !ok || !h.authorizeSubmission(c, submissionID, domain.PermWorkspaceUpdate) {
+	if !ok || !h.authorizeSubmission(c, submissionID, domain.PermFormManage) {
 		return
 	}
 	status, err := h.processor.RetrySubmission(c.Request.Context(), submissionID)
@@ -133,6 +133,10 @@ func (h *FormTaskHandler) Retry(c *gin.Context) {
 func (h *FormTaskHandler) authorizeSubmission(c *gin.Context, submissionID uint, permission string) bool {
 	workspaceID, err := h.forms.GetSubmissionWorkspace(c.Request.Context(), submissionID)
 	if err != nil {
+		if errors.Is(err, domain.ErrFormNotFound) || errors.Is(err, domain.ErrNotFound) {
+			response.Forbidden(c)
+			return false
+		}
 		h.writeError(c, err)
 		return false
 	}

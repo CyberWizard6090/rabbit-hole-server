@@ -463,7 +463,7 @@ func (m *taskRepositoryMock) List(_ context.Context, _ uint, query domain.TaskQu
 func (m *taskRepositoryMock) GetByID(_ context.Context, id uint) (*domain.Task, error) {
 	return m.task, m.getErr
 }
-func (m *taskRepositoryMock) Update(_ context.Context, id uint, apply func(*domain.Task) error, addTagIDs []uint, replaceAssigneeIDs *[]uint) (*domain.Task, *domain.Task, error) {
+func (m *taskRepositoryMock) Update(_ context.Context, id uint, apply func(*domain.Task) error, addTagIDs, removeTagIDs []uint, replaceAssigneeIDs *[]uint) (*domain.Task, *domain.Task, error) {
 	m.replacedAssignees = replaceAssigneeIDs
 	m.updatedTask = m.task
 	m.addedTaskID = id
@@ -514,17 +514,16 @@ func (m *userRepositoryMock) Update(_ context.Context, user *domain.User) error 
 }
 
 type workspaceRepositoryMock struct {
-	workspace  *domain.Workspace
-	workspaces []domain.Workspace
-	getErr     error
-	createErr  error
-	allErr     error
-	created    *domain.Workspace
-	ownerID    uint
+	workspace *domain.Workspace
+	getErr    error
+	createErr error
+	allErr    error
+	created   *domain.Workspace
+	ownerID   uint
 
-	createFn        func(*domain.Workspace, uint) error
-	getByIDFn       func(uint) (*domain.Workspace, error)
-	getAllForUserFn func(uint) ([]domain.Workspace, error)
+	createFn      func(*domain.Workspace, uint) error
+	getByIDFn     func(uint) (*domain.Workspace, error)
+	listForUserFn func(uint) ([]domain.WorkspaceSummary, int64, error)
 }
 
 func (m *workspaceRepositoryMock) Create(_ context.Context, workspace *domain.Workspace, ownerID uint) error {
@@ -540,11 +539,11 @@ func (m *workspaceRepositoryMock) GetByID(_ context.Context, id uint) (*domain.W
 	}
 	return m.workspace, m.getErr
 }
-func (m *workspaceRepositoryMock) GetAllForUser(_ context.Context, userID uint) ([]domain.Workspace, error) {
-	if m.getAllForUserFn != nil {
-		return m.getAllForUserFn(userID)
+func (m *workspaceRepositoryMock) ListForUser(_ context.Context, userID uint, _, _ int) ([]domain.WorkspaceSummary, int64, error) {
+	if m.listForUserFn != nil {
+		return m.listForUserFn(userID)
 	}
-	return m.workspaces, m.allErr
+	return nil, 0, m.allErr
 }
 
 type tagServiceMock struct {

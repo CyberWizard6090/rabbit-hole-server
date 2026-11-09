@@ -275,10 +275,8 @@ func TestForms_TaskCreationFailureKeepsSubmissionAndRetryDoesNotDuplicate(t *tes
 		t.Fatalf("publish failure form: %d: %s", rec.Code, rec.Body.String())
 	}
 
-	rec = request(t, tc.Router, http.MethodDelete,
-		"/api/v1/lists/"+itoa(listID)+"/statuses/"+itoa(targetStatusID), token, nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("invalidate task target: %d: %s", rec.Code, rec.Body.String())
+	if err := tc.DB.Exec("UPDATE task_statuses SET deleted_at = now() WHERE id = ?", targetStatusID).Error; err != nil {
+		t.Fatalf("invalidate task target: %v", err)
 	}
 	rec = requestWithHeader(t, tc, http.MethodPost, "/api/v1/public/forms/"+slug+"/submissions", "",
 		"Idempotency-Key", "failure-is-persisted", map[string]any{

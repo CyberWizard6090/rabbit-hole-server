@@ -50,6 +50,9 @@ func ConnectDB(dsn string, opts Options) (*gorm.DB, error) {
 	sqlDB := stdlib.OpenDB(*connConfig)
 	db, err := gorm.Open(gormpostgres.New(gormpostgres.Config{Conn: sqlDB}), &gorm.Config{
 		Logger: gormLogger(opts),
+		NowFunc: func() time.Time {
+			return time.Now().Truncate(time.Microsecond)
+		},
 	})
 	if err != nil {
 		_ = sqlDB.Close()

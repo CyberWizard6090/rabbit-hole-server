@@ -380,11 +380,14 @@ func TestFormSettings_NotifyOnSubmitCreatesInAppNotifications(t *testing.T) {
 	submissionID := responseID(t, rec)
 	tc.Notifications.Wait()
 
-	for name, token := range map[string]string{"owner": f.owner.token, "member": f.member, "guest": f.guest} {
+	for name, token := range map[string]string{"owner": f.owner.token, "member": f.member} {
 		entries := inbox(t, tc, token, "?type=form_submission")
 		if len(entries) != 1 || entries[0].Read {
 			t.Fatalf("%s inbox = %v", name, entries)
 		}
+	}
+	if entries := inbox(t, tc, f.guest, "?type=form_submission"); len(entries) != 0 {
+		t.Fatalf("a listed guest must not be told about submissions: %v", entries)
 	}
 	if got := inbox(t, tc, f.outsider, ""); len(got) != 0 {
 		t.Fatalf("a user who is not listed got %v", got)
@@ -431,8 +434,8 @@ func TestFormSettings_NotifyOnSubmitCreatesInAppNotifications(t *testing.T) {
 		t.Fatalf("second submit: %d", rec.Code)
 	}
 	tc.Notifications.Wait()
-	if entries := inbox(t, tc, f.guest, "?type=form_submission"); len(entries) != 2 {
-		t.Fatalf("guest inbox = %v", entries)
+	if entries := inbox(t, tc, f.owner.token, "?type=form_submission"); len(entries) != 2 {
+		t.Fatalf("owner inbox = %v", entries)
 	}
 	var memberRows int64
 	_ = tc.DB.Raw("SELECT count(*) FROM notifications WHERE user_id = ?", f.memberID).Scan(&memberRows).Error

@@ -249,7 +249,7 @@ func dataObject(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 func registerAndLogin(t *testing.T, tc *TestContext) {
 	t.Helper()
 
-	username := fmt.Sprintf("integration-%d", time.Now().UnixNano())
+	username := fmt.Sprintf("it-%d", time.Now().UnixNano())
 	email := username + "@example.test"
 	password := "test-password-123"
 

@@ -77,19 +77,13 @@ func (r *customFieldRepository) GetByID(ctx context.Context, fieldID uint) (*dom
 func (r *customFieldRepository) Update(ctx context.Context, field *domain.CustomField) error {
 	model := customFieldFromDomain(*field)
 	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
-		var existingType string
-		selectResult := tx.Model(&persistence.CustomField{}).
-			Select("type").
+		var current persistence.CustomField
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("id = ? AND workspace_id = ?", field.ID, field.WorkspaceID).
-			Clauses(clause.Locking{Strength: "UPDATE"}).
-			Scan(&existingType)
-		if selectResult.Error != nil {
-			return selectResult.Error
+			First(&current).Error; err != nil {
+			return err
 		}
-		if existingType == "" {
-			return domain.ErrNotFound
-		}
-		if existingType != string(field.Type) {
+		if current.Type != string(field.Type) {
 			var values int64
 			if err := tx.Model(&persistence.TaskCustomFieldValue{}).
 				Where("custom_field_id = ?", field.ID).Count(&values).Error; err != nil {
@@ -99,9 +93,19 @@ func (r *customFieldRepository) Update(ctx context.Context, field *domain.Custom
 			if err != nil {
 				return err
 			}
-			if values > 0 || referenced {
-				return domain.ErrCustomFieldInUse
+			if values > 0 {
+				return &domain.CustomFieldEditError{
+					Cause: domain.ErrCustomFieldInUse, Field: "type", Code: "VALUES_EXIST",
+					Params: map[string]any{"count": values},
+				}
 			}
+			if referenced {
+				return &domain.CustomFieldEditError{
+					Cause: domain.ErrCustomFieldInUse, Field: "type", Code: "REFERENCED",
+				}
+			}
+		} else if err := checkStoredValuesFit(tx, current, field); err != nil {
+			return err
 		}
 		result := tx.Model(&persistence.CustomField{}).
 			Where("id = ? AND workspace_id = ?", field.ID, field.WorkspaceID).
@@ -168,6 +172,105 @@ func (r *customFieldRepository) Delete(ctx context.Context, workspaceID, fieldID
 		return nil
 	})
 	return mapErr(err)
+}
+
+const liveFieldValuesSQL = "FROM task_custom_field_values v JOIN tasks t ON t.id = v.task_id " +
+	"WHERE v.custom_field_id = ? AND "
+
+func liveFieldValues() string {
+	return liveFieldValuesSQL + liveTaskPredicate("t")
+}
+
+func countFieldValues(tx *gorm.DB, fieldID uint, condition string, args ...any) (int64, error) {
+	var total int64
+	err := tx.Raw("SELECT count(*) "+liveFieldValues()+" AND "+condition, append([]any{fieldID}, args...)...).
+		Scan(&total).Error
+	return total, err
+}
+
+func configBound(config map[string]any, key string) (float64, bool) {
+	switch number := config[key].(type) {
+	case float64:
+		return number, true
+	case int:
+		return float64(number), true
+	case int64:
+		return float64(number), true
+	case json.Number:
+		parsed, err := number.Float64()
+		return parsed, err == nil
+	}
+	return 0, false
+}
+
+func checkStoredValuesFit(tx *gorm.DB, current persistence.CustomField, next *domain.CustomField) error {
+	switch next.Type {
+	case domain.CustomFieldDropdown, domain.CustomFieldMultiSelect:
+		return checkOptionsStillCoverValues(tx, current.ID, next)
+	case domain.CustomFieldNumber, domain.CustomFieldInteger:
+		return checkBounds(tx, current.ID, next.Config, "jsonb_typeof(v.value) = 'number'", "(v.value #>> '{}')::numeric",
+			[]boundCheck{
+				{key: "min", op: "<", code: "VALUE_BELOW_MIN"},
+				{key: "max", op: ">", code: "VALUE_ABOVE_MAX"},
+			})
+	case domain.CustomFieldText:
+		return checkBounds(tx, current.ID, next.Config, "jsonb_typeof(v.value) = 'string'", "char_length(v.value #>> '{}')",
+			[]boundCheck{
+				{key: "min_length", op: "<", code: "VALUE_TOO_SHORT"},
+				{key: "max_length", op: ">", code: "VALUE_TOO_LONG"},
+			})
+	}
+	return nil
+}
+
+type boundCheck struct {
+	key  string
+	op   string
+	code string
+}
+
+func checkBounds(
+	tx *gorm.DB, fieldID uint, config map[string]any, typeGuard, expr string, checks []boundCheck,
+) error {
+	for _, check := range checks {
+		bound, ok := configBound(config, check.key)
+		if !ok {
+			continue
+		}
+		count, err := countFieldValues(tx, fieldID, typeGuard+" AND "+expr+" "+check.op+" ?", bound)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			return &domain.CustomFieldEditError{
+				Cause: domain.ErrCustomFieldValueOutOfRange, Field: "config." + check.key, Code: check.code,
+				Params: map[string]any{"bound": bound, "count": count},
+			}
+		}
+	}
+	return nil
+}
+
+func checkOptionsStillCoverValues(tx *gorm.DB, fieldID uint, next *domain.CustomField) error {
+	kept := make([]string, 0, len(next.Options))
+	for _, option := range next.Options {
+		kept = append(kept, option.Value)
+	}
+	var used []string
+	query := "SELECT DISTINCT e " +
+		"FROM (SELECT v.value #>> '{}' AS e " + liveFieldValues() + " AND jsonb_typeof(v.value) = 'string' " +
+		"UNION SELECT jsonb_array_elements_text(v.value) " + liveFieldValues() + " AND jsonb_typeof(v.value) = 'array') used " +
+		"WHERE e NOT IN ? ORDER BY e"
+	if err := tx.Raw(query, fieldID, fieldID, kept).Scan(&used).Error; err != nil {
+		return err
+	}
+	if len(used) == 0 {
+		return nil
+	}
+	return &domain.CustomFieldEditError{
+		Cause: domain.ErrCustomFieldValueOutOfRange, Field: "options", Code: "OPTION_IN_USE",
+		Params: map[string]any{"values": used},
+	}
 }
 
 func isCustomFieldReferenced(tx *gorm.DB, fieldID uint) (bool, error) {

@@ -69,7 +69,7 @@ func (h *TaskTemplateHandler) List(c *gin.Context) {
 }
 
 func (h *TaskTemplateHandler) Get(c *gin.Context) {
-	template, ok := h.authorizedTemplate(c, domain.PermWorkspaceRead)
+	template, ok := h.authorizedTemplate(c, domain.PermTemplateRead)
 	if !ok {
 		return
 	}
@@ -77,7 +77,7 @@ func (h *TaskTemplateHandler) Get(c *gin.Context) {
 }
 
 func (h *TaskTemplateHandler) Update(c *gin.Context) {
-	template, ok := h.authorizedTemplate(c, domain.PermWorkspaceUpdate)
+	template, ok := h.authorizedTemplate(c, domain.PermTemplateManage)
 	if !ok {
 		return
 	}
@@ -95,7 +95,7 @@ func (h *TaskTemplateHandler) Update(c *gin.Context) {
 }
 
 func (h *TaskTemplateHandler) Archive(c *gin.Context) {
-	template, ok := h.authorizedTemplate(c, domain.PermWorkspaceUpdate)
+	template, ok := h.authorizedTemplate(c, domain.PermTemplateManage)
 	if !ok {
 		return
 	}
@@ -107,7 +107,7 @@ func (h *TaskTemplateHandler) Archive(c *gin.Context) {
 }
 
 func (h *TaskTemplateHandler) CreateVersion(c *gin.Context) {
-	template, ok := h.authorizedTemplate(c, domain.PermWorkspaceUpdate)
+	template, ok := h.authorizedTemplate(c, domain.PermTemplateManage)
 	if !ok {
 		return
 	}
@@ -125,7 +125,7 @@ func (h *TaskTemplateHandler) CreateVersion(c *gin.Context) {
 }
 
 func (h *TaskTemplateHandler) ListVersions(c *gin.Context) {
-	template, ok := h.authorizedTemplate(c, domain.PermWorkspaceRead)
+	template, ok := h.authorizedTemplate(c, domain.PermTemplateRead)
 	if !ok {
 		return
 	}
@@ -152,8 +152,13 @@ func (h *TaskTemplateHandler) Apply(c *gin.Context) {
 		response.Unauthorized(c)
 		return
 	}
+	customFields, err := decodeCustomFieldValues(req.CustomFields)
+	if err != nil {
+		response.HandleError(c, httperrors.BadRequest("INVALID_CUSTOM_FIELD", "invalid custom field value", err))
+		return
+	}
 	task, err := h.applier.Apply(c.Request.Context(), userID, template.ID, req.ListID, req.StatusID,
-		req.Title, req.Description)
+		req.Title, req.Description, customFields)
 	if err != nil {
 		h.writeError(c, err)
 		return
@@ -168,6 +173,10 @@ func (h *TaskTemplateHandler) authorizedTemplate(c *gin.Context, permission stri
 	}
 	template, err := h.service.Get(c.Request.Context(), templateID)
 	if err != nil {
+		if errors.Is(err, domain.ErrTaskTemplateNotFound) || errors.Is(err, domain.ErrNotFound) {
+			response.Forbidden(c)
+			return nil, false
+		}
 		h.writeError(c, err)
 		return nil, false
 	}
@@ -189,6 +198,10 @@ func (h *TaskTemplateHandler) authorizedTemplate(c *gin.Context, permission stri
 }
 
 func (h *TaskTemplateHandler) writeError(c *gin.Context, err error) {
+	if appErr, ok := requiredCustomFieldError(err); ok {
+		response.HandleError(c, appErr)
+		return
+	}
 	switch {
 	case errors.Is(err, domain.ErrInvalidTaskTemplate):
 		response.HandleError(c, withFieldDetails(httperrors.BadRequest("INVALID_TASK_TEMPLATE", err.Error(), err), err, "configuration"))

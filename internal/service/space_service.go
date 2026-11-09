@@ -21,7 +21,7 @@ type SpaceService interface {
 
 	CreateListInFolder(ctx context.Context, spaceID, folderID uint, name string) (*domain.List, error)
 	GetListsByFolder(ctx context.Context, folderID uint) ([]domain.List, error)
-	UpdateList(ctx context.Context, listID uint, name *string) (*domain.List, error)
+	UpdateList(ctx context.Context, listID uint, name *string, folderID domain.Nullable[uint]) (*domain.List, error)
 	DeleteList(ctx context.Context, listID uint) error
 }
 
@@ -42,11 +42,7 @@ func (s *spaceService) CreateSpace(ctx context.Context, workspaceID uint, name s
 	}
 
 	defaultList := &domain.List{Name: "Основной список"}
-	defaultStatuses := []domain.TaskStatus{
-		{Name: "К выполнению", Color: "#94A3B8", Position: 1, Type: domain.StatusTodo},
-		{Name: "В работе", Color: "#3B82F6", Position: 2, Type: domain.StatusInProgress},
-		{Name: "Готово", Color: "#22C55E", Position: 3, Type: domain.StatusDone},
-	}
+	defaultStatuses := domain.DefaultTaskStatuses()
 
 	if err := s.repo.CreateWithDefaults(ctx, space, defaultList, defaultStatuses); err != nil {
 		return nil, err
@@ -87,13 +83,16 @@ func (s *spaceService) GetListsByFolder(ctx context.Context, folderID uint) ([]d
 	return s.repo.GetListsByFolder(ctx, folderID)
 }
 
-func (s *spaceService) UpdateList(ctx context.Context, listID uint, name *string) (*domain.List, error) {
+func (s *spaceService) UpdateList(ctx context.Context, listID uint, name *string, folderID domain.Nullable[uint]) (*domain.List, error) {
 	list, err := s.repo.GetListByID(ctx, listID)
 	if err != nil {
 		return nil, err
 	}
 	if name != nil {
 		list.Name = *name
+	}
+	if folderID.Set {
+		list.FolderID = folderID.Value
 	}
 	if err := s.repo.UpdateList(ctx, list); err != nil {
 		return nil, err

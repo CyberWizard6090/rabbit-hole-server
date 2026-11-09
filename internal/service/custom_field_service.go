@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"rabbit-hole-server/internal/domain"
 )
@@ -125,7 +126,7 @@ func (s *customFieldService) SetTaskValue(
 	}
 	if isEmptyCustomFieldValue(value) {
 		if field.Required {
-			return domain.InvalidField(domain.ErrInvalidCustomField, "value", "REQUIRED")
+			return &domain.CustomFieldRequiredError{FieldIDs: []uint{field.ID}}
 		}
 		err := s.values.DeleteTaskValue(ctx, taskID, fieldID)
 		if errors.Is(err, domain.ErrNotFound) {
@@ -180,8 +181,12 @@ func (s *customFieldService) DeleteTaskValue(
 	if err != nil {
 		return err
 	}
-	if _, err := s.Get(ctx, workspaceID, fieldID); err != nil {
+	field, err := s.Get(ctx, workspaceID, fieldID)
+	if err != nil {
 		return err
+	}
+	if field.Required {
+		return &domain.CustomFieldRequiredError{FieldIDs: []uint{field.ID}}
 	}
 	return s.values.DeleteTaskValue(ctx, taskID, fieldID)
 }
@@ -193,7 +198,7 @@ func customFieldFromInput(workspaceID, fieldID uint, input CustomFieldInput) (*d
 		return nil, domain.ErrInvalidCustomField
 	case name == "":
 		return nil, domain.InvalidField(domain.ErrInvalidCustomField, "name", "REQUIRED")
-	case len(name) > 255:
+	case utf8.RuneCountInString(name) > 255:
 		return nil, domain.InvalidField(domain.ErrInvalidCustomField, "name", "TOO_LONG").
 			WithParams(map[string]any{"max": 255})
 	}
@@ -224,7 +229,7 @@ func customFieldFromInput(workspaceID, fieldID uint, input CustomFieldInput) (*d
 			option := &field.Options[i]
 			option.Label = strings.TrimSpace(option.Label)
 			option.Value = strings.TrimSpace(option.Value)
-			if option.Label == "" || option.Value == "" || len(option.Label) > 255 || len(option.Value) > 255 {
+			if option.Label == "" || option.Value == "" || utf8.RuneCountInString(option.Label) > 255 || utf8.RuneCountInString(option.Value) > 255 {
 				return nil, domain.InvalidField(domain.ErrInvalidCustomField, fmt.Sprintf("options[%d]", i), "INVALID_OPTION").
 					WithParams(map[string]any{"max": 255})
 			}

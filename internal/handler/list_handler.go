@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
+	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/dto"
 	contextutil "rabbit-hole-server/internal/http/context"
 	httperrors "rabbit-hole-server/internal/http/errors"
@@ -42,6 +44,11 @@ func (h *ListHandler) CreateInSpace(c *gin.Context) {
 
 	list, err := h.service.CreateList(c.Request.Context(), uint(spaceID), req.Name, req.ParentStatusID)
 	if err != nil {
+		if errors.Is(err, domain.ErrParentStatusNotFound) {
+			response.HandleError(c, httperrors.BadRequest("VALIDATION_FAILED", err.Error(), err).
+				WithDetails(httperrors.Detail{Field: "parent_status_id", Code: "NOT_FOUND"}))
+			return
+		}
 		response.HandleError(c, httperrors.Internal("LIST_CREATE_FAILED", "internal server error", err))
 		return
 	}
@@ -121,15 +128,22 @@ func (h *ListHandler) Update(c *gin.Context) {
 		return
 	}
 
-	var req dto.UpdateFolderRequest
+	var req dto.UpdateListRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.ValidationError(c, err)
 		return
 	}
 
-	list, err := h.service.UpdateList(c.Request.Context(), uint(listID), req.Name)
+	list, err := h.service.UpdateList(c.Request.Context(), uint(listID), req.Name, req.FolderID)
 	if err != nil {
-		response.HandleError(c, httperrors.Internal("LIST_UPDATE_FAILED", "internal server error", err))
+		switch {
+		case errors.Is(err, domain.ErrInvalidFolderReference):
+			response.HandleError(c, httperrors.BadRequest("INVALID_FOLDER_REFERENCE", err.Error(), err))
+		case errors.Is(err, domain.ErrNotFound):
+			response.HandleError(c, httperrors.NotFound("LIST_NOT_FOUND", "list not found", err))
+		default:
+			response.HandleError(c, httperrors.Internal("LIST_UPDATE_FAILED", "internal server error", err))
+		}
 		return
 	}
 

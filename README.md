@@ -39,6 +39,8 @@ relies on:
 - **Auth**: `POST /auth/login` returns `access_token` and sets an HttpOnly `refresh_token` cookie
   (path `/api/v1/auth`). Call `/auth/refresh` (cookie, `credentials: 'include'`) to rotate.
   `/auth/logout` needs only the cookie, so it works after the access token expired.
+  Refresh tokens form a family per login: replaying an already rotated token after the 10 second parallel-tab
+  grace revokes the whole family (not the user's other logins).
 - **Revocation**: access tokens embed the user's token version. Changing the password
   (`POST /profile/password`), `POST /auth/logout-all` and `DELETE /profile` invalidate every token
   issued before, so the frontend must treat a 401 as "sign in again".
@@ -63,7 +65,10 @@ relies on:
   contacts can be added to a workspace. Other users are exposed as id, username, name and avatar only
   (never e-mail, bio or time zone), and `/users/search` does not match e-mail addresses.
 - **Members**: workspace members are managed under `/workspaces/:id/members`; only accepted contacts can be
-  added, and the owner cannot be re-roled, removed or leave.
+  added, and the owner cannot be re-roled, removed or leave. Only the owner grants Admin or demotes/removes an
+  Admin (`ADMIN_ROLE_OWNER_ONLY`); Admins manage Members, Guests, forms, templates and custom fields.
+  Guests are read-only for the work structure and cannot read forms, submissions or templates (role table in
+  `docs/openapi.yaml`). `GET /workspaces` is paginated (default 50, max 100) and returns the caller's `role` in each.
 - **Pagination**: task lists use keyset pagination (`cursor`, `limit`; the response is
   `{items, next_cursor, prev_cursor, has_next, has_prev}`, plus `total_count` with `with_total=true`).
   `GET /lists/{id}/tasks` also takes `sort` (e.g. `-priority,due_date`, NULLs last) and filters
@@ -82,6 +87,7 @@ relies on:
   Forms also have presentation settings (button text, success message, https redirect, accent color, logo and cover images), `closes_at` and `max_submissions` restrictions, in-app notifications for chosen members (`notify_on_submit`), conditional questions (`settings.visible_if`) and public file uploads for `file` questions (`POST /public/forms/{slug}/uploads`, sniffed types, `FORM_UPLOAD_MAX_BYTES`, `FORM_UPLOAD_TTL`); the files become task attachments or stay downloadable from the submission.
 - **Form builder API**: new questions are appended (or inserted with a shift) under a row lock, `POST /workspaces/{id}/forms` creates a form with its questions and task configuration atomically, `GET /form-templates` returns localized presets, submissions are paginated and filterable, and one priority scale (1 low .. 5 critical, names `low`..`critical`) is used by tasks, templates and forms. The answer formats, question settings and task-config precedence (`mappings > template > task_defaults`) are documented in `docs/openapi.yaml`.
   Renaming a published form's slug keeps the old public link working through slug aliases (at most 10 per form), `PUT .../questions/reorder` requires every question and keeps `visible_if` rules valid, answered questions keep their type and used options, invalid public submissions answer one 400 with a `details` entry per `answers.<question_id>`, and the public submission response is a minimal object without workspace, version or respondent data.
+- **Task, list and field rules**: required custom fields are enforced on task creation (`custom_fields` in the body, template apply and form tasks) and cannot be cleared; tags can be removed with `remove_tag_ids`; deleting a status can move its tasks with `replacement_status_id` (refused while a published form uses it); every new list gets the default statuses; lists move between folders with `folder_id`; editing a custom field that has values is rejected when it would invalidate them; tasks expose `subtask_count` and the list endpoint filters by `parent_id` / `has_parent`; templates carry an absolute `due_date` or a relative `due_in_days`.
 - **Soft delete**: deleting a workspace, space, folder, list or task soft-deletes everything below it in the same transaction with one timestamp (tasks take their subtasks). Reads additionally check the whole ancestor chain through one shared predicate, so tasks, comments, attachments, checklists, watchers, activity, notifications, realtime tickets, public forms (submissions and uploads) and public images of a deleted parent answer 404/403. `PATCH /tasks/{id}` locks the task and writes only the changed columns, so it never reverts a concurrent move, status change or delete; the database enforces that a task's status belongs to its list and the list to its space.
 - **Activity**: `GET /tasks/{id}/activity` returns who changed what on a task, newest first (field
   changes with old and new values, moves between lists, comment and attachment events). Entries are written after
@@ -125,15 +131,20 @@ relies on:
 - **Task order**: every task has an integer `position` within its list; new tasks go to the end and
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.
-- **Limits**: request body max 1 MiB (413). Auth rate limits per IP: register 5/min, login 10/min,
+- **Input hygiene**: JSON bodies must be `application/json` (415); NUL characters, invalid UTF-8 and
+  integers beyond 64 bits are rejected with 400; every text field and array has a maximum size (400
+  `TOO_LONG` / `TOO_MANY`, see `docs/openapi.yaml`); unknown routes and methods answer 404 / 405 in the
+  standard envelope.
+- **Limits**: request body max 1 MiB (public form submissions 128 KiB; 413). Auth rate limits per IP: register 5/min, login 10/min,
   refresh 30/min, logout 30/min, verify-email 20/min, resend-verification and forgot-password 5/min,
   reset-password 10/min (429).
 - **Real-time**: task changes can be followed over WebSocket. Request a single-use ticket
   (`POST /lists/:id/events/ticket` or `POST /spaces/:id/events/ticket`) and connect with it; see
   [`docs/realtime.md`](docs/realtime.md).
 - **Health**: `GET /healthz` is liveness, `GET /readyz` also pings the database.
-- **Authorization**: resource routes check workspace-scoped permissions. IDs that belong to another
-  workspace answer 403/404 and never leak data.
+- **Authorization**: resource routes check workspace-scoped permissions. Missing, deleted and foreign ids answer
+  the same `403 FORBIDDEN` on purpose (anti-enumeration); only a missing child object inside an accessible
+  container answers 404.
 
 ## Database migrations
 

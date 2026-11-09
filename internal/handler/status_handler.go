@@ -117,23 +117,23 @@ func (h *StatusHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	var replacementID *uint
-	if raw := c.Query("replacement_id"); raw != "" {
-		parsed, err := strconv.ParseUint(raw, 10, 64)
-		if err != nil || parsed == 0 {
-			response.HandleError(c, httperrors.BadRequest("INVALID_REPLACEMENT_ID", "invalid replacement_id", err))
-			return
-		}
-		id := uint(parsed)
-		replacementID = &id
+	replacementID, ok := parseReplacementStatusID(c)
+	if !ok {
+		return
 	}
 
 	if err := h.service.Delete(c.Request.Context(), uint(listID), uint(statusID), replacementID); err != nil {
+		var usedByForm *domain.StatusUsedByFormError
 		switch {
+		case errors.As(err, &usedByForm):
+			appErr := httperrors.Conflict("STATUS_USED_BY_FORM", err.Error(), err)
+			response.HandleError(c, appErr.WithParams(map[string]any{"form_ids": usedByForm.FormIDs}))
 		case errors.Is(err, domain.ErrStatusInUse):
 			response.HandleError(c, httperrors.Conflict("STATUS_IN_USE", err.Error(), err))
 		case errors.Is(err, domain.ErrInvalidReplacementStatus):
 			response.HandleError(c, httperrors.BadRequest("INVALID_REPLACEMENT_STATUS", err.Error(), err))
+		case errors.Is(err, domain.ErrNotFound):
+			response.HandleError(c, httperrors.NotFound("STATUS_NOT_FOUND", "status not found", err))
 		default:
 			response.HandleError(c, httperrors.Internal("STATUS_DELETE_FAILED", "internal server error", err))
 		}
@@ -141,4 +141,26 @@ func (h *StatusHandler) Delete(c *gin.Context) {
 	}
 
 	response.Success(c, http.StatusOK, gin.H{"message": "status deleted"})
+}
+
+func parseReplacementStatusID(c *gin.Context) (*uint, bool) {
+	raw := c.Query("replacement_status_id")
+	legacy := c.Query("replacement_id")
+	if raw != "" && legacy != "" && raw != legacy {
+		response.HandleError(c, httperrors.BadRequest("INVALID_REPLACEMENT_ID", "replacement_status_id and replacement_id differ", nil))
+		return nil, false
+	}
+	if raw == "" {
+		raw = legacy
+	}
+	if raw == "" {
+		return nil, true
+	}
+	parsed, err := strconv.ParseUint(raw, 10, 63)
+	if err != nil || parsed == 0 {
+		response.HandleError(c, httperrors.BadRequest("INVALID_REPLACEMENT_ID", "invalid replacement_status_id", err))
+		return nil, false
+	}
+	id := uint(parsed)
+	return &id, true
 }

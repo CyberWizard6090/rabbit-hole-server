@@ -100,6 +100,12 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		return
 	}
 
+	customFields, err := decodeCustomFieldValues(req.CustomFields)
+	if err != nil {
+		response.HandleError(c, httperrors.BadRequest("INVALID_CUSTOM_FIELD", "invalid custom field value", err))
+		return
+	}
+
 	task, err := h.service.CreateTask(c.Request.Context(), uid, service.CreateTaskParams{
 		Title:        req.Title,
 		Description:  req.Description,
@@ -113,8 +119,17 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		TagIDs:       req.TagIDs,
 		NewTagNames:  req.NewTagNames,
 		TimeEstimate: req.TimeEstimate,
+		CustomFields: customFields,
 	})
 	if err != nil {
+		if appErr, ok := requiredCustomFieldError(err); ok {
+			response.HandleError(c, appErr)
+			return
+		}
+		if errors.Is(err, domain.ErrInvalidCustomField) {
+			response.HandleError(c, httperrors.BadRequest("INVALID_CUSTOM_FIELD", err.Error(), err))
+			return
+		}
 		if errors.Is(err, domain.ErrInvalidDateRange) {
 			response.HandleError(c, httperrors.BadRequest("INVALID_DATE_RANGE", err.Error(), err))
 			return
@@ -164,8 +179,13 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		TimeEstimate: req.TimeEstimate,
 		AddTagIDs:    req.AddTagIDs,
 		AddTagNames:  req.AddTagNames,
+		RemoveTagIDs: req.RemoveTagIDs,
 	})
 	if err != nil {
+		if errors.Is(err, domain.ErrConflictingTagChange) {
+			response.HandleError(c, httperrors.BadRequest("CONFLICTING_TAG_CHANGE", err.Error(), err))
+			return
+		}
 		if errors.Is(err, domain.ErrInvalidDateRange) {
 			response.HandleError(c, httperrors.BadRequest("INVALID_DATE_RANGE", err.Error(), err))
 			return

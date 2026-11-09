@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"rabbit-hole-server/internal/domain"
 )
@@ -686,9 +687,9 @@ func normalizeFormInput(input FormInput) (FormInput, error) {
 	switch {
 	case input.Name == "":
 		return FormInput{}, domain.NewFormValidationError("name", "REQUIRED")
-	case len(input.Name) > 255:
+	case utf8.RuneCountInString(input.Name) > 255:
 		return FormInput{}, domain.NewFormValidationError("name", "TOO_LONG").WithParams(map[string]any{"max": 255})
-	case len(input.Description) > 10000:
+	case utf8.RuneCountInString(input.Description) > 10000:
 		return FormInput{}, domain.NewFormValidationError("description", "TOO_LONG").WithParams(map[string]any{"max": 10000})
 	case !formSlugPattern.MatchString(input.Slug):
 		return FormInput{}, domain.NewFormValidationError("slug", "INVALID_SLUG")
@@ -741,7 +742,7 @@ func normalizeQuestion(formID uint, input QuestionInput) (*domain.FormQuestion, 
 		options[i].Position = i
 		field := fmt.Sprintf("options[%d]", i)
 		if options[i].Label == "" || options[i].Value == "" ||
-			len(options[i].Label) > 255 || len(options[i].Value) > 255 {
+			utf8.RuneCountInString(options[i].Label) > 255 || utf8.RuneCountInString(options[i].Value) > 255 {
 			return nil, domain.NewFormValidationError(field, "INVALID_OPTION").WithParams(map[string]any{"max": 255})
 		}
 		if _, exists := seen[options[i].Value]; exists {

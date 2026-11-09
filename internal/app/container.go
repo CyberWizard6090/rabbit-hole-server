@@ -174,11 +174,13 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 		return nil, err
 	}
 	activityRecorder := service.NewNotifyingRecorder(activityService, notifications.dispatcher)
-	taskService := service.NewTaskService(taskRepo, spaceRepo, tagService, cursorCodec, activityRecorder)
+	taskService := service.NewTaskService(
+		taskRepo, spaceRepo, tagService, cursorCodec, activityRecorder, customFieldService, database.NewTransactionRunner(db),
+	)
 	taskProcessor := service.NewSubmissionTaskProcessor(
 		formRepo, taskService, templateRepo, customFieldService, formUploadRepo, activityRecorder,
 	)
-	templateApplier := service.NewTaskTemplateApplier(database.NewTransactionRunner(db), templateRepo, spaceRepo, taskService, customFieldService)
+	templateApplier := service.NewTaskTemplateApplier(database.NewTransactionRunner(db), templateRepo, spaceRepo, taskService)
 	formService.WithTaskIntegration(formTaskConfigService, taskProcessor).
 		WithSubmissionNotifier(notifications.dispatcher)
 	userService := service.NewUserService(userRepo)
@@ -201,7 +203,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 		service.RehostConfig{Fetcher: options.remoteFetcher, MaxBytes: cfg.Storage.RehostLimit()},
 	)
 	authServ.WithAvatarRemover(fileService)
-	workspaceService := service.NewWorkspaceServiceWithAvatars(workspaceRepo, hub, fileService)
+	workspaceService := service.NewWorkspaceServiceWithAvatars(workspaceRepo, hub, permissionChecker, fileService)
 	formUploadService := service.NewFormUploadService(
 		formRepo, formUploadRepo, store, cfg.Forms.UploadMaxBytes, cfg.Forms.UploadTTL,
 	)

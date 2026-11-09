@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"rabbit-hole-server/internal/domain"
 )
@@ -14,7 +15,7 @@ type TransactionRunner interface {
 }
 
 type TaskTemplateApplier interface {
-	Apply(ctx context.Context, userID, templateID uint, listID, statusID uint, title, description string) (*domain.Task, error)
+	Apply(ctx context.Context, userID, templateID uint, listID, statusID uint, title, description string, customFields map[uint]any) (*domain.Task, error)
 }
 
 type taskTemplateApplier struct {
@@ -22,7 +23,6 @@ type taskTemplateApplier struct {
 	templates domain.TaskTemplateRepository
 	spaces    domain.SpaceRepository
 	tasks     TaskService
-	fields    CustomFieldService
 }
 
 func NewTaskTemplateApplier(
@@ -30,9 +30,8 @@ func NewTaskTemplateApplier(
 	templates domain.TaskTemplateRepository,
 	spaces domain.SpaceRepository,
 	tasks TaskService,
-	fields CustomFieldService,
 ) TaskTemplateApplier {
-	return &taskTemplateApplier{tx: tx, templates: templates, spaces: spaces, tasks: tasks, fields: fields}
+	return &taskTemplateApplier{tx: tx, templates: templates, spaces: spaces, tasks: tasks}
 }
 
 func (s *taskTemplateApplier) Apply(
@@ -40,6 +39,7 @@ func (s *taskTemplateApplier) Apply(
 	userID, templateID uint,
 	listID, statusID uint,
 	title, description string,
+	customFields map[uint]any,
 ) (*domain.Task, error) {
 	var created *domain.Task
 	err := s.tx.Run(ctx, func(txCtx context.Context) error {
@@ -80,25 +80,28 @@ func (s *taskTemplateApplier) Apply(
 		if config.Task.AssigneeID != nil {
 			assigneeIDs = append(assigneeIDs, *config.Task.AssigneeID)
 		}
-		params := CreateTaskParams{
-			Title: strings.TrimSpace(title), Description: strings.TrimSpace(description),
-			ListID: listID, StatusID: statusID, Priority: priority,
-			AssigneeIDs: assigneeIDs, TagIDs: config.Tags,
-		}
-		created, err = s.tasks.CreateTask(txCtx, userID, params)
+		dueDate, err := templateDueDate(config, time.Now())
 		if err != nil {
 			return err
 		}
+		values := make(map[uint]any, len(config.CustomFields)+len(customFields))
 		for _, field := range config.CustomFields {
 			var value any
 			if err := json.Unmarshal(field.Value, &value); err != nil {
 				return domain.ErrInvalidTaskTemplate
 			}
-			if err := s.fields.SetTaskValue(txCtx, created.ID, field.FieldID, value); err != nil {
-				return fmt.Errorf("apply custom field %d: %w", field.FieldID, err)
-			}
+			values[field.FieldID] = value
 		}
-		return nil
+		for fieldID, value := range customFields {
+			values[fieldID] = value
+		}
+		params := CreateTaskParams{
+			Title: strings.TrimSpace(title), Description: strings.TrimSpace(description),
+			ListID: listID, StatusID: statusID, Priority: priority,
+			AssigneeIDs: assigneeIDs, TagIDs: config.Tags, DueDate: dueDate, CustomFields: values,
+		}
+		created, err = s.tasks.CreateTask(txCtx, userID, params)
+		return err
 	})
 	if err != nil {
 		return nil, err

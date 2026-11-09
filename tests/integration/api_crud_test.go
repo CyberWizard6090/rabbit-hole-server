@@ -31,7 +31,7 @@ func TestAPI_ProfileSearchAndContactsLifecycle(t *testing.T) {
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	otherEmail := "api-contact-" + suffix + "@example.test"
-	otherUsername := "api-contact-" + suffix
+	otherUsername := "ac-" + suffix
 	rec := request(t, tc.Router, http.MethodPost, "/api/v1/auth/register", "", map[string]any{
 		"email":    otherEmail,
 		"password": "test-password-123",
@@ -207,7 +207,7 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 	}
 
 	rec = request(t, tc.Router, http.MethodGet, "/api/v1/lists/"+itoa(listID)+"/statuses", tc.Token, nil)
-	if rec.Code != http.StatusOK || len(decodeJSON(t, rec)["data"].([]any)) != 0 {
+	if rec.Code != http.StatusOK || len(decodeJSON(t, rec)["data"].([]any)) != 3 {
 		t.Fatalf("list statuses: %d %s", rec.Code, rec.Body.String())
 	}
 

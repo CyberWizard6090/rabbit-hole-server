@@ -148,8 +148,37 @@ func (r *spaceRepository) CreateTag(ctx context.Context, tag *domain.Tag) error 
 }
 
 func (r *spaceRepository) CreateList(ctx context.Context, list *domain.List) error {
+	db := database.DBFromContext(ctx, r.db)
+	if list.ParentStatusID != nil {
+		var count int64
+		if err := db.Model(&persistence.TaskStatus{}).
+			Where("id = ? AND space_id = ?", *list.ParentStatusID, list.SpaceID).
+			Count(&count).Error; err != nil {
+			return mapErr(err)
+		}
+		if count == 0 {
+			return domain.ErrParentStatusNotFound
+		}
+	}
 	m := listFromDomain(*list)
-	if err := database.DBFromContext(ctx, r.db).Create(&m).Error; err != nil {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&m).Error; err != nil {
+			return err
+		}
+		defaults := domain.DefaultTaskStatuses()
+		rows := make([]persistence.TaskStatus, len(defaults))
+		for i := range defaults {
+			rows[i] = statusFromDomain(defaults[i])
+			rows[i].SpaceID = m.SpaceID
+			rows[i].ListID = m.ID
+		}
+		if err := tx.Create(&rows).Error; err != nil {
+			return err
+		}
+		m.Statuses = rows
+		return nil
+	})
+	if err != nil {
 		return mapErr(err)
 	}
 	*list = listToDomain(m)
@@ -211,12 +240,33 @@ func (r *spaceRepository) GetListsByFolder(ctx context.Context, folderID uint) (
 
 func (r *spaceRepository) UpdateList(ctx context.Context, list *domain.List) error {
 	m := listFromDomain(*list)
-	res := database.DBFromContext(ctx, r.db).Model(&m).Select("Name").Updates(&m)
-	if res.Error != nil {
-		return mapErr(res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return domain.ErrNotFound
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		if err := lockExistingLists(tx, m.ID); err != nil {
+			return err
+		}
+		if m.FolderID != nil {
+			var usable bool
+			if err := tx.Raw(
+				"SELECT EXISTS (SELECT 1 FROM folders fx WHERE fx.id = ? AND fx.space_id = ? AND "+
+					liveFolderPredicate("fx.id")+")", *m.FolderID, m.SpaceID,
+			).Scan(&usable).Error; err != nil {
+				return err
+			}
+			if !usable {
+				return domain.ErrInvalidFolderReference
+			}
+		}
+		res := tx.Model(&m).Select("Name", "FolderID").Updates(&m)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return domain.ErrNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		return mapErr(err)
 	}
 	list.UpdatedAt = m.UpdatedAt
 	return nil

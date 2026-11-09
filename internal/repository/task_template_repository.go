@@ -81,6 +81,12 @@ func (r *taskTemplateRepository) Update(ctx context.Context, template *domain.Ta
 	if result.RowsAffected == 0 {
 		return domain.ErrTaskTemplateNotFound
 	}
+	var updatedAt time.Time
+	if err := database.DBFromContext(ctx, r.db).Model(&persistence.TaskTemplate{}).
+		Select("updated_at").Where("id = ?", template.ID).Scan(&updatedAt).Error; err != nil {
+		return mapErr(err)
+	}
+	template.UpdatedAt = updatedAt
 	return nil
 }
 

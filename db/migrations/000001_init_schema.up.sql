@@ -35,12 +35,15 @@ CREATE TABLE user_sessions (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL,
     token_hash TEXT NOT NULL,
+    family_id TEXT NOT NULL DEFAULT '',
+    rotated_at TIMESTAMPTZ,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_user_sessions_token_hash UNIQUE (token_hash),
     CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
 CREATE INDEX idx_user_sessions_user_id ON user_sessions (user_id);
+CREATE INDEX idx_user_sessions_family_id ON user_sessions (family_id);
 
 CREATE TABLE email_tokens (
     id BIGSERIAL PRIMARY KEY,

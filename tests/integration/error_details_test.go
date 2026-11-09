@@ -123,8 +123,8 @@ func TestErrorDetails_CustomFieldsNameThePath(t *testing.T) {
 		t.Fatalf("detail = %v", d)
 	}
 	rec = request(t, tc.Router, http.MethodPut, valueURL(required), f.owner.token, map[string]any{"value": ""})
-	fcExpectError(t, rec, http.StatusBadRequest, "INVALID_CUSTOM_FIELD", "value")
-	expectDetail(t, fcErrorBody(t, rec), "value", "REQUIRED")
+	fcExpectError(t, rec, http.StatusBadRequest, "VALIDATION_FAILED", "custom_fields."+itoa(required))
+	expectDetail(t, fcErrorBody(t, rec), "custom_fields."+itoa(required), "REQUIRED")
 }
 
 func TestErrorDetails_TaskTemplatesNameThePath(t *testing.T) {
@@ -164,7 +164,7 @@ func TestErrorDetails_TaskTemplatesNameThePath(t *testing.T) {
 
 	long := strings.Repeat("n", 300)
 	rec := request(t, tc.Router, http.MethodPost, url, f.owner.token, map[string]any{"name": long, "configuration": map[string]any{"task": map[string]any{}}})
-	fcExpectError(t, rec, http.StatusBadRequest, "INVALID_TASK_TEMPLATE", "name")
+	fcExpectError(t, rec, http.StatusBadRequest, "VALIDATION_FAILED", "name")
 
 	valid := mustCreate(t, tc, f.owner.token, url, map[string]any{"name": "Valid", "configuration": map[string]any{
 		"task": map[string]any{"priority": "normal"}, "tags": []uint{}, "subtasks": []any{}, "custom_fields": []any{},

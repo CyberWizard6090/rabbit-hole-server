@@ -13,6 +13,12 @@ const (
 	PermTaskUpdate      = "task.update"
 	PermTaskDelete      = "task.delete"
 	PermMemberManage    = "member.manage"
+	PermAdminManage     = "member.manage_admins"
+	PermFormRead        = "form.read"
+	PermFormManage      = "form.manage"
+	PermTemplateRead    = "template.read"
+	PermTemplateManage  = "template.manage"
+	PermFieldManage     = "customfield.manage"
 )
 
 func AllPermissions() []string {
@@ -20,6 +26,7 @@ func AllPermissions() []string {
 		PermWorkspaceRead, PermWorkspaceUpdate, PermWorkspaceDelete, PermMemberManage,
 		PermSpaceRead, PermSpaceCreate, PermSpaceUpdate, PermSpaceDelete,
 		PermTaskRead, PermTaskCreate, PermTaskUpdate, PermTaskDelete,
+		PermAdminManage, PermFormRead, PermFormManage, PermTemplateRead, PermTemplateManage, PermFieldManage,
 	}
 }
 
@@ -45,6 +52,12 @@ func DefaultRoles() []DefaultRole {
 				PermTaskCreate,
 				PermTaskUpdate,
 				PermTaskDelete,
+				PermAdminManage,
+				PermFormRead,
+				PermFormManage,
+				PermTemplateRead,
+				PermTemplateManage,
+				PermFieldManage,
 			},
 		},
 		{
@@ -60,6 +73,11 @@ func DefaultRoles() []DefaultRole {
 				PermTaskCreate,
 				PermTaskUpdate,
 				PermTaskDelete,
+				PermFormRead,
+				PermFormManage,
+				PermTemplateRead,
+				PermTemplateManage,
+				PermFieldManage,
 			},
 		},
 		{
@@ -71,6 +89,8 @@ func DefaultRoles() []DefaultRole {
 				PermTaskCreate,
 				PermTaskUpdate,
 				PermTaskDelete,
+				PermFormRead,
+				PermTemplateRead,
 			},
 		},
 		{

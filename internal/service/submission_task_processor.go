@@ -115,6 +115,7 @@ func (s *submissionTaskProcessor) process(
 					"submission_id", submission.ID, "owner_id", *config.OwnerID)
 			}
 		}
+		taskInput.CustomFields = customValues
 		task, err := s.tasks.CreateTaskFromSubmission(txCtx, ownerID,
 			CreateTaskFromSubmissionParams{
 				WorkspaceID: submission.WorkspaceID, SubmissionID: submission.ID, Task: taskInput,
@@ -123,11 +124,6 @@ func (s *submissionTaskProcessor) process(
 			})
 		if err != nil {
 			return 0, nil, err
-		}
-		for fieldID, value := range customValues {
-			if err := s.fields.SetTaskValue(txCtx, task.ID, fieldID, value); err != nil {
-				return 0, nil, fmt.Errorf("set mapped custom field %d: %w", fieldID, err)
-			}
 		}
 		if err := s.attachFiles(txCtx, submission, task.ID); err != nil {
 			return 0, nil, err
@@ -167,13 +163,15 @@ func resolveSubmissionTask(
 	if template.Task.Description != nil {
 		input.Description = strings.TrimSpace(*template.Task.Description)
 	}
-	if template.Task.DueDate != nil {
-		date, err := time.Parse("2006-01-02", *template.Task.DueDate)
-		if err != nil {
-			return resolvedSubmissionTask{}, domain.ErrInvalidTaskTemplate
-		}
-		input.DueDate = &date
+	reference := submission.SubmittedAt
+	if reference.IsZero() {
+		reference = time.Now()
 	}
+	dueDate, err := templateDueDate(template, reference)
+	if err != nil {
+		return resolvedSubmissionTask{}, err
+	}
+	input.DueDate = dueDate
 	if config.TaskDefaults.Priority != "" {
 		if template.Task.Priority == "" {
 			input.Priority = taskPriorityValue(config.TaskDefaults.Priority)

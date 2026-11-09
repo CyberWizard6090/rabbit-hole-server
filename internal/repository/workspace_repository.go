@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -77,16 +78,49 @@ func (r *workspaceRepository) GetByID(ctx context.Context, id uint) (*domain.Wor
 	return &workspace, nil
 }
 
-func (r *workspaceRepository) GetAllForUser(ctx context.Context, userID uint) ([]domain.Workspace, error) {
-	var rows []persistence.Workspace
-	err := database.DBFromContext(ctx, r.db).
-		Joins("JOIN workspace_members ON workspace_members.workspace_id = workspaces.id AND workspace_members.deleted_at IS NULL").
-		Where("workspace_members.user_id = ?", userID).
-		Find(&rows).Error
-	if err != nil {
-		return nil, mapErr(err)
+func (r *workspaceRepository) ListForUser(ctx context.Context, userID uint, limit, offset int) ([]domain.WorkspaceSummary, int64, error) {
+	db := database.DBFromContext(ctx, r.db)
+	memberOf := func() *gorm.DB {
+		return db.Model(&persistence.Workspace{}).
+			Joins("JOIN workspace_members ON workspace_members.workspace_id = workspaces.id AND workspace_members.deleted_at IS NULL").
+			Where("workspace_members.user_id = ?", userID)
 	}
-	return mapSlice(rows, workspaceToDomain), nil
+	var total int64
+	if err := memberOf().Count(&total).Error; err != nil {
+		return nil, 0, mapErr(err)
+	}
+	var rows []persistence.Workspace
+	if err := memberOf().Order("workspaces.id ASC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		return nil, 0, mapErr(err)
+	}
+	if len(rows) == 0 {
+		return []domain.WorkspaceSummary{}, total, nil
+	}
+	ids := make([]uint, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	var roles []struct {
+		WorkspaceID uint
+		Name        string
+	}
+	err := db.Table("workspace_members").
+		Select("workspace_members.workspace_id AS workspace_id, roles.name AS name").
+		Joins("JOIN roles ON roles.id = workspace_members.role_id AND roles.deleted_at IS NULL").
+		Where("workspace_members.user_id = ? AND workspace_members.workspace_id IN ? AND workspace_members.deleted_at IS NULL", userID, ids).
+		Scan(&roles).Error
+	if err != nil {
+		return nil, 0, mapErr(err)
+	}
+	roleByWorkspace := make(map[uint]string, len(roles))
+	for _, role := range roles {
+		roleByWorkspace[role.WorkspaceID] = strings.ToLower(role.Name)
+	}
+	out := make([]domain.WorkspaceSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.WorkspaceSummary{Workspace: workspaceToDomain(row), Role: roleByWorkspace[row.ID]})
+	}
+	return out, total, nil
 }
 
 func (r *workspaceRepository) ListMembers(ctx context.Context, workspaceID uint) ([]domain.MemberDetail, error) {

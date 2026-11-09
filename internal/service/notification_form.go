@@ -67,7 +67,7 @@ func (d *NotificationDispatcher) processWorkspaceEvent(ctx context.Context, plan
 		if !ok {
 			continue
 		}
-		allowed, err := d.perms.HasWorkspacePermission(ctx, userID, plan.WorkspaceID, domain.PermWorkspaceRead)
+		allowed, err := d.perms.HasWorkspacePermission(ctx, userID, plan.WorkspaceID, domain.PermFormRead)
 		if err != nil {
 			d.logger.Warn("notifications: cannot check access", "user_id", userID, "error", err)
 			continue

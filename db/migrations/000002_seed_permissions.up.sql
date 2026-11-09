@@ -10,5 +10,11 @@ INSERT INTO permissions (code) VALUES
     ('task.create'),
     ('task.update'),
     ('task.delete'),
-    ('member.manage')
+    ('member.manage'),
+    ('member.manage_admins'),
+    ('form.read'),
+    ('form.manage'),
+    ('template.read'),
+    ('template.manage'),
+    ('customfield.manage')
 ON CONFLICT (code) WHERE deleted_at IS NULL DO NOTHING;
