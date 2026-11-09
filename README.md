@@ -101,6 +101,7 @@ relies on:
 - **Activity**: `GET /tasks/{id}/activity` returns who changed what on a task, newest first (field
   changes with old and new values, moves between lists, comment and attachment events). Entries are written in the
   same transaction as the change, so a failed write rolls the change back and a crash cannot lose history.
+- **Retention**: a background job deletes processed (7 days) and dead (30 days) outbox events and expired or used e-mail tokens, channel confirmations, refresh-token sessions and form idempotency keys (7 days) every hour (`RETENTION_*`); user data is never purged.
 - **Reliable delivery**: notification events, e-mails (including account mails) and webhooks go through the
   `outbox_events` table and are processed by background workers with retries, so a restart or an SMTP/webhook outage
   loses nothing; delivery to e-mail and webhook endpoints is at least once. Dead events (all attempts used) stay in the

@@ -39,6 +39,8 @@ type Container struct {
 	Workers             []*service.OutboxWorker
 	RateLimiter         ratelimit.Limiter
 	PurgeRateLimits     func(context.Context) error
+	PurgeData           func(context.Context) (domain.RetentionResult, error)
+	RetentionInterval   time.Duration
 	UserHandler         *handler.UserHandler
 
 	WorkspaceHandler *handler.WorkspaceHandler
@@ -244,9 +246,15 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		Workers:             []*service.OutboxWorker{eventWorker, deliveryWorker},
 		RateLimiter:         limiter,
 		PurgeRateLimits:     purgeLimits,
-		CommentHandler:      handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
-		TaskHandler:         handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
-		UserHandler:         handler.NewUserHandler(userService).WithPendingEmail(emailChange),
+		PurgeData: func(ctx context.Context) (domain.RetentionResult, error) {
+			return repository.NewRetentionRepository(db).Purge(ctx, domain.RetentionPolicy{
+				OutboxDone: cfg.Retention.OutboxDone, OutboxDead: cfg.Retention.OutboxDead, ExpiredTokens: cfg.Retention.ExpiredTokens,
+			})
+		},
+		RetentionInterval: cfg.Retention.Interval,
+		CommentHandler:    handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
+		TaskHandler:       handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
+		UserHandler:       handler.NewUserHandler(userService).WithPendingEmail(emailChange),
 
 		ContactHandler:     handler.NewContactHandler(contactService),
 		SearchHandler:      handler.NewSearchHandler(service.NewSearchService(repository.NewSearchRepository(db))),

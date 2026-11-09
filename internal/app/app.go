@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"rabbit-hole-server/internal/config"
+	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/realtime"
 	"rabbit-hole-server/internal/service"
 )
@@ -54,7 +55,43 @@ func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 			runRateLimitPurge(workerCtx, container.PurgeRateLimits, rateLimitPurgeInterval)
 		}()
 	}
+	if container.PurgeData != nil {
+		a.running.Add(1)
+		go func() {
+			defer a.running.Done()
+			runRetention(workerCtx, container.PurgeData, container.RetentionInterval)
+		}()
+	}
 	return a, nil
+}
+
+func runRetention(ctx context.Context, purge func(context.Context) (domain.RetentionResult, error), every time.Duration) {
+	if every <= 0 {
+		every = time.Hour
+	}
+	run := func() {
+		result, err := purge(ctx)
+		if err != nil && ctx.Err() == nil {
+			slog.Warn("retention: cannot purge old technical data", "error", err)
+			return
+		}
+		if result.Total() > 0 {
+			slog.Info("retention: removed old technical data",
+				"outbox_done", result.OutboxDone, "outbox_dead", result.OutboxDead, "email_tokens", result.EmailTokens,
+				"confirmations", result.Confirmations, "sessions", result.Sessions, "idempotency_keys", result.Idempotency)
+		}
+	}
+	run()
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
+		}
+	}
 }
 
 const (
