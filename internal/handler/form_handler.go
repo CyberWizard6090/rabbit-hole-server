@@ -316,7 +316,11 @@ func writeFormError(c *gin.Context, code string, err error) {
 		if status == 0 {
 			status = http.StatusBadRequest
 		}
-		response.HandleError(c, httperrors.Wrap(formErr.Code, formErr.Message, status, err))
+		appErr := httperrors.Wrap(formErr.Code, formErr.Message, status, err)
+		if len(formErr.Problems) > 0 {
+			appErr.Details = problemDetails(formErr.Problems, "")
+		}
+		response.HandleError(c, appErr)
 	case errors.Is(err, domain.ErrFormClosed):
 		response.HandleError(c, httperrors.Wrap("FORM_CLOSED", err.Error(), http.StatusGone, err))
 	case errors.Is(err, domain.ErrFormFull):
@@ -324,7 +328,7 @@ func writeFormError(c *gin.Context, code string, err error) {
 	case errors.Is(err, domain.ErrInvalidForm):
 		response.HandleError(c, formBadRequest("INVALID_FORM", err))
 	case errors.Is(err, domain.ErrInvalidSubmission):
-		response.HandleError(c, httperrors.BadRequest("INVALID_FORM", err.Error(), err))
+		response.HandleError(c, withFieldDetails(httperrors.BadRequest("INVALID_FORM", err.Error(), err), err, ""))
 	case errors.Is(err, domain.ErrFormSubmissionsLimited):
 		response.HandleError(c, httperrors.TooManyRequests("FORM_SUBMISSIONS_LIMITED", err.Error(), err))
 	case errors.Is(err, domain.ErrIdempotencyConflict):

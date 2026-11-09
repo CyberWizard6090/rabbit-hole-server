@@ -51,8 +51,8 @@ func notificationError(c *gin.Context, code string, err error) {
 		response.HandleError(c, httperrors.Conflict("CHANNEL_ALREADY_CONFIRMED", err.Error(), err))
 	case errors.Is(err, domain.ErrConfirmationTooSoon):
 		response.HandleError(c, httperrors.TooManyRequests("CONFIRMATION_TOO_SOON", err.Error(), err))
-	case errors.Is(err, service.ErrConfirmationMailFailed):
-		response.HandleError(c, httperrors.ServiceUnavailable("CONFIRMATION_MAIL_FAILED", err.Error(), err))
+	case errors.Is(err, service.ErrConfirmationDeliveryFailed):
+		response.HandleError(c, httperrors.ServiceUnavailable("CONFIRMATION_DELIVERY_FAILED", err.Error(), err))
 	default:
 		response.HandleError(c, httperrors.Internal(code, "internal server error", err))
 	}

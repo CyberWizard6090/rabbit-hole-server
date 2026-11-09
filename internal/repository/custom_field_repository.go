@@ -329,13 +329,13 @@ func (r *taskCustomFieldValueRepository) ValidateTaskReferences(
 			Where("workspace_id = ? AND kind <> 'avatar' AND id IN ?", workspaceID, ids).
 			Distinct("id").Count(&count).Error
 	default:
-		return domain.ErrInvalidCustomField
+		return domain.InvalidField(domain.ErrInvalidCustomField, "value", "INVALID_TYPE")
 	}
 	if err != nil {
 		return mapErr(err)
 	}
 	if count != int64(len(ids)) {
-		return domain.ErrInvalidCustomField
+		return domain.InvalidField(domain.ErrInvalidCustomField, "value", "INVALID_REFERENCE")
 	}
 	return nil
 }

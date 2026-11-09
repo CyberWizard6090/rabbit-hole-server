@@ -120,7 +120,9 @@ func (h *TaskHandler) Create(c *gin.Context) {
 			return
 		}
 		if isInvalidTaskReference(err) {
-			response.HandleError(c, httperrors.BadRequest("INVALID_TASK_REFERENCE", err.Error(), err))
+			response.HandleError(c, taskReferenceError(err, taskReferenceInput{
+				Status: &req.StatusID, Parent: req.ParentID, TagField: "tag_ids",
+			}))
 			return
 		}
 		response.HandleError(c, httperrors.Internal("TASK_CREATE_FAILED", "internal server error", err))
@@ -169,7 +171,9 @@ func (h *TaskHandler) Update(c *gin.Context) {
 			return
 		}
 		if isInvalidTaskReference(err) {
-			response.HandleError(c, httperrors.BadRequest("INVALID_TASK_REFERENCE", err.Error(), err))
+			response.HandleError(c, taskReferenceError(err, taskReferenceInput{
+				Status: req.StatusID, Parent: req.ParentID.Value, TagField: "add_tag_ids",
+			}))
 			return
 		}
 		response.HandleError(c, httperrors.Internal("TASK_UPDATE_FAILED", "internal server error", err))
@@ -279,6 +283,54 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 	response.Success(c, http.StatusOK, gin.H{"message": "task deleted"})
 }
 
+type taskReferenceInput struct {
+	Status   *uint
+	Parent   *uint
+	List     *uint
+	After    *uint
+	Before   *uint
+	TagField string
+}
+
+func taskReferenceError(err error, in taskReferenceInput) *httperrors.AppError {
+	appErr := httperrors.BadRequest("INVALID_TASK_REFERENCE", err.Error(), err)
+	single := func(field, reason string, id *uint) {
+		detail := httperrors.Detail{Field: field, Code: reason}
+		if id != nil {
+			detail.Params = map[string]any{"id": *id}
+		}
+		appErr.Details = []httperrors.Detail{detail}
+	}
+	var ids map[string]any
+	var fieldErr *domain.FieldError
+	if errors.As(err, &fieldErr) && len(fieldErr.Problems) > 0 {
+		ids = fieldErr.Problems[0].Params
+	}
+	switch {
+	case errors.Is(err, domain.ErrInvalidStatusReference):
+		if in.Status == nil {
+			single("status_id", "REQUIRED", nil)
+		} else {
+			single("status_id", "NOT_IN_LIST", in.Status)
+		}
+	case errors.Is(err, domain.ErrInvalidParentReference):
+		single("parent_id", "NOT_IN_LIST", in.Parent)
+	case errors.Is(err, domain.ErrInvalidListReference):
+		single("list_id", "NOT_IN_WORKSPACE", in.List)
+	case errors.Is(err, domain.ErrInvalidMoveAnchor):
+		if in.After != nil {
+			single("after_id", "NOT_IN_LIST", in.After)
+		} else {
+			single("before_id", "NOT_IN_LIST", in.Before)
+		}
+	case errors.Is(err, domain.ErrInvalidTagReference):
+		appErr.Details = []httperrors.Detail{{Field: in.TagField, Code: "NOT_IN_SPACE", Params: ids}}
+	case errors.Is(err, domain.ErrInvalidAssigneeReference):
+		appErr.Details = []httperrors.Detail{{Field: "assignee_ids", Code: "NOT_A_MEMBER", Params: ids}}
+	}
+	return appErr
+}
+
 func isInvalidTaskReference(err error) bool {
 	return errors.Is(err, domain.ErrInvalidStatusReference) ||
 		errors.Is(err, domain.ErrInvalidParentReference) ||
@@ -348,7 +400,9 @@ func (h *TaskHandler) Move(c *gin.Context) {
 		case errors.Is(err, domain.ErrConcurrentMove):
 			response.HandleError(c, httperrors.Conflict("TASK_MOVE_CONFLICT", err.Error(), err))
 		case isInvalidTaskReference(err):
-			response.HandleError(c, httperrors.BadRequest("INVALID_TASK_REFERENCE", err.Error(), err))
+			response.HandleError(c, taskReferenceError(err, taskReferenceInput{
+				Status: req.StatusID, List: req.ListID, After: req.AfterID, Before: req.BeforeID,
+			}))
 		default:
 			response.HandleError(c, httperrors.Internal("TASK_MOVE_FAILED", "internal server error", err))
 		}

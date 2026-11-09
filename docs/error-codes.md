@@ -62,6 +62,14 @@ endpoint. Unlisted params are not sent.
 | `EXCEEDS_OPTIONS` | `max` | More choices than the question has options. |
 | `NOT_A_MEMBER` | `user_id` | The user does not belong to the workspace. |
 | `WORKSPACE_MISMATCH` | | The object belongs to another workspace. |
+| `NOT_IN_LIST`, `NOT_IN_SPACE`, `NOT_IN_WORKSPACE` | `id` / `ids` | The referenced status, parent task or anchor is not in the task's list, the tag not in its space, the list not in its workspace. |
+| `EMPTY` | | An optional answer was sent empty; omit the key instead. |
+| `INVALID_FILE` | | The uploaded file id of a form answer is malformed, unknown, expired or already used. |
+| `UNKNOWN_QUESTION` | `question_id` | The question is not part of the form (or of the published version). |
+| `MISSING` | `question_id` | A question is missing from a list that must contain all of them. |
+| `HAS_ANSWERS`, `OPTION_IN_USE` | `answers`, `value` | The type or option of a question cannot change because stored answers use it. |
+| `NOT_EARLIER`, `RULE_NOT_EARLIER`, `SELF_REFERENCE` | `question_id`, `depends_on` | A `visible_if` rule must refer to a question placed earlier in the form. |
+| `INVALID_SCHEME` | `allowed` | The URL scheme is not allowed. |
 | `INCOMPATIBLE_QUESTION` | `target` | The question type does not fit the mapping target. |
 | `MISSING_TRANSFORM_ENTRY` | `option` | The enum transform has no entry for this option. |
 
@@ -116,7 +124,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `COMMENT_FORBIDDEN`
 - `COMMENT_NOT_FOUND`
 - `COMMENT_UPDATE_FAILED`
-- `CONFIRMATION_MAIL_FAILED`
+- `CONFIRMATION_DELIVERY_FAILED`
 - `CONFIRMATION_TOO_SOON`
 - `CONFLICTING_FIELD`
 - `CONTACTS_FETCH_FAILED`
@@ -176,6 +184,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `FORM_QUESTION_IN_USE`
 - `FORM_QUESTION_REFERENCED`
 - `FORM_QUESTION_REORDER_FAILED`
+- `FORM_QUESTION_REORDER_INVALID`
 - `FORM_QUESTION_SETTINGS_INVALID`
 - `FORM_QUESTION_UPDATE_FAILED`
 - `FORM_QUESTION_VISIBILITY_CYCLE`
@@ -195,6 +204,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `FORM_UPLOADS_NOT_ACCEPTED`
 - `FORM_UPLOAD_FAILED`
 - `FORM_UPLOAD_INVALID`
+- `HAS_ANSWERS`
 - `IDEMPOTENCY_CONFLICT`
 - `IMAGE_FETCH_FAILED`
 - `IMAGE_REHOST_FAILED`
@@ -214,6 +224,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `INVALID_DATE_RANGE`
 - `INVALID_DESTINATION`
 - `INVALID_EMAIL`
+- `INVALID_FILE`
 - `INVALID_FILTER`
 - `INVALID_FOLDER_ID`
 - `INVALID_FORM`
@@ -235,6 +246,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `INVALID_REPLACEMENT_ID`
 - `INVALID_REPLACEMENT_STATUS`
 - `INVALID_ROLE`
+- `INVALID_SCHEME`
 - `INVALID_SEARCH_TYPES`
 - `INVALID_SLUG`
 - `INVALID_SORT`
@@ -272,9 +284,14 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `NOT_ALLOWED`
 - `NOT_A_CONTACT`
 - `NOT_A_MEMBER`
+- `NOT_EARLIER`
 - `NOT_FOUND`
+- `NOT_IN_LIST`
+- `NOT_IN_SPACE`
+- `NOT_IN_WORKSPACE`
 - `NOT_LESS_THAN_FIELD`
 - `NOT_SUPPORTED`
+- `OPTION_IN_USE`
 - `OUT_OF_RANGE`
 - `OWNER_IMMUTABLE`
 - `OWNS_WORKSPACES`
@@ -294,8 +311,10 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `REHOST_REFUSED`
 - `REQUIRED_FOR_NEW_FORM`
 - `REQUIRED_UNLESS_TEMPLATE_STATUS`
+- `RULE_NOT_EARLIER`
 - `SAME_EMAIL`
 - `SEARCH_FAILED`
+- `SELF_REFERENCE`
 - `SERVER_BUSY`
 - `SETTINGS_FETCH_FAILED`
 - `SETTINGS_SAVE_FAILED`
@@ -359,6 +378,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `TOO_SMALL`
 - `UNKNOWN_CHANNEL`
 - `UNKNOWN_NOTIFICATION_TYPE`
+- `UNKNOWN_QUESTION`
 - `UNSUPPORTED_FILE_TYPE`
 - `UNSUPPORTED_LOCALE`
 - `UNSUPPORTED_ON_UPDATE`

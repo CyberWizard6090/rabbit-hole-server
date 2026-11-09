@@ -93,7 +93,8 @@ func (s *formUploadService) Upload(ctx context.Context, slug string, upload Uplo
 		return nil, err
 	}
 	if !hasFileQuestion(snapshot.Questions) {
-		return nil, domain.NewFormError(uploadsDisabledCode, "this form has no file question")
+		return nil, domain.NewFormFieldError(uploadsDisabledCode, "this form has no file question",
+			"form", "NOT_ALLOWED", nil)
 	}
 	if formClosed(snapshot.Settings, s.now()) {
 		return nil, domain.ErrFormClosed
@@ -275,7 +276,8 @@ func validateFileQuestionSettings(questionType domain.QuestionType, settings jso
 		return nil
 	}
 	if *parsed.MaxFiles != float64(int(*parsed.MaxFiles)) || *parsed.MaxFiles < 1 || *parsed.MaxFiles > hardMaxFiles {
-		return domain.NewFormError(settingsInvalidCode, "settings.max_files must be an integer between 1 and 10")
+		return domain.NewFormFieldError(settingsInvalidCode, "settings.max_files must be an integer between 1 and 10",
+			"settings.max_files", "OUT_OF_RANGE", map[string]any{"min": 1, "max": hardMaxFiles})
 	}
 	return nil
 }
@@ -299,7 +301,8 @@ func fileClaims(questions []domain.FormQuestion, answers []domain.SubmissionAnsw
 		}
 		for _, id := range ids {
 			if _, duplicate := seen[id]; duplicate {
-				return nil, domain.NewFormError(domain.FormUploadInvalidCode, "an uploaded file can only be used once")
+				return nil, domain.NewFormFieldError(domain.FormUploadInvalidCode, "an uploaded file can only be used once",
+					answerField(answer.QuestionID), "DUPLICATE", nil)
 			}
 			seen[id] = struct{}{}
 			claims = append(claims, domain.FormUploadClaim{QuestionID: answer.QuestionID, PublicID: id})

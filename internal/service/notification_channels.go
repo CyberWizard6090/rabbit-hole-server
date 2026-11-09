@@ -28,6 +28,13 @@ type NotificationContent struct {
 	Payload     map[string]any
 }
 
+func (c NotificationContent) Title() string {
+	if c.Type.Key == domain.NotificationFormSubmitted {
+		return payloadString(c.Payload, "form_name")
+	}
+	return c.TaskTitle
+}
+
 type Delivery struct {
 	RecipientID uint
 	Locale      string
@@ -94,7 +101,10 @@ func (c *inAppChannel) Destinations(context.Context, uint) ([]string, error) {
 }
 
 func (c *inAppChannel) Deliver(ctx context.Context, d Delivery) error {
-	payload := map[string]any{"task_title": d.Content.TaskTitle}
+	payload := map[string]any{}
+	if d.Content.TaskID != 0 {
+		payload["task_title"] = d.Content.TaskTitle
+	}
 	for k, v := range d.Content.Payload {
 		payload[k] = v
 	}

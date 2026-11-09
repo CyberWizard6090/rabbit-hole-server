@@ -58,32 +58,42 @@ type TaskTemplateCustomField struct {
 }
 
 func NormalizeTaskTemplateConfiguration(raw json.RawMessage) (json.RawMessage, error) {
-	if len(raw) == 0 || !json.Valid(raw) || len(raw) > 1<<18 {
-		return nil, domain.ErrInvalidTaskTemplate
+	if len(raw) > 1<<18 {
+		return nil, templateIssue("configuration", "TOO_LARGE", map[string]any{"max_bytes": 1 << 18})
+	}
+	if len(raw) == 0 || !json.Valid(raw) {
+		return nil, templateIssue("configuration", "INVALID_VALUE", nil)
 	}
 	var config TaskTemplateConfiguration
 	if err := json.Unmarshal(raw, &config); err != nil {
-		return nil, domain.ErrInvalidTaskTemplate
+		return nil, templateIssue("configuration", "INVALID_TYPE", map[string]any{"expected": "object"})
 	}
 	if config.Task.Priority == "" {
 		config.Task.Priority = "normal"
 	}
 	if !domain.ValidTaskPriorityName(config.Task.Priority) {
-		return nil, domain.ErrInvalidTaskTemplate
+		return nil, templateIssue("configuration.task.priority", "INVALID_CHOICE",
+			map[string]any{"allowed": []string{"low", "normal", "high", "urgent", "critical"}})
 	}
-	for _, field := range config.CustomFields {
-		if field.FieldID == 0 || len(field.Value) == 0 || !json.Valid(field.Value) {
-			return nil, domain.ErrInvalidTaskTemplate
+	for i, field := range config.CustomFields {
+		path := fmt.Sprintf("configuration.custom_fields[%d]", i)
+		if field.FieldID == 0 {
+			return nil, templateIssue(path+".field_id", "REQUIRED", nil)
+		}
+		if len(field.Value) == 0 || !json.Valid(field.Value) {
+			return nil, templateIssue(path+".value", "REQUIRED", nil)
 		}
 	}
-	for _, tagID := range config.Tags {
+	for i, tagID := range config.Tags {
 		if tagID == 0 {
-			return nil, domain.ErrInvalidTaskTemplate
+			return nil, templateIssue(fmt.Sprintf("configuration.tags[%d]", i), "INVALID_VALUE", nil)
 		}
 	}
-	if config.Task.StatusID != nil && *config.Task.StatusID == 0 ||
-		config.Task.AssigneeID != nil && *config.Task.AssigneeID == 0 {
-		return nil, domain.ErrInvalidTaskTemplate
+	if config.Task.StatusID != nil && *config.Task.StatusID == 0 {
+		return nil, templateIssue("configuration.task.status_id", "INVALID_VALUE", nil)
+	}
+	if config.Task.AssigneeID != nil && *config.Task.AssigneeID == 0 {
+		return nil, templateIssue("configuration.task.assignee_id", "INVALID_VALUE", nil)
 	}
 	if config.Task.Title != nil {
 		value := strings.TrimSpace(*config.Task.Title)
@@ -107,8 +117,11 @@ func (s *taskTemplateService) Create(
 	config json.RawMessage,
 ) (*domain.TaskTemplate, error) {
 	name = strings.TrimSpace(name)
-	if workspaceID == 0 || userID == 0 || name == "" || len(name) > 255 || len(description) > 10000 {
+	if workspaceID == 0 || userID == 0 {
 		return nil, domain.ErrInvalidTaskTemplate
+	}
+	if err := templateNameIssue(name, description); err != nil {
+		return nil, err
 	}
 	normalized, err := NormalizeTaskTemplateConfiguration(config)
 	if err != nil {
@@ -147,8 +160,8 @@ func (s *taskTemplateService) Update(
 		return nil, err
 	}
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 255 || len(description) > 10000 {
-		return nil, domain.ErrInvalidTaskTemplate
+	if err := templateNameIssue(name, description); err != nil {
+		return nil, err
 	}
 	template.Name, template.Description = name, strings.TrimSpace(description)
 	if err := s.repo.Update(ctx, template); err != nil {
@@ -192,6 +205,22 @@ func (s *taskTemplateService) GetVersion(ctx context.Context, templateID, versio
 	return s.repo.GetVersion(ctx, templateID, versionID)
 }
 
+func templateIssue(field, reason string, params map[string]any) error {
+	return domain.InvalidField(domain.ErrInvalidTaskTemplate, field, reason).WithParams(params)
+}
+
+func templateNameIssue(name, description string) error {
+	switch {
+	case name == "":
+		return templateIssue("name", "REQUIRED", nil)
+	case len(name) > 255:
+		return templateIssue("name", "TOO_LONG", map[string]any{"max": 255})
+	case len(description) > 10000:
+		return templateIssue("description", "TOO_LONG", map[string]any{"max": 10000})
+	}
+	return nil
+}
+
 func (s *taskTemplateService) validateConfiguration(
 	ctx context.Context,
 	workspaceID uint,
@@ -199,42 +228,48 @@ func (s *taskTemplateService) validateConfiguration(
 ) error {
 	var config TaskTemplateConfiguration
 	if err := json.Unmarshal(raw, &config); err != nil {
-		return domain.ErrInvalidTaskTemplate
+		return templateIssue("configuration", "INVALID_TYPE", map[string]any{"expected": "object"})
 	}
 	if config.Task.StatusID != nil {
+		const field = "configuration.task.status_id"
 		status, err := s.spaces.GetStatusByID(ctx, *config.Task.StatusID)
 		if err != nil {
-			return domain.ErrInvalidTaskTemplate
+			return templateIssue(field, "NOT_FOUND", map[string]any{"status_id": *config.Task.StatusID})
 		}
 		space, err := s.spaces.GetByID(ctx, status.SpaceID)
 		if err != nil || space.WorkspaceID != workspaceID {
-			return domain.ErrInvalidTaskTemplate
+			return templateIssue(field, "WORKSPACE_MISMATCH", nil)
 		}
 	}
 	if config.Task.AssigneeID != nil {
 		if _, err := s.workspaces.GetMember(ctx, workspaceID, *config.Task.AssigneeID); err != nil {
-			return domain.ErrInvalidTaskTemplate
+			return templateIssue("configuration.task.assignee_id", "NOT_A_MEMBER",
+				map[string]any{"user_id": *config.Task.AssigneeID})
 		}
 	}
-	for _, fieldValue := range config.CustomFields {
+	for i, fieldValue := range config.CustomFields {
+		path := fmt.Sprintf("configuration.custom_fields[%d]", i)
 		field, err := s.fields.Get(ctx, workspaceID, fieldValue.FieldID)
 		if err != nil {
-			return domain.ErrInvalidTaskTemplate
+			return templateIssue(path+".field_id", "NOT_FOUND", map[string]any{"field_id": fieldValue.FieldID})
 		}
 		var value any
-		if err := json.Unmarshal(fieldValue.Value, &value); err != nil ||
-			validateCustomFieldValue(*field, value) != nil {
-			return domain.ErrInvalidTaskTemplate
+		if err := json.Unmarshal(fieldValue.Value, &value); err != nil {
+			return templateIssue(path+".value", "INVALID_VALUE", nil)
+		}
+		if issue := customFieldValueIssue(*field, value); issue != nil {
+			return templateIssue(path+".value", issue.reason, issue.params)
 		}
 	}
-	for _, tagID := range config.Tags {
+	for i, tagID := range config.Tags {
+		path := fmt.Sprintf("configuration.tags[%d]", i)
 		tag, err := s.tags.GetByID(ctx, tagID)
 		if err != nil {
-			return domain.ErrInvalidTaskTemplate
+			return templateIssue(path, "NOT_FOUND", map[string]any{"tag_id": tagID})
 		}
 		space, err := s.spaces.GetByID(ctx, tag.SpaceID)
 		if err != nil || space.WorkspaceID != workspaceID {
-			return domain.ErrInvalidTaskTemplate
+			return templateIssue(path, "WORKSPACE_MISMATCH", nil)
 		}
 	}
 	return nil

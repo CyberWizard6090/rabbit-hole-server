@@ -25,15 +25,41 @@ var (
 )
 
 type FormError struct {
-	Code    string
-	Message string
-	Status  int
+	Code     string
+	Message  string
+	Status   int
+	Problems []FieldProblem
 }
 
 func (e *FormError) Error() string { return e.Message }
 
 func NewFormError(code, message string) *FormError {
 	return &FormError{Code: code, Message: message}
+}
+
+func NewFormFieldError(code, message, field, reason string, params map[string]any) *FormError {
+	return &FormError{Code: code, Message: message, Problems: []FieldProblem{{Field: field, Reason: reason, Params: params}}}
+}
+
+func (e *FormError) WithStatus(status int) *FormError {
+	copied := *e
+	copied.Status = status
+	return &copied
+}
+
+func (e *FormError) WithProblems(problems ...FieldProblem) *FormError {
+	copied := *e
+	copied.Problems = problems
+	return &copied
+}
+
+func (e *FormError) WithPrefix(prefix string) *FormError {
+	copied := *e
+	copied.Problems = append([]FieldProblem(nil), e.Problems...)
+	for i := range copied.Problems {
+		copied.Problems[i].Field = prefix + copied.Problems[i].Field
+	}
+	return &copied
 }
 
 type FormStatus string
@@ -137,7 +163,10 @@ type Form struct {
 	CurrentVersion   *FormVersion    `json:"current_version,omitempty"`
 	TaskConfig       json.RawMessage `json:"task_config,omitempty"`
 	Settings         FormSettings    `json:"settings"`
+	PreviousSlugs    []string        `json:"previous_slugs,omitempty"`
 }
+
+const MaxFormSlugAliases = 10
 
 type FormSettings struct {
 	SubmitButtonText string     `json:"submit_button_text"`
@@ -303,6 +332,7 @@ type FormRepository interface {
 	ListSubmissions(ctx context.Context, formID uint, filter SubmissionFilter, limit, offset int) ([]FormSubmission, int64, error)
 	GetSubmission(ctx context.Context, submissionID uint) (*FormSubmission, error)
 	CountSubmissions(ctx context.Context, formID uint) (int, error)
+	QuestionAnswerUsage(ctx context.Context, questionID uint, optionValues []string) (int64, []string, error)
 	WorkspaceImageExists(ctx context.Context, workspaceID uint, publicID string) (bool, error)
 	WorkspaceMemberIDs(ctx context.Context, workspaceID uint, userIDs []uint) ([]uint, error)
 }

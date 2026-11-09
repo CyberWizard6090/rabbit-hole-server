@@ -48,7 +48,7 @@ func mapFormSubmissionCreated(_ context.Context, _ *NotificationDispatcher, e do
 		targets[i] = directTarget{UserID: id, Type: domain.NotificationFormSubmitted}
 	}
 	return &notificationPlan{
-		WorkspaceID: event.WorkspaceID, Title: event.FormName, Direct: targets,
+		WorkspaceID: event.WorkspaceID, Direct: targets,
 		Payload: map[string]any{
 			"form_id": event.FormID, "form_name": event.FormName, "submission_id": event.SubmissionID,
 		},
@@ -78,7 +78,7 @@ func (d *NotificationDispatcher) processWorkspaceEvent(ctx context.Context, plan
 		d.deliver(ctx, userID, Delivery{
 			RecipientID: userID,
 			Content: NotificationContent{
-				Type: typeDef, TaskTitle: plan.Title, WorkspaceID: plan.WorkspaceID, Payload: plan.Payload,
+				Type: typeDef, WorkspaceID: plan.WorkspaceID, Payload: plan.Payload,
 			},
 		})
 	}

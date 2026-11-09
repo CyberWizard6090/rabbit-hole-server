@@ -44,9 +44,9 @@ func TestForms_PublishSubmissionAndIdempotency(t *testing.T) {
 		t.Fatalf("submit form: %d: %s", rec.Code, rec.Body.String())
 	}
 	submissionID := responseID(t, rec)
-	submission := dataObject(t, rec)
-	if uint(submission["form_version_id"].(float64)) != firstVersionID {
-		t.Fatalf("submission version = %v, want %d", submission["form_version_id"], firstVersionID)
+	if got := dataObject(t, request(t, tc.Router, http.MethodGet,
+		"/api/v1/workspaces/"+itoa(workspaceID)+"/submissions/"+itoa(submissionID), tc.Token, nil))["form_version_id"]; got != float64(firstVersionID) {
+		t.Fatalf("submission version = %v, want %d", got, firstVersionID)
 	}
 
 	rec = request(t, tc.Router, http.MethodDelete,

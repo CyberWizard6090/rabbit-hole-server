@@ -810,7 +810,12 @@ paths:
         reached; a closed or full form is still returned so the page can explain it, and submissions are refused with
         `FORM_CLOSED` (410) or `FORM_FULL` (409). The notification recipients, the submission limit and workspace or creator
         identifiers are never part of the public schema. Each question may carry `settings.visible_if`
-        (see `FormQuestionRequest`) for the client to evaluate.
+        (see `FormQuestionRequest`) for the client to evaluate. Choice options carry `label`, `value` and `position`
+        only; answers refer to an option by its `value`, option ids are never exposed publicly.
+
+        `{slug}` may also be a previous slug of the form (see `PATCH /workspaces/{workspace_id}/forms/{form_id}`):
+        the form is served unchanged and `slug` in the payload is always the current one, so a client can redirect
+        to the canonical link.
       security: []
       parameters:
         - {name: slug, in: path, required: true, schema: {type: string}}
@@ -870,6 +875,23 @@ paths:
         Public; an optional valid `Authorization: Bearer` token marks the respondent as signed in (`respondent_id`; an invalid token is treated as anonymous) and becomes the task `requester`. Limited to 5 requests per minute per client IP and to FORM_SUBMISSIONS_PER_HOUR (default 200) per form (code FORM_SUBMISSIONS_LIMITED); the body is capped at 128 KiB. Idempotency-Key is required; matching retries within 24 hours return the original submission (200), while reuse with a different payload returns 409.
         Conditional questions: a question whose `settings.visible_if` is not satisfied by the (effective) answers is hidden; a hidden question is never required and an answer sent for it is silently dropped (not validated, not stored, not echoed).
         `file` questions take an array of upload ids from `POST /public/forms/{slug}/uploads`.
+        A previous slug of the form is accepted like the current one.
+
+        Validation: ALL invalid answers are reported in one 400 `INVALID_FORM` response; `details[]` has one entry per
+        question with `field` `answers.<question_id>` and one of `REQUIRED`, `EMPTY` (an empty value for an optional
+        question), `INVALID_TYPE` (`params.expected`), `INVALID_FORMAT` (`params.format`), `INVALID_CHOICE` (`params.allowed`,
+        for multiple choice also `params.value`), `TOO_SHORT` / `TOO_LONG` (`params.min` / `params.max`), `OUT_OF_RANGE`
+        (`params.min` / `params.max`), `TOO_FEW` / `TOO_MANY` (`params.min` / `params.max`), `DUPLICATE`, `INVALID_FILE`,
+        `NOT_ALLOWED` (an answer to a section, description or divider), `UNKNOWN_QUESTION` and `TOO_LARGE`. A missing or
+        oversized `Idempotency-Key` is reported with `field` `Idempotency-Key`. An upload id that is unknown, expired,
+        already used or from another form is 400 `FORM_UPLOAD_INVALID` with `INVALID_FILE` for `answers.<question_id>`.
+        Questions that depend (`visible_if`) on an invalid answer are not checked.
+
+        The response is deliberately minimal (schema `PublicFormSubmission`) and never contains workspace, version,
+        respondent or answer data, whoever calls: `{"id", "status", "created_at", "task_creation_status",
+        "success_message", "redirect_url"}` (the last two are the success settings of the published version). Workspace
+        members read the full object from `GET /workspaces/{workspace_id}/submissions/{submission_id}`.
+
         Restrictions of the published version: after `closes_at` the answer is 410 `FORM_CLOSED`, once `max_submissions` submissions exist it is 409 `FORM_FULL` (counted inside the submit transaction, so concurrent requests cannot overshoot); idempotent replays of an accepted submission keep returning it. New submissions notify the members listed in `notify_on_submit` (in-app notification of type `form_submission`).
       security: []
       parameters:
@@ -978,7 +1000,7 @@ paths:
     patch:
       tags: [forms]
       summary: "Replace form metadata"
-      description: "`name` and `slug` are always replaced. `settings` replaces the whole settings object when present and leaves it untouched when omitted. Settings are validated (400 with FORM_SUBMIT_BUTTON_TEXT_INVALID, FORM_SUCCESS_MESSAGE_INVALID, FORM_REDIRECT_URL_INVALID, FORM_ACCENT_COLOR_INVALID, FORM_LOGO_INVALID, FORM_COVER_INVALID, FORM_NOTIFY_RECIPIENT_INVALID or FORM_MAX_SUBMISSIONS_INVALID) and take effect for visitors when the form is published again; every published version keeps its own copy."
+      description: "`name` and `slug` are always replaced. Changing the `slug` of a form that has been published keeps the old link working: the previous slug becomes an alias that resolves to the same form (`GET /public/forms/{old}` serves the form with the current `slug`, submissions to it are accepted). Aliases are case-insensitive, globally unique together with all form slugs (taking another form's slug or alias is 409 `FORM_SLUG_TAKEN`), at most 10 are kept per form (the oldest is dropped first), switching back to a previous slug removes it from the aliases, and they disappear when the form is archived or deleted. They are listed in `previous_slugs` (newest first) by `GET .../forms/{form_id}`. A form that was never published keeps no alias. `settings` replaces the whole settings object when present and leaves it untouched when omitted. Settings are validated (400 with FORM_SUBMIT_BUTTON_TEXT_INVALID, FORM_SUCCESS_MESSAGE_INVALID, FORM_REDIRECT_URL_INVALID, FORM_ACCENT_COLOR_INVALID, FORM_LOGO_INVALID, FORM_COVER_INVALID, FORM_NOTIFY_RECIPIENT_INVALID or FORM_MAX_SUBMISSIONS_INVALID) and take effect for visitors when the form is published again; every published version keeps its own copy."
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -1056,6 +1078,9 @@ paths:
         The response contains the stored `position`. `PUT .../questions/reorder` still renumbers all questions to 0..n-1.
         `PATCH .../questions/{question_id}` without `position` keeps the current position; with `position` it sets that value without shifting the others (use reorder to move a question).
         Validation errors name the failing key in `details[].field`, for example `type`, `title`, `options[1].value`, `settings.max`.
+        A `settings.visible_if` rule is validated against the final position of the question (for an appended question: the
+        last one), so a conditional question can be added without `position`; errors are 400 `FORM_QUESTION_VISIBILITY_INVALID` /
+        `FORM_QUESTION_VISIBILITY_CYCLE` with `settings.visible_if.question_id`, `.operator` or `.value` in `details[].field`.
         Allowed `settings` per question type are listed in the FormQuestionRequest schema.
       x-permission: workspace.update
       security:
@@ -1078,6 +1103,11 @@ paths:
     patch:
       tags: [forms]
       summary: "Replace a question"
+      description: |
+        Titles, descriptions, placeholders, settings and labels stay editable. For a question that already has submitted
+        answers the change of `type` and the removal or renaming (change of `value`) of an option that appears in a
+        stored answer are refused with 409 `FORM_QUESTION_IN_USE`; `details` has `type` / `HAS_ANSWERS` (`params.answers`)
+        or `options` / `OPTION_IN_USE` (`params.value`) per used option. Adding options and removing unused ones is allowed.
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -1117,6 +1147,12 @@ paths:
     put:
       tags: [forms]
       summary: "Set the order of every question in a form"
+      description: |
+        `ids` must list every live question of the form exactly once. Otherwise 400 `FORM_QUESTION_REORDER_INVALID` and
+        nothing changes; `details` has `ids` / `MISSING` (`params.question_id`) for every omitted question and
+        `ids[i]` / `UNKNOWN_QUESTION` or `DUPLICATE` (`params.question_id`) for every wrong entry. A new order in which a
+        question would precede the question its `visible_if` rule depends on is 400 `FORM_QUESTION_VISIBILITY_INVALID`
+        with `ids` / `RULE_NOT_EARLIER` (`params.question_id`, `params.depends_on`).
       x-permission: workspace.update
       security:
         - bearerAuth: []
@@ -2596,7 +2632,8 @@ paths:
         1000 entries per user are kept. `actor` is the public user projection; `payload` depends on the type
         (`task_title`, `comment_excerpt`, `status_name`, `due_date`, `item_text`). `form_submission` entries (in-app on, e-mail and
         webhook off by default) have no `task_id` and an empty actor (the respondent is anonymous); their payload is
-        `form_id`, `form_name` and `submission_id`, and they are visible while the recipient can read the workspace.
+        exactly `form_id`, `form_name` and `submission_id` (no `task_title`; e-mail and webhook use the same wording,
+        `New submission in the form "<form_name>"`, with the submission number as detail), and they are visible while the recipient can read the workspace.
       security:
         - bearerAuth: []
       parameters:
@@ -2749,7 +2786,7 @@ paths:
         `secret` exactly once. One signed confirmation request is POSTed to the URL right away with the JSON body
         `{"type": "webhook.confirmation", "delivery_id", "created_at", "confirmation_token", "confirm_url", "expires_at"}`;
         the owner confirms by calling `POST /notifications/channels/confirm` with that token (valid 48 hours, single use).
-        Nothing else is sent before that. If the endpoint cannot be reached the channel is not kept (503); a forbidden
+        Nothing else is sent before that. If the endpoint cannot be reached the channel is not kept (503 `CONFIRMATION_DELIVERY_FAILED`, for every kind); a forbidden
         destination is 400.
 
         Every delivery is a `POST` with `Content-Type: application/json` and the headers `X-Rabbit-Hole-Event` (the
@@ -2757,6 +2794,7 @@ paths:
         `X-Rabbit-Hole-Timestamp` (unix seconds) and `X-Rabbit-Hole-Signature: sha256=<hex>`, the HMAC-SHA256 of
         `<timestamp>.<raw body>` with the channel secret. The body is
         `{"type", "delivery_id", "created_at", "summary", "detail", "task": {"id", "title", "workspace_id"}, "actor": {"display_name"}, "link"}`
+        (`form_submission` events carry `"form": {"id", "name", "submission_id", "workspace_id"}` instead of `task`)
         and never contains e-mail addresses. Any 2xx answer is success; 5xx, 429 and timeouts are retried twice with
         exponential backoff, other answers are not. After `NOTIFICATION_WEBHOOK_MAX_FAILURES` (default 10) consecutive failed
         deliveries the channel is disabled (`disabled_at`) until its secret is rotated.
@@ -3070,6 +3108,16 @@ components:
         - `succeeded`: a task was created (see `GET /submissions/{submission_id}/tasks`).
         - `failed`: the attempt failed; the submission itself is kept and `task_creation_error` holds a stable code (`TASK_CREATION_FAILED`); the details are only in the server log. Retry with `POST /submissions/{submission_id}/retry-task-creation`.
         - `skipped`: the published form version has no enabled task configuration, so no task is created.
+    PublicFormSubmission:
+      type: object
+      description: "Answer of the public submit endpoint; nothing but what the respondent needs."
+      properties:
+        id: {type: integer}
+        status: {type: string, enum: [submitted, processing, processed, failed]}
+        created_at: {type: string, format: date-time}
+        task_creation_status: {$ref: '#/components/schemas/TaskCreationStatus'}
+        success_message: {type: string, description: "`settings.success_message` of the published version."}
+        redirect_url: {type: string, description: "`settings.redirect_url` of the published version."}
     FormSubmission:
       type: object
       properties:

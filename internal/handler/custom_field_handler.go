@@ -122,14 +122,16 @@ func (h *CustomFieldHandler) SetTaskValue(c *gin.Context) {
 		return
 	}
 	if len(req.Value) == 0 {
-		response.HandleError(c, httperrors.BadRequest("INVALID_CUSTOM_FIELD", "value is required", nil))
+		response.HandleError(c, httperrors.BadRequest("INVALID_CUSTOM_FIELD", "value is required", nil).
+			WithDetails(httperrors.Detail{Field: "value", Code: "REQUIRED"}))
 		return
 	}
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(req.Value))
 	decoder.UseNumber()
 	if err := decoder.Decode(&value); err != nil {
-		response.HandleError(c, httperrors.BadRequest("INVALID_CUSTOM_FIELD", "invalid value", err))
+		response.HandleError(c, httperrors.BadRequest("INVALID_CUSTOM_FIELD", "invalid value", err).
+			WithDetails(httperrors.Detail{Field: "value", Code: "INVALID_VALUE"}))
 		return
 	}
 	if err := h.service.SetTaskValue(c.Request.Context(), taskID, fieldID, value); err != nil {
@@ -154,7 +156,7 @@ func (h *CustomFieldHandler) DeleteTaskValue(c *gin.Context) {
 func (h *CustomFieldHandler) writeError(c *gin.Context, code string, err error) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidCustomField):
-		response.HandleError(c, httperrors.BadRequest("INVALID_CUSTOM_FIELD", err.Error(), err))
+		response.HandleError(c, withFieldDetails(httperrors.BadRequest("INVALID_CUSTOM_FIELD", err.Error(), err), err, "value"))
 	case errors.Is(err, domain.ErrCustomFieldInUse):
 		response.HandleError(c, httperrors.Conflict("CUSTOM_FIELD_IN_USE", err.Error(), err))
 	case errors.Is(err, domain.ErrCustomFieldNameTaken):

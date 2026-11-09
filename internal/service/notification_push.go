@@ -68,7 +68,7 @@ func (p *notificationPush) created(ctx context.Context, userID uint, ref domain.
 	p.send(userID, realtime.UserEvent{
 		Type: realtime.EventNotificationCreated,
 		Notification: &realtime.NotificationSummary{
-			ID: ref.ID, Type: c.Type.Key, TaskID: c.TaskID, Title: c.TaskTitle,
+			ID: ref.ID, Type: c.Type.Key, TaskID: c.TaskID, Title: c.Title(),
 			Snippet: notificationSnippet(c.Payload), CreatedAt: ref.CreatedAt,
 		},
 	}, total, byType)

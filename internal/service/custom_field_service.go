@@ -125,7 +125,7 @@ func (s *customFieldService) SetTaskValue(
 	}
 	if isEmptyCustomFieldValue(value) {
 		if field.Required {
-			return fmt.Errorf("%w: %q is required", domain.ErrInvalidCustomField, field.Name)
+			return domain.InvalidField(domain.ErrInvalidCustomField, "value", "REQUIRED")
 		}
 		err := s.values.DeleteTaskValue(ctx, taskID, fieldID)
 		if errors.Is(err, domain.ErrNotFound) {
@@ -188,8 +188,14 @@ func (s *customFieldService) DeleteTaskValue(
 
 func customFieldFromInput(workspaceID, fieldID uint, input CustomFieldInput) (*domain.CustomField, error) {
 	name := strings.TrimSpace(input.Name)
-	if workspaceID == 0 || name == "" || len(name) > 255 {
+	switch {
+	case workspaceID == 0:
 		return nil, domain.ErrInvalidCustomField
+	case name == "":
+		return nil, domain.InvalidField(domain.ErrInvalidCustomField, "name", "REQUIRED")
+	case len(name) > 255:
+		return nil, domain.InvalidField(domain.ErrInvalidCustomField, "name", "TOO_LONG").
+			WithParams(map[string]any{"max": 255})
 	}
 	field := &domain.CustomField{
 		WorkspaceID: workspaceID, Name: name, Description: strings.TrimSpace(input.Description),
@@ -200,17 +206,18 @@ func customFieldFromInput(workspaceID, fieldID uint, input CustomFieldInput) (*d
 		field.Config = map[string]any{}
 	}
 	if !validCustomFieldConfig(field.Type, field.Config) {
-		return nil, domain.ErrInvalidCustomField
+		return nil, domain.InvalidField(domain.ErrInvalidCustomField, "config", "INVALID_VALUE")
 	}
 	if fieldID != 0 {
 		field.ID = fieldID
 	}
 	if !supportedCustomFieldType(field.Type) {
-		return nil, domain.ErrInvalidCustomField
+		return nil, domain.InvalidField(domain.ErrInvalidCustomField, "type", "INVALID_CHOICE")
 	}
 	if field.Type == domain.CustomFieldDropdown || field.Type == domain.CustomFieldMultiSelect {
 		if len(field.Options) == 0 || len(field.Options) > 100 {
-			return nil, domain.ErrInvalidCustomField
+			return nil, domain.InvalidField(domain.ErrInvalidCustomField, "options", "INVALID_COUNT").
+				WithParams(map[string]any{"min": 1, "max": 100})
 		}
 		seen := make(map[string]struct{}, len(field.Options))
 		for i := range field.Options {
@@ -218,16 +225,18 @@ func customFieldFromInput(workspaceID, fieldID uint, input CustomFieldInput) (*d
 			option.Label = strings.TrimSpace(option.Label)
 			option.Value = strings.TrimSpace(option.Value)
 			if option.Label == "" || option.Value == "" || len(option.Label) > 255 || len(option.Value) > 255 {
-				return nil, domain.ErrInvalidCustomField
+				return nil, domain.InvalidField(domain.ErrInvalidCustomField, fmt.Sprintf("options[%d]", i), "INVALID_OPTION").
+					WithParams(map[string]any{"max": 255})
 			}
 			if _, exists := seen[option.Value]; exists {
-				return nil, domain.ErrInvalidCustomField
+				return nil, domain.InvalidField(domain.ErrInvalidCustomField, fmt.Sprintf("options[%d].value", i), "DUPLICATE").
+					WithParams(map[string]any{"value": option.Value})
 			}
 			seen[option.Value] = struct{}{}
 			option.Position = i
 		}
 	} else if len(field.Options) != 0 {
-		return nil, domain.ErrInvalidCustomField
+		return nil, domain.InvalidField(domain.ErrInvalidCustomField, "options", "NOT_ALLOWED")
 	}
 	return field, nil
 }
@@ -289,108 +298,161 @@ func supportedCustomFieldType(fieldType domain.CustomFieldType) bool {
 }
 
 func validateCustomFieldValue(field domain.CustomField, value any) error {
-	invalid := func() error {
-		return fmt.Errorf("%w: value does not match type %q", domain.ErrInvalidCustomField, field.Type)
+	issue := customFieldValueIssue(field, value)
+	if issue == nil {
+		return nil
 	}
+	return domain.InvalidField(domain.ErrInvalidCustomField, "value", issue.reason).WithParams(issue.params)
+}
+
+func customFieldValueIssue(field domain.CustomField, value any) *answerIssue {
 	switch field.Type {
 	case domain.CustomFieldText, domain.CustomFieldPhone:
 		text, ok := value.(string)
 		if !ok {
-			return invalid()
+			return wrongType("string")
 		}
-		if field.Type == domain.CustomFieldText && !withinStringBounds(field.Config, len([]rune(text))) {
-			return invalid()
+		if field.Type == domain.CustomFieldText {
+			return stringBoundsIssue(field.Config, len([]rune(text)))
 		}
 	case domain.CustomFieldURL:
 		text, ok := value.(string)
 		if !ok {
-			return invalid()
+			return wrongType("string")
 		}
 		parsed, err := url.ParseRequestURI(text)
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-			return invalid()
+			return wrongFormat("url")
 		}
 	case domain.CustomFieldEmail:
 		text, ok := value.(string)
 		if !ok {
-			return invalid()
+			return wrongType("string")
 		}
 		address, err := mail.ParseAddress(text)
 		if err != nil || address.Address != text {
-			return invalid()
+			return wrongFormat("email")
 		}
 	case domain.CustomFieldNumber:
 		number, ok := numericValue(value)
-		if !ok || !withinBounds(field.Config, number) {
-			return invalid()
+		if !ok {
+			return wrongType("number")
 		}
+		return numberBoundsIssue(field.Config, number)
 	case domain.CustomFieldInteger:
 		number, ok := numericValue(value)
-		if !ok || number != float64(int64(number)) || !withinBounds(field.Config, number) {
-			return invalid()
+		if !ok || number != float64(int64(number)) {
+			return wrongType("integer")
 		}
+		return numberBoundsIssue(field.Config, number)
 	case domain.CustomFieldBoolean, domain.CustomFieldCheckbox:
 		if _, ok := value.(bool); !ok {
-			return invalid()
+			return wrongType("boolean")
 		}
 	case domain.CustomFieldDate, domain.CustomFieldDateTime:
 		text, ok := value.(string)
 		if !ok {
-			return invalid()
+			return wrongType("string")
 		}
-		layout := time.RFC3339
+		layout, format := time.RFC3339, "RFC3339"
 		if field.Type == domain.CustomFieldDate {
-			layout = "2006-01-02"
+			layout, format = "2006-01-02", "YYYY-MM-DD"
 		}
 		if _, err := time.Parse(layout, text); err != nil {
-			return invalid()
+			return wrongFormat(format)
 		}
 	case domain.CustomFieldDropdown:
 		text, ok := value.(string)
-		if !ok || !containsCustomFieldOption(field.Options, text) {
-			return invalid()
+		if !ok {
+			return wrongType("string")
+		}
+		if !containsCustomFieldOption(field.Options, text) {
+			return &answerIssue{reason: "INVALID_CHOICE", params: map[string]any{"allowed": customFieldOptionValues(field.Options)}}
 		}
 	case domain.CustomFieldMultiSelect:
 		items, ok := value.([]any)
 		if !ok {
-			if strings, stringSlice := value.([]string); stringSlice {
-				items = make([]any, len(strings))
-				for i := range strings {
-					items[i] = strings[i]
-				}
-			} else {
-				return invalid()
+			strs, stringSlice := value.([]string)
+			if !stringSlice {
+				return wrongType("array")
+			}
+			items = make([]any, len(strs))
+			for i := range strs {
+				items[i] = strs[i]
 			}
 		}
 		for _, item := range items {
 			text, ok := item.(string)
-			if !ok || !containsCustomFieldOption(field.Options, text) {
-				return invalid()
+			if !ok {
+				return wrongType("string")
+			}
+			if !containsCustomFieldOption(field.Options, text) {
+				return &answerIssue{reason: "INVALID_CHOICE", params: map[string]any{
+					"allowed": customFieldOptionValues(field.Options), "value": text,
+				}}
 			}
 		}
 	case domain.CustomFieldPeople, domain.CustomFieldFiles:
 		if !isNumericIDList(value) {
-			return invalid()
+			return wrongType("array")
 		}
 	default:
-		return invalid()
+		return &answerIssue{reason: "INVALID_VALUE"}
 	}
 	return nil
 }
 
-func withinStringBounds(config map[string]any, length int) bool {
-	for key, actual := range map[string]int{"min_length": length, "max_length": length} {
-		if raw, exists := config[key]; exists {
-			bound, ok := numericValue(raw)
-			if !ok || bound < 0 || bound != float64(int(bound)) {
-				return false
-			}
-			if key == "min_length" && actual < int(bound) || key == "max_length" && actual > int(bound) {
-				return false
-			}
+func customFieldOptionValues(options []domain.CustomFieldOption) []string {
+	values := make([]string, len(options))
+	for i, option := range options {
+		values[i] = option.Value
+	}
+	return values
+}
+
+func stringBoundsIssue(config map[string]any, length int) *answerIssue {
+	if raw, exists := config["min_length"]; exists {
+		bound, ok := numericValue(raw)
+		if !ok || bound < 0 || bound != float64(int(bound)) {
+			return &answerIssue{reason: "INVALID_VALUE"}
+		}
+		if length < int(bound) {
+			return &answerIssue{reason: "TOO_SHORT", params: map[string]any{"min": int(bound)}}
 		}
 	}
-	return true
+	if raw, exists := config["max_length"]; exists {
+		bound, ok := numericValue(raw)
+		if !ok || bound < 0 || bound != float64(int(bound)) {
+			return &answerIssue{reason: "INVALID_VALUE"}
+		}
+		if length > int(bound) {
+			return &answerIssue{reason: "TOO_LONG", params: map[string]any{"max": int(bound)}}
+		}
+	}
+	return nil
+}
+
+func numberBoundsIssue(config map[string]any, value float64) *answerIssue {
+	params := map[string]any{}
+	outside := false
+	for _, key := range []string{"min", "max"} {
+		raw, exists := config[key]
+		if !exists {
+			continue
+		}
+		bound, ok := numericValue(raw)
+		if !ok {
+			return &answerIssue{reason: "INVALID_VALUE"}
+		}
+		params[key] = bound
+		if key == "min" && value < bound || key == "max" && value > bound {
+			outside = true
+		}
+	}
+	if outside {
+		return &answerIssue{reason: "OUT_OF_RANGE", params: params}
+	}
+	return nil
 }
 
 func numericValue(value any) (float64, bool) {
@@ -411,25 +473,6 @@ func numericValue(value any) (float64, bool) {
 	default:
 		return 0, false
 	}
-}
-
-func withinBounds(config map[string]any, value float64) bool {
-	if config == nil {
-		return true
-	}
-	if min, exists := config["min"]; exists {
-		bound, ok := numericValue(min)
-		if !ok || value < bound {
-			return false
-		}
-	}
-	if max, exists := config["max"]; exists {
-		bound, ok := numericValue(max)
-		if !ok || value > bound {
-			return false
-		}
-	}
-	return true
 }
 
 func containsCustomFieldOption(options []domain.CustomFieldOption, value string) bool {
@@ -489,7 +532,7 @@ func isNumericIDList(value any) bool {
 
 func customFieldIDs(value any) ([]uint, error) {
 	if !isNumericIDList(value) {
-		return nil, domain.ErrInvalidCustomField
+		return nil, invalidIDList()
 	}
 	switch values := value.(type) {
 	case []uint:
@@ -498,7 +541,7 @@ func customFieldIDs(value any) ([]uint, error) {
 		ids := make([]uint, len(values))
 		for i, value := range values {
 			if value <= 0 {
-				return nil, domain.ErrInvalidCustomField
+				return nil, invalidIDList()
 			}
 			ids[i] = uint(value)
 		}
@@ -509,7 +552,7 @@ func customFieldIDs(value any) ([]uint, error) {
 			if number, ok := value.(json.Number); ok {
 				parsed, err := strconv.ParseUint(number.String(), 10, 64)
 				if err != nil || parsed == 0 {
-					return nil, domain.ErrInvalidCustomField
+					return nil, invalidIDList()
 				}
 				ids[i] = uint(parsed)
 				continue
@@ -519,6 +562,11 @@ func customFieldIDs(value any) ([]uint, error) {
 		}
 		return ids, nil
 	default:
-		return nil, domain.ErrInvalidCustomField
+		return nil, invalidIDList()
 	}
+}
+
+func invalidIDList() error {
+	return domain.InvalidField(domain.ErrInvalidCustomField, "value", "INVALID_TYPE").
+		WithParams(map[string]any{"expected": "array"})
 }

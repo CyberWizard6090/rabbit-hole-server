@@ -141,7 +141,7 @@ The frontend pages for the first four paths must work without a signed-in user; 
   link goes to that address. Resend: `POST /notifications/channels/{channel_id}/resend`.
   Errors: `400 UNKNOWN_CHANNEL`, `400 INVALID_DESTINATION`, `409 CHANNEL_EXISTS`, `422 CHANNEL_LIMIT_REACHED` (5 extra
   addresses per kind), `409 CHANNEL_ALREADY_CONFIRMED`, `429 CONFIRMATION_TOO_SOON` (less than a minute since the last
-  message), `503 CONFIRMATION_MAIL_FAILED` (the message could not be queued; try again), `429` (rate limit).
+  message), `503 CONFIRMATION_DELIVERY_FAILED` (the confirmation could not be delivered, for a webhook: the endpoint did not accept it; try again), `429` (rate limit).
 - Confirm: `POST /notifications/channels/confirm`, body `{"token": "<token>"}`. `200` with `{"message": "address confirmed"}`.
   Errors: `400 INVALID_TOKEN`, `429`. No access token is needed, so the link works in a browser where the user is not
   signed in.

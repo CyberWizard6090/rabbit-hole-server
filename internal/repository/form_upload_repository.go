@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -199,8 +200,9 @@ func claimFormUploads(
 			return res.Error
 		}
 		if res.RowsAffected != 1 {
-			return domain.NewFormError(domain.FormUploadInvalidCode,
-				"an uploaded file is unknown, expired, already used or belongs to another form")
+			return domain.NewFormFieldError(domain.FormUploadInvalidCode,
+				"an uploaded file is unknown, expired, already used or belongs to another form",
+				fmt.Sprintf("answers.%d", claim.QuestionID), "INVALID_FILE", nil)
 		}
 	}
 	return nil

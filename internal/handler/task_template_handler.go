@@ -191,7 +191,7 @@ func (h *TaskTemplateHandler) authorizedTemplate(c *gin.Context, permission stri
 func (h *TaskTemplateHandler) writeError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidTaskTemplate):
-		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_TEMPLATE", err.Error(), err))
+		response.HandleError(c, withFieldDetails(httperrors.BadRequest("INVALID_TASK_TEMPLATE", err.Error(), err), err, "configuration"))
 	case errors.Is(err, domain.ErrTaskTemplateNotFound), errors.Is(err, domain.ErrNotFound):
 		response.HandleError(c, httperrors.NotFound("TASK_TEMPLATE_NOT_FOUND", "task template not found", err))
 	case errors.Is(err, domain.ErrTaskTemplateArchived):
@@ -199,7 +199,7 @@ func (h *TaskTemplateHandler) writeError(c *gin.Context, err error) {
 	case errors.Is(err, domain.ErrInvalidListReference), errors.Is(err, domain.ErrInvalidStatusReference),
 		errors.Is(err, domain.ErrInvalidAssigneeReference), errors.Is(err, domain.ErrInvalidTagReference),
 		errors.Is(err, domain.ErrInvalidCustomField):
-		response.HandleError(c, httperrors.BadRequest("INVALID_TASK_TEMPLATE_APPLICATION", err.Error(), err))
+		response.HandleError(c, templateApplicationError(err))
 	default:
 		response.HandleError(c, httperrors.Internal("TASK_TEMPLATE_FAILED", "internal server error", err))
 	}
@@ -246,4 +246,31 @@ func decodeFormTaskConfiguration(req dto.FormTaskConfigurationRequest) domain.Fo
 		}
 	}
 	return config
+}
+
+func templateApplicationError(err error) *httperrors.AppError {
+	appErr := httperrors.BadRequest("INVALID_TASK_TEMPLATE_APPLICATION", err.Error(), err)
+	var params map[string]any
+	var fieldErr *domain.FieldError
+	if errors.As(err, &fieldErr) && len(fieldErr.Problems) > 0 {
+		params = fieldErr.Problems[0].Params
+	}
+	detail := httperrors.Detail{Params: params}
+	switch {
+	case errors.Is(err, domain.ErrInvalidListReference):
+		detail.Field, detail.Code = "list_id", "NOT_IN_WORKSPACE"
+	case errors.Is(err, domain.ErrInvalidStatusReference):
+		detail.Field, detail.Code = "status_id", "NOT_IN_LIST"
+	case errors.Is(err, domain.ErrInvalidAssigneeReference):
+		detail.Field, detail.Code = "configuration.task.assignee_id", "NOT_A_MEMBER"
+	case errors.Is(err, domain.ErrInvalidTagReference):
+		detail.Field, detail.Code = "configuration.tags", "NOT_IN_SPACE"
+	case errors.Is(err, domain.ErrInvalidCustomField):
+		detail.Field, detail.Code = "configuration.custom_fields", "INVALID_VALUE"
+		if fieldErr != nil && len(fieldErr.Problems) > 0 {
+			detail.Code = fieldErr.Problems[0].Reason
+		}
+	}
+	appErr.Details = []httperrors.Detail{detail}
+	return appErr
 }

@@ -636,6 +636,49 @@ CREATE UNIQUE INDEX uq_forms_slug ON forms (lower(slug));
 CREATE TRIGGER trg_forms_updated_at BEFORE UPDATE ON forms
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TABLE form_slug_aliases (
+    id BIGSERIAL PRIMARY KEY,
+    form_id BIGINT NOT NULL,
+    slug VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT fk_form_slug_aliases_form FOREIGN KEY (form_id) REFERENCES forms (id) ON DELETE CASCADE,
+    CONSTRAINT chk_form_slug_aliases_slug_not_blank CHECK (btrim(slug) <> '')
+);
+CREATE UNIQUE INDEX uq_form_slug_aliases_slug ON form_slug_aliases (lower(slug));
+CREATE INDEX idx_form_slug_aliases_form ON form_slug_aliases (form_id, id);
+
+CREATE FUNCTION validate_form_slug_available()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('form_slug'), hashtext(lower(NEW.slug)));
+    IF EXISTS (
+        SELECT 1 FROM form_slug_aliases WHERE lower(slug) = lower(NEW.slug) AND form_id <> NEW.id
+    ) THEN
+        RAISE EXCEPTION 'form slug is an alias of another form' USING ERRCODE = '23505';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER trg_validate_form_slug_available
+    BEFORE INSERT OR UPDATE OF slug ON forms
+    FOR EACH ROW EXECUTE FUNCTION validate_form_slug_available();
+
+CREATE FUNCTION validate_form_slug_alias_available()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('form_slug'), hashtext(lower(NEW.slug)));
+    IF EXISTS (
+        SELECT 1 FROM forms WHERE lower(slug) = lower(NEW.slug) AND id <> NEW.form_id
+    ) THEN
+        RAISE EXCEPTION 'form slug is used by another form' USING ERRCODE = '23505';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER trg_validate_form_slug_alias_available
+    BEFORE INSERT OR UPDATE OF slug ON form_slug_aliases
+    FOR EACH ROW EXECUTE FUNCTION validate_form_slug_alias_available();
+
 CREATE TABLE form_versions (
     id BIGSERIAL PRIMARY KEY,
     form_id BIGINT NOT NULL,

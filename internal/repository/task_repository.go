@@ -617,17 +617,17 @@ func validateTaskReferences(tx *gorm.DB, task *domain.Task, assigneeIDs, tagIDs 
 		return nil
 	}
 
-	var assigneeCount int64
+	var found []uint
 	if err := tx.Table("users").
 		Joins("JOIN workspace_members ON workspace_members.user_id = users.id AND workspace_members.deleted_at IS NULL").
 		Joins("JOIN workspaces ON workspaces.id = workspace_members.workspace_id AND workspaces.deleted_at IS NULL").
 		Joins("JOIN spaces ON spaces.workspace_id = workspace_members.workspace_id AND spaces.deleted_at IS NULL").
 		Where("spaces.id = ? AND users.id IN ?", task.SpaceID, assigneeIDs).
-		Distinct("users.id").Count(&assigneeCount).Error; err != nil {
+		Distinct().Pluck("users.id", &found).Error; err != nil {
 		return err
 	}
-	if assigneeCount != int64(len(assigneeIDs)) {
-		return domain.ErrInvalidAssigneeReference
+	if len(found) != len(assigneeIDs) {
+		return missingReferenceError(domain.ErrInvalidAssigneeReference, assigneeIDs, found)
 	}
 	return nil
 }
@@ -662,16 +662,30 @@ func validateTagReferences(tx *gorm.DB, spaceID uint, tagIDs []uint) error {
 		return nil
 	}
 
-	var tagCount int64
+	var found []uint
 	if err := tx.Model(&persistence.Tag{}).
 		Where("space_id = ? AND id IN ?", spaceID, tagIDs).
-		Count(&tagCount).Error; err != nil {
+		Pluck("id", &found).Error; err != nil {
 		return err
 	}
-	if tagCount != int64(len(tagIDs)) {
-		return domain.ErrInvalidTagReference
+	if len(found) != len(tagIDs) {
+		return missingReferenceError(domain.ErrInvalidTagReference, tagIDs, found)
 	}
 	return nil
+}
+
+func missingReferenceError(sentinel error, wanted, found []uint) error {
+	present := make(map[uint]struct{}, len(found))
+	for _, id := range found {
+		present[id] = struct{}{}
+	}
+	missing := make([]uint, 0, len(wanted))
+	for _, id := range wanted {
+		if _, ok := present[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	return domain.InvalidFields(sentinel, []domain.FieldProblem{{Params: map[string]any{"ids": missing}}})
 }
 
 func uniqueIDs(ids []uint) []uint {

@@ -55,6 +55,8 @@ func renderTemplate(tpl mailTemplate, view any) (subject, text, html string, err
 
 type notificationMailStrings struct {
 	Open        string
+	OpenForm    string
+	Submission  string
 	Footer      string
 	PrefsLabel  string
 	NoDueDate   string
@@ -63,11 +65,13 @@ type notificationMailStrings struct {
 
 var notificationMailLocales = map[string]notificationMailStrings{
 	localeEnglish: {
-		Open: "Open the task", Footer: "You get this e-mail because of your notification settings.",
+		Open: "Open the task", OpenForm: "Open the submission", Submission: "Submission #%d",
+		Footer:     "You get this e-mail because of your notification settings.",
 		PrefsLabel: "Change them", NoDueDate: "no due date", SomeoneName: "Someone",
 	},
 	localeRussian: {
-		Open: "Открыть задачу", Footer: "Вы получили это письмо в соответствии с настройками уведомлений.",
+		Open: "Открыть задачу", OpenForm: "Открыть ответ", Submission: "Ответ №%d",
+		Footer:     "Вы получили это письмо в соответствии с настройками уведомлений.",
 		PrefsLabel: "Изменить настройки", NoDueDate: "срок снят", SomeoneName: "Кто-то",
 	},
 }
@@ -138,6 +142,8 @@ func notificationDetail(locale, typeKey string, payload map[string]any) string {
 		return due
 	case domain.NotificationAssigned:
 		return truncateRunes(payloadString(payload, "item_text"), maxDetailRunes)
+	case domain.NotificationFormSubmitted:
+		return fmt.Sprintf(strs.Submission, payloadID(payload, "submission_id"))
 	}
 	return ""
 }
@@ -150,12 +156,16 @@ func renderNotificationMail(locale, frontendURL string, c NotificationContent) (
 	}
 	wording := c.Type.WordingFor(locale)
 	actor := actorDisplayName(c.Actor, strs.SomeoneName)
-	summary := singleLine(fmt.Sprintf(wording.Subject, actor, singleLine(c.TaskTitle)))
+	summary := singleLine(fmt.Sprintf(wording.Subject, actor, singleLine(c.Title())))
+	openLabel := strs.Open
+	if c.Type.Key == domain.NotificationFormSubmitted {
+		openLabel = strs.OpenForm
+	}
 	view := notificationMailView{
 		Summary:         summary,
 		Detail:          notificationDetail(locale, c.Type.Key, c.Payload),
 		Link:            notificationLink(frontendURL, c),
-		OpenLabel:       strs.Open,
+		OpenLabel:       openLabel,
 		Footer:          strs.Footer,
 		PreferencesURL:  frontendURL + notificationPrefsPath,
 		PreferencesText: strs.PrefsLabel,

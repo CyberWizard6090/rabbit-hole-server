@@ -274,3 +274,60 @@ func TestHandleErrorWithNilErrorLogsNothing(t *testing.T) {
 		t.Fatalf("unexpected log output: %s", buf.String())
 	}
 }
+
+type anchorRequest struct {
+	AfterID  *uint `json:"after_id,omitempty" binding:"omitempty,excluded_with=BeforeID"`
+	BeforeID *uint `json:"before_id,omitempty"`
+}
+
+type nestedAnchorRequest struct {
+	Items []anchorRequest `json:"items" binding:"dive"`
+}
+
+func bindAnchors(t *testing.T, target any, body string) httperrors.Detail {
+	t.Helper()
+	RegisterValidatorFieldNames()
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	context.Request.Header.Set("Content-Type", "application/json")
+	if err := context.ShouldBindJSON(target); err == nil {
+		t.Fatal("expected a validation error")
+	} else {
+		ValidationError(context, err)
+	}
+	payload := decodeError(t, recorder)
+	if len(payload.Details) != 1 {
+		t.Fatalf("details = %+v", payload.Details)
+	}
+	return payload.Details[0]
+}
+
+func TestValidationParamsUseWireNamesOfTheReferencedField(t *testing.T) {
+	detail := bindAnchors(t, &anchorRequest{}, `{"after_id":1,"before_id":2}`)
+	if detail.Field != "after_id" || detail.Code != "CONFLICTING_FIELD" || detail.Params["with"] != "before_id" {
+		t.Fatalf("detail = %+v", detail)
+	}
+	nested := bindAnchors(t, &nestedAnchorRequest{}, `{"items":[{"after_id":1,"before_id":2}]}`)
+	if nested.Field != "items[0].after_id" || nested.Params["with"] != "before_id" {
+		t.Fatalf("nested detail = %+v", nested)
+	}
+}
+
+func TestReferencedWireNamesKeepsUnknownNames(t *testing.T) {
+	v := validator.New()
+	v.SetTagName("binding")
+	v.RegisterTagNameFunc(wireName)
+	err := v.Struct(anchorRequest{AfterID: new(uint), BeforeID: new(uint)})
+	var validationErrs validator.ValidationErrors
+	if !errors.As(err, &validationErrs) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := referencedWireNames(nil, validationErrs[0]); got != "BeforeID" {
+		t.Fatalf("without a root type the Go name stays: %q", got)
+	}
+	if got := referencedWireNames(reflect.TypeOf(anchorRequest{}), validationErrs[0]); got != "before_id" {
+		t.Fatalf("with a root type the wire name is used: %q", got)
+	}
+}

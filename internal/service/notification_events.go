@@ -23,7 +23,6 @@ type notificationPlan struct {
 	WatcherType string
 	Payload     map[string]any
 	WorkspaceID uint
-	Title       string
 }
 
 type eventMapper func(ctx context.Context, d *NotificationDispatcher, e domain.ActivityEntry) (*notificationPlan, error)

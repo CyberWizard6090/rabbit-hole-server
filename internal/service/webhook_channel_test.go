@@ -477,3 +477,34 @@ func TestNewWebhookSecretIsRandomAndPrefixed(t *testing.T) {
 		t.Fatalf("secrets = %q, %q", a, b)
 	}
 }
+
+func TestWebhookFormSubmissionEventDescribesTheFormNotATask(t *testing.T) {
+	rcv := newReceiver(t, func(_ int, w http.ResponseWriter) { w.WriteHeader(http.StatusNoContent) })
+	h := newWebhookHarness(t, loopbackClient(), true)
+	delivery := Delivery{
+		RecipientID: 3, Locale: "en", Destination: rcv.server.URL + "/hook",
+		Content: NotificationContent{
+			Type: mustType(domain.NotificationFormSubmitted), WorkspaceID: 5,
+			Payload: map[string]any{"form_id": uint(11), "form_name": "Contact us", "submission_id": uint(12)},
+		},
+	}
+	if err := h.channel.Deliver(context.Background(), delivery); err != nil {
+		t.Fatal(err)
+	}
+	h.channel.Wait()
+	reqs := rcv.captured()
+	if len(reqs) != 1 {
+		t.Fatalf("requests = %d", len(reqs))
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(reqs[0].body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	form, _ := payload["form"].(map[string]any)
+	if _, hasTask := payload["task"]; hasTask || form["id"] != float64(11) || form["name"] != "Contact us" ||
+		form["submission_id"] != float64(12) || form["workspace_id"] != float64(5) ||
+		payload["summary"] != `New submission in the form "Contact us"` ||
+		payload["link"] != "https://app.example.test/workspaces/5/forms/11/submissions/12" {
+		t.Fatalf("payload = %v", payload)
+	}
+}
