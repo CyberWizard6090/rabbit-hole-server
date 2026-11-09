@@ -75,6 +75,7 @@ type fileService struct {
 	publicBaseURL string
 	activity      ActivityRecorder
 	rehost        RehostConfig
+	tx            TransactionRunner
 }
 
 func NewFileService(
@@ -85,7 +86,7 @@ func NewFileService(
 	publicBaseURL string,
 	activity ActivityRecorder,
 	rehost RehostConfig,
-) FileService {
+) *fileService {
 	return &fileService{
 		repo: repo, store: store, permissions: permissions, limits: limits,
 		publicBaseURL: strings.TrimRight(publicBaseURL, "/"),
@@ -94,7 +95,12 @@ func NewFileService(
 	}
 }
 
-func (s *fileService) recordAttachment(ctx context.Context, action string, userID, taskID uint, file *domain.File) {
+func (s *fileService) WithTransactions(tx TransactionRunner) *fileService {
+	s.tx = tx
+	return s
+}
+
+func (s *fileService) recordAttachment(ctx context.Context, action string, userID, taskID uint, file *domain.File) error {
 	entry := domain.ActivityEntry{TaskID: taskID, Actor: domain.UserActor(userID), Action: action}
 	value := map[string]any{"id": file.ID, "name": file.Name, "size": file.Size}
 	if action == domain.ActivityAttachmentDeleted {
@@ -103,7 +109,7 @@ func (s *fileService) recordAttachment(ctx context.Context, action string, userI
 	} else {
 		entry.NewValue = mustJSON(value)
 	}
-	recordActivity(ctx, s.activity, entry)
+	return recordActivity(ctx, s.activity, entry)
 }
 
 func randomHex() (string, error) {
@@ -211,15 +217,22 @@ func (s *fileService) UploadAttachment(ctx context.Context, userID, taskID uint,
 		return nil, fmt.Errorf("store attachment: %w", err)
 	}
 
-	file, err := s.repo.CreateAttachment(ctx, domain.NewFile{
-		Kind: domain.FileKindAttachment, PublicID: publicID, StorageKey: key, UserID: userID, TaskID: &taskID,
-		Name: sanitizeFilename(upload.Name), ContentType: contentType, Size: counter.n,
+	var file *domain.File
+	err = runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		created, createErr := s.repo.CreateAttachment(txCtx, domain.NewFile{
+			Kind: domain.FileKindAttachment, PublicID: publicID, StorageKey: key, UserID: userID, TaskID: &taskID,
+			Name: sanitizeFilename(upload.Name), ContentType: contentType, Size: counter.n,
+		})
+		if createErr != nil {
+			return createErr
+		}
+		file = created
+		return s.recordAttachment(txCtx, domain.ActivityAttachmentCreated, userID, taskID, created)
 	})
 	if err != nil {
 		s.discard(key)
 		return nil, err
 	}
-	s.recordAttachment(ctx, domain.ActivityAttachmentCreated, userID, taskID, file)
 	return file, nil
 }
 
@@ -273,11 +286,15 @@ func (s *fileService) DeleteAttachment(ctx context.Context, userID, taskID, id u
 			return domain.ErrFileForbidden
 		}
 	}
-	if err := s.repo.Delete(ctx, file.ID); err != nil {
+	if err := runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		if err := s.repo.Delete(txCtx, file.ID); err != nil {
+			return err
+		}
+		return s.recordAttachment(txCtx, domain.ActivityAttachmentDeleted, userID, taskID, file)
+	}); err != nil {
 		return err
 	}
 	s.discard(file.StorageKey)
-	s.recordAttachment(ctx, domain.ActivityAttachmentDeleted, userID, taskID, file)
 	return nil
 }
 

@@ -42,21 +42,37 @@ func (b *SecretBox) additionalData(channelID uint) []byte {
 }
 
 func (b *SecretBox) Seal(channelID uint, plain string) (string, error) {
+	return b.sealWith(b.additionalData(channelID), plain)
+}
+
+func (b *SecretBox) Open(channelID uint, encoded string) (string, error) {
+	return b.openWith(b.additionalData(channelID), encoded)
+}
+
+func (b *SecretBox) SealPurpose(purpose, plain string) (string, error) {
+	return b.sealWith([]byte("purpose:"+purpose), plain)
+}
+
+func (b *SecretBox) OpenPurpose(purpose, encoded string) (string, error) {
+	return b.openWith([]byte("purpose:"+purpose), encoded)
+}
+
+func (b *SecretBox) sealWith(aad []byte, plain string) (string, error) {
 	nonce := make([]byte, b.aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("read random nonce: %w", err)
 	}
-	sealed := b.aead.Seal(nonce, nonce, []byte(plain), b.additionalData(channelID))
+	sealed := b.aead.Seal(nonce, nonce, []byte(plain), aad)
 	return base64.RawStdEncoding.EncodeToString(sealed), nil
 }
 
-func (b *SecretBox) Open(channelID uint, encoded string) (string, error) {
+func (b *SecretBox) openWith(aad []byte, encoded string) (string, error) {
 	raw, err := base64.RawStdEncoding.DecodeString(encoded)
 	if err != nil || len(raw) < b.aead.NonceSize() {
 		return "", errWebhookSecretUnreadable
 	}
 	nonce, body := raw[:b.aead.NonceSize()], raw[b.aead.NonceSize():]
-	plain, err := b.aead.Open(nil, nonce, body, b.additionalData(channelID))
+	plain, err := b.aead.Open(nil, nonce, body, aad)
 	if err != nil {
 		return "", errWebhookSecretUnreadable
 	}

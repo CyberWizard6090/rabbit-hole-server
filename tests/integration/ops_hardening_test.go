@@ -46,11 +46,11 @@ func newOpsEnv(t *testing.T, opts realtime.Options, adjust func(*config.Config))
 	}
 	container.RealtimeHandler.WithOptions(opts)
 	router := app.SetupRouter(container, &cfg)
+	startWorkers(t, container)
 	server := httptest.NewServer(router)
 	t.Cleanup(func() {
 		container.Realtime.Close()
 		server.Close()
-		container.Notifications.Close()
 		service.ConfigurePasswordHashing(0, service.DefaultPasswordHashWait)
 	})
 	tc := &TestContext{DB: base.DB, Router: router, Mail: outbox}
@@ -162,7 +162,7 @@ func TestRealtimeRevocation_PasswordResetClosesTheFeed(t *testing.T) {
 	if rec := request(t, e.tc.Router, http.MethodPost, "/api/v1/auth/forgot-password", "", map[string]any{"email": email}); rec.Code != http.StatusAccepted {
 		t.Fatalf("forgot-password: %d: %s", rec.Code, rec.Body.String())
 	}
-	msgs := e.tc.Mail.To(email)
+	msgs := waitForMail(t, e.tc.Mail, email, 2)
 	token := linkToken(t, msgs[len(msgs)-1], "/reset-password")
 	rec := request(t, e.tc.Router, http.MethodPost, "/api/v1/auth/reset-password", "", map[string]any{"token": token, "new_password": "a-brand-new-pass-1"})
 	if rec.Code != http.StatusOK {

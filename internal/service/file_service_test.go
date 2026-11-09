@@ -64,8 +64,9 @@ type recorderFake struct {
 	entries []domain.ActivityEntry
 }
 
-func (r *recorderFake) Record(_ context.Context, entries ...domain.ActivityEntry) {
+func (r *recorderFake) Record(_ context.Context, entries ...domain.ActivityEntry) error {
 	r.entries = append(r.entries, entries...)
+	return nil
 }
 
 func newTestFileService(repo *fileRepositoryMock, store *storeStub, perms PermissionChecker, rec ActivityRecorder) FileService {

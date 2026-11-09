@@ -27,15 +27,15 @@ type formSubmissionEvent struct {
 	Recipients   []uint `json:"recipients"`
 }
 
-func (d *NotificationDispatcher) NotifyFormSubmission(notice FormSubmissionNotice) {
+func (d *NotificationDispatcher) NotifyFormSubmission(ctx context.Context, notice FormSubmissionNotice) error {
 	if len(notice.Recipients) == 0 {
-		return
+		return nil
 	}
 	raw, err := json.Marshal(formSubmissionEvent(notice))
 	if err != nil {
-		return
+		return err
 	}
-	d.Enqueue([]domain.ActivityEntry{{Action: domain.ActivityFormSubmissionCreated, NewValue: raw}})
+	return d.Enqueue(ctx, []domain.ActivityEntry{{Action: domain.ActivityFormSubmissionCreated, NewValue: raw}})
 }
 
 func mapFormSubmissionCreated(_ context.Context, _ *NotificationDispatcher, e domain.ActivityEntry) (*notificationPlan, error) {
@@ -69,18 +69,19 @@ func (d *NotificationDispatcher) processWorkspaceEvent(ctx context.Context, plan
 		}
 		allowed, err := d.perms.HasWorkspacePermission(ctx, userID, plan.WorkspaceID, domain.PermFormRead)
 		if err != nil {
-			d.logger.Warn("notifications: cannot check access", "user_id", userID, "error", err)
-			continue
+			return err
 		}
 		if !allowed {
 			continue
 		}
-		d.deliver(ctx, userID, Delivery{
+		if err := d.deliver(ctx, userID, Delivery{
 			RecipientID: userID,
 			Content: NotificationContent{
 				Type: typeDef, WorkspaceID: plan.WorkspaceID, Payload: plan.Payload,
 			},
-		})
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

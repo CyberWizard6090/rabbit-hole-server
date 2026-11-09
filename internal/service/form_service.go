@@ -613,17 +613,26 @@ func (s *formService) Submit(
 		return nil, false, fmt.Errorf("encode submission for idempotency: %w", err)
 	}
 	hash := sha256.Sum256(requestBody)
-	submission, replay, err := s.repo.CreateSubmission(
-		ctx, form.ID, respondentID, idempotencyKey, hex.EncodeToString(hash[:]), answers,
-		domain.SubmissionOptions{
-			ClosesAt: snapshot.Settings.ClosesAt, MaxSubmissions: snapshot.Settings.MaxSubmissions, Uploads: claims,
-		},
-	)
+	var submission *domain.FormSubmission
+	var replay bool
+	err = s.runInTransaction(ctx, func(ctx context.Context) error {
+		created, existed, createErr := s.repo.CreateSubmission(
+			ctx, form.ID, respondentID, idempotencyKey, hex.EncodeToString(hash[:]), answers,
+			domain.SubmissionOptions{
+				ClosesAt: snapshot.Settings.ClosesAt, MaxSubmissions: snapshot.Settings.MaxSubmissions, Uploads: claims,
+			},
+		)
+		if createErr != nil {
+			return createErr
+		}
+		submission, replay = created, existed
+		if existed {
+			return nil
+		}
+		return s.notifySubmission(ctx, form, snapshot.Name, snapshot.Settings, created.ID)
+	})
 	if err != nil {
 		return nil, false, fmt.Errorf("save form submission: %w", err)
-	}
-	if !replay {
-		s.notifySubmission(form, snapshot.Name, snapshot.Settings, submission.ID)
 	}
 	if !replay && s.processor != nil {
 		if status, processErr := s.processor.ProcessSubmission(ctx, submission.ID); processErr != nil {

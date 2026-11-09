@@ -260,11 +260,20 @@ func (s *taskService) createTaskInTx(
 			return nil, err
 		}
 	}
-	recordActivity(ctx, s.activity, domain.ActivityEntry{
+	if err := recordActivity(ctx, s.activity, domain.ActivityEntry{
 		TaskID: task.ID, Actor: origin.actor.Normalized(), Action: domain.ActivityTaskCreated,
 		NewValue: createdTaskActivity(task.Title, input.AssigneeIDs, ownerForActivity(origin.actor, userID)),
-	})
+	}); err != nil {
+		return nil, err
+	}
 	return task, nil
+}
+
+func (s *taskService) inTransaction(ctx context.Context, fn func(context.Context) error) error {
+	if s.tx == nil {
+		return fn(ctx)
+	}
+	return s.tx.Run(ctx, fn)
 }
 
 func (s *taskService) checkCustomFields(ctx context.Context, spaceID uint, values map[uint]any) error {
@@ -407,11 +416,18 @@ func (s *taskService) UpdateTask(ctx context.Context, userID, id uint, params Up
 		return nil
 	}
 
-	before, updated, err := s.repo.Update(ctx, id, apply, tagIDsToAdd, params.RemoveTagIDs, params.AssigneeIDs)
+	var updated *domain.Task
+	err = s.inTransaction(ctx, func(txCtx context.Context) error {
+		before, after, updateErr := s.repo.Update(txCtx, id, apply, tagIDsToAdd, params.RemoveTagIDs, params.AssigneeIDs)
+		if updateErr != nil {
+			return updateErr
+		}
+		updated = after
+		return recordActivity(txCtx, s.activity, diffTask(after.ID, userID, snapshotTask(before), snapshotTask(after))...)
+	})
 	if err != nil {
 		return nil, err
 	}
-	recordActivity(ctx, s.activity, diffTask(updated.ID, userID, snapshotTask(before), snapshotTask(updated))...)
 	return updated, nil
 }
 
@@ -450,11 +466,18 @@ func (s *taskService) MoveTask(ctx context.Context, userID, taskID uint, params 
 		target.StatusID = *params.StatusID
 	}
 	before := snapshotTask(task)
-	moved, err := s.repo.Move(ctx, taskID, target)
+	var moved *domain.Task
+	err = s.inTransaction(ctx, func(txCtx context.Context) error {
+		result, moveErr := s.repo.Move(txCtx, taskID, target)
+		if moveErr != nil {
+			return moveErr
+		}
+		moved = result
+		return recordActivity(txCtx, s.activity, diffTask(result.ID, userID, before, snapshotTask(result))...)
+	})
 	if err != nil {
 		return nil, err
 	}
-	recordActivity(ctx, s.activity, diffTask(moved.ID, userID, before, snapshotTask(moved))...)
 	return moved, nil
 }
 

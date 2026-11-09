@@ -43,11 +43,13 @@ func (s *submissionTaskProcessor) attachFiles(ctx context.Context, submission do
 		return fmt.Errorf("attach submission files: %w", err)
 	}
 	for _, file := range files {
-		recordActivity(ctx, s.activity, domain.ActivityEntry{
+		if err := recordActivity(ctx, s.activity, domain.ActivityEntry{
 			TaskID: taskID, Actor: domain.FormActor(submission.FormID, submission.FormName),
 			Action:   domain.ActivityAttachmentCreated,
 			NewValue: mustJSON(map[string]any{"id": file.ID, "name": file.Name, "size": file.Size}),
-		})
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

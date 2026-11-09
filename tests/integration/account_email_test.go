@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 
 	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/mail"
+	"rabbit-hole-server/internal/service"
 )
 
 const mailTestPassword = "good-password-1"
@@ -212,10 +214,18 @@ func TestEmailVerification_RegistrationSurvivesAMailFailure(t *testing.T) {
 	if rec := login(t, tc, "ann@example.test", mailTestPassword); rec.Code != http.StatusOK {
 		t.Fatalf("login after a failed mail: %d", rec.Code)
 	}
+	if len(tc.Mail.To("ann@example.test")) != 0 {
+		t.Fatal("the mail went out although the transport was down")
+	}
 	tc.Mail.FailWith(nil)
-	postAuth(t, tc, "resend-verification", map[string]any{"email": "ann@example.test"})
+	if err := tc.DB.Exec("UPDATE outbox_events SET next_attempt_at = now() WHERE event_type = 'delivery.mail' AND published_at IS NULL").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := service.DrainOutbox(context.Background(), tc.Workers...); err != nil {
+		t.Fatal(err)
+	}
 	if len(tc.Mail.To("ann@example.test")) != 1 {
-		t.Fatal("the user could not ask for another mail after the first one failed")
+		t.Fatal("the queued mail was not delivered once the transport recovered")
 	}
 }
 

@@ -761,9 +761,9 @@ func expectTooLarge(t *testing.T, rec *httptest.ResponseRecorder) {
 
 func TestInputHardening_EveryBodyLimitKeyMatchesARegisteredRoute(t *testing.T) {
 	e := newHardenEnv(t)
-	engine, ok := e.tc.Router.(*gin.Engine)
+	engine, ok := e.tc.Raw.(*gin.Engine)
 	if !ok {
-		t.Fatalf("router is %T", e.tc.Router)
+		t.Fatalf("router is %T", e.tc.Raw)
 	}
 	registered := map[string]bool{}
 	for _, route := range engine.Routes() {

@@ -14,7 +14,7 @@ Contents: [Drivers](#drivers) | [Settings](#settings) | [Testing with Mailpit](#
 | `MAIL_DRIVER` | Behaviour |
 | --- | --- |
 | `log` (default) | Nothing is sent. Every message is written to the server log at info level with the masked recipient and the subject; in `development` the full text, including the link, is logged too. Use it only on a developer machine. The server logs a warning at startup when it runs with this driver outside `development`, and `production` and `staging` refuse to start with it. |
-| `smtp` | Messages go to the SMTP server from `SMTP_*`. Sending is asynchronous: a bounded queue (256 messages) is drained by a background worker, so an SMTP failure does not fail the HTTP request. It is written to the server log as `mail: cannot send a message`. |
+| `smtp` | Messages go to the SMTP server from `SMTP_*`. Sending goes through a durable queue: the request stores the message (encrypted) in the `outbox_events` table and a background worker sends it, so an SMTP outage does not fail the HTTP request and a restart does not lose mail. A failed message is retried up to 6 times (30 s, 2 min, 10 min, 1 h, 3 h) and then marked dead; the failure is written to the server log as `outbox: event failed, will retry` and `outbox: giving up on an event`. |
 
 Both drivers send a plain text part and an HTML part.
 
@@ -202,7 +202,7 @@ yields the same `400 INVALID_TOKEN`.
   needs working mail delivery and a "resend" screen in the client.
 - Set `TRUSTED_PROXIES` to your reverse proxy so the per-IP limits see real client addresses.
 - Send a test registration end to end and read the message in a real mailbox.
-- Watch the server log for `mail: cannot send a message` (SMTP failures) and for warnings such as `cannot send a verification mail` (for example `mail queue is full`).
+- Watch the server log for `outbox: event failed, will retry` and `outbox: giving up on an event` (SMTP failures). Dead messages stay in `outbox_events` with `dead_at` and `last_error`; once the cause is fixed, put one back with `UPDATE outbox_events SET dead_at = NULL, attempts = 0, next_attempt_at = now() WHERE id = ...`.
 
 ## Troubleshooting
 

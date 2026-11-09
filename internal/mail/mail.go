@@ -10,8 +10,6 @@ import (
 
 var (
 	ErrInvalidMessage = errors.New("invalid mail message")
-	ErrQueueFull      = errors.New("mail queue is full")
-	ErrClosed         = errors.New("mail sender is closed")
 )
 
 type Message struct {
@@ -38,6 +36,11 @@ func parseAddress(raw string) (*mail.Address, error) {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidMessage, err)
 	}
 	return addr, nil
+}
+
+func (m Message) Validate() error {
+	_, err := m.validate()
+	return err
 }
 
 func (m Message) validate() (*mail.Address, error) {

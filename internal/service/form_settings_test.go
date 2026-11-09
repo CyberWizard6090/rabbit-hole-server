@@ -143,8 +143,9 @@ type notifierFake struct {
 	notices []FormSubmissionNotice
 }
 
-func (n *notifierFake) NotifyFormSubmission(notice FormSubmissionNotice) {
+func (n *notifierFake) NotifyFormSubmission(_ context.Context, notice FormSubmissionNotice) error {
 	n.notices = append(n.notices, notice)
+	return nil
 }
 
 func TestNotifySubmissionSkipsEmptyRecipientList(t *testing.T) {
@@ -152,11 +153,11 @@ func TestNotifySubmissionSkipsEmptyRecipientList(t *testing.T) {
 	s := newSettingsService(false).WithSubmissionNotifier(notifier)
 	form := &domain.Form{WorkspaceID: 7}
 	form.ID = 9
-	s.notifySubmission(form, "Name", domain.FormSettings{}, 1)
+	_ = s.notifySubmission(context.Background(), form, "Name", domain.FormSettings{}, 1)
 	if len(notifier.notices) != 0 {
 		t.Fatal("no recipients, no notice")
 	}
-	s.notifySubmission(form, "Name", domain.FormSettings{NotifyOnSubmit: []uint{3}}, 5)
+	_ = s.notifySubmission(context.Background(), form, "Name", domain.FormSettings{NotifyOnSubmit: []uint{3}}, 5)
 	if len(notifier.notices) != 1 || notifier.notices[0].SubmissionID != 5 || notifier.notices[0].WorkspaceID != 7 ||
 		notifier.notices[0].FormID != 9 || notifier.notices[0].Recipients[0] != 3 {
 		t.Fatalf("notices = %+v", notifier.notices)

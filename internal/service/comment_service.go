@@ -17,25 +17,38 @@ type commentService struct {
 	repo        domain.CommentRepository
 	permissions PermissionChecker
 	activity    ActivityRecorder
+	tx          TransactionRunner
 }
 
-func NewCommentService(repo domain.CommentRepository, permissions PermissionChecker, activity ActivityRecorder) CommentService {
+func (s *commentService) WithTransactions(tx TransactionRunner) *commentService {
+	s.tx = tx
+	return s
+}
+
+func NewCommentService(repo domain.CommentRepository, permissions PermissionChecker, activity ActivityRecorder) *commentService {
 	return &commentService{repo: repo, permissions: permissions, activity: activity}
 }
 
-func (s *commentService) record(ctx context.Context, action string, userID, taskID, commentID uint) {
-	recordActivity(ctx, s.activity, domain.ActivityEntry{
+func (s *commentService) record(ctx context.Context, action string, userID, taskID, commentID uint) error {
+	return recordActivity(ctx, s.activity, domain.ActivityEntry{
 		TaskID: taskID, Actor: domain.UserActor(userID), Action: action,
 		NewValue: mustJSON(map[string]uint{"comment_id": commentID}),
 	})
 }
 
 func (s *commentService) CreateComment(ctx context.Context, userID, taskID uint, body string, mentionIDs []uint) (*domain.Comment, error) {
-	comment, err := s.repo.Create(ctx, taskID, userID, body, mentionIDs)
+	var comment *domain.Comment
+	err := runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		created, err := s.repo.Create(txCtx, taskID, userID, body, mentionIDs)
+		if err != nil {
+			return err
+		}
+		comment = created
+		return s.record(txCtx, domain.ActivityCommentCreated, userID, taskID, created.ID)
+	})
 	if err != nil {
 		return nil, err
 	}
-	s.record(ctx, domain.ActivityCommentCreated, userID, taskID, comment.ID)
 	return comment, nil
 }
 
@@ -51,11 +64,18 @@ func (s *commentService) UpdateComment(ctx context.Context, userID, taskID, comm
 	if existing.Author.ID != userID {
 		return nil, domain.ErrCommentForbidden
 	}
-	updated, err := s.repo.Update(ctx, taskID, commentID, body, mentionIDs)
+	var updated *domain.Comment
+	err = runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		result, err := s.repo.Update(txCtx, taskID, commentID, body, mentionIDs)
+		if err != nil {
+			return err
+		}
+		updated = result
+		return s.record(txCtx, domain.ActivityCommentUpdated, userID, taskID, commentID)
+	})
 	if err != nil {
 		return nil, err
 	}
-	s.record(ctx, domain.ActivityCommentUpdated, userID, taskID, commentID)
 	return updated, nil
 }
 
@@ -73,9 +93,10 @@ func (s *commentService) DeleteComment(ctx context.Context, userID, taskID, comm
 			return domain.ErrCommentForbidden
 		}
 	}
-	if err := s.repo.Delete(ctx, taskID, commentID); err != nil {
-		return err
-	}
-	s.record(ctx, domain.ActivityCommentDeleted, userID, taskID, commentID)
-	return nil
+	return runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		if err := s.repo.Delete(txCtx, taskID, commentID); err != nil {
+			return err
+		}
+		return s.record(txCtx, domain.ActivityCommentDeleted, userID, taskID, commentID)
+	})
 }

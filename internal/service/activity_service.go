@@ -4,15 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"log/slog"
 	"sort"
 
 	"rabbit-hole-server/internal/domain"
-	"rabbit-hole-server/internal/txhook"
 )
 
 type ActivityRecorder interface {
-	Record(ctx context.Context, entries ...domain.ActivityEntry)
+	Record(ctx context.Context, entries ...domain.ActivityEntry) error
 }
 
 type ActivityService interface {
@@ -28,24 +26,22 @@ func NewActivityService(repo domain.ActivityRepository) ActivityService {
 	return &activityService{repo: repo}
 }
 
-func (s *activityService) Record(ctx context.Context, entries ...domain.ActivityEntry) {
+func (s *activityService) Record(ctx context.Context, entries ...domain.ActivityEntry) error {
 	if len(entries) == 0 {
-		return
+		return nil
 	}
-	if err := s.repo.Record(ctx, entries); err != nil {
-		slog.Warn("activity: cannot record entries", "task_id", entries[0].TaskID, "count", len(entries), "error", err)
-	}
+	return s.repo.Record(ctx, entries)
 }
 
 func (s *activityService) ListActivity(ctx context.Context, taskID uint, limit, offset int) ([]domain.Activity, int64, error) {
 	return s.repo.ListByTask(ctx, taskID, limit, offset)
 }
 
-func recordActivity(ctx context.Context, recorder ActivityRecorder, entries ...domain.ActivityEntry) {
-	if recorder == nil {
-		return
+func recordActivity(ctx context.Context, recorder ActivityRecorder, entries ...domain.ActivityEntry) error {
+	if recorder == nil || len(entries) == 0 {
+		return nil
 	}
-	txhook.AfterCommit(ctx, func() { recorder.Record(ctx, entries...) })
+	return recorder.Record(ctx, entries...)
 }
 
 func mustJSON(value any) json.RawMessage {
@@ -110,4 +106,11 @@ func diffTask(taskID, actorID uint, before, after map[string]json.RawMessage) []
 		entries = append(entries, entry)
 	}
 	return entries
+}
+
+func runInTransaction(ctx context.Context, tx TransactionRunner, fn func(context.Context) error) error {
+	if tx == nil {
+		return fn(ctx)
+	}
+	return tx.Run(ctx, fn)
 }
