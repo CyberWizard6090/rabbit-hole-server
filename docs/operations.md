@@ -67,7 +67,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build   
 ## Остановка
 
 На SIGTERM сервер перестаёт принимать запросы и ждёт до `SHUTDOWN_TIMEOUT` (30 с), пока завершатся запросы и
-фоновые очереди (почта, уведомления, webhook). Compose держит контейнер `stop_grace_period: 45s`; он должен быть
+текущая обработка воркеров outbox (почта, уведомления, webhook). Необработанное остаётся в базе и продолжится после запуска. Compose держит контейнер `stop_grace_period: 45s`; он должен быть
 больше `SHUTDOWN_TIMEOUT`.
 
 ## За обратным прокси
@@ -86,8 +86,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build   
 - Каждый запрос получает `request_id` (он же в ответе об ошибке): по нему находят строки журнала доступа и
   ошибки.
 - Медленные запросы дольше `DB_SLOW_QUERY_THRESHOLD` (200 мс) пишутся как предупреждения.
-- Сообщения, на которые стоит смотреть: `mail: cannot send a message`, `webhook: delivery failed`,
-  `webhook: cannot record the delivery result`, предупреждения о запуске с `MAIL_DRIVER=log`.
+- Сообщения, на которые стоит смотреть: `outbox: event failed, will retry`, `outbox: giving up on an event`, `webhook: delivery failed`, предупреждения о запуске с `MAIL_DRIVER=log`.
 
 ## Лимиты и пределы
 
@@ -97,7 +96,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build   
 | Соединения БД | `DB_MAX_OPEN_CONNS` 25, `DB_MAX_IDLE_CONNS` 10 |
 | Таймауты сессии БД | `DB_STATEMENT_TIMEOUT` 30 с, `DB_LOCK_TIMEOUT` 5 с, `DB_IDLE_IN_TX_TIMEOUT` 1 мин |
 | Хеширование паролей | `AUTH_HASH_CONCURRENCY` одновременных (по умолчанию число CPU), ожидание `AUTH_HASH_WAIT` |
-| Почта | очередь 256 писем; `NOTIFICATION_EMAIL_PER_HOUR` на пользователя |
+| Почта | очередь outbox (6 попыток); `NOTIFICATION_EMAIL_PER_HOUR` на пользователя |
 | Отправки форм | `FORM_SUBMISSIONS_PER_HOUR` на форму, дополнительно лимит по IP |
 | Realtime | ограниченное число соединений на пользователя, билет живёт 30 с |
 
@@ -117,6 +116,22 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build   
 времени: в таблице `files` хранятся ключи объектов. После восстановления запустите `migrate -action version` и
 убедитесь, что версия совпадает с версией бинарника.
 
+## Очередь outbox
+
+Письма, уведомления и webhook проходят через таблицу `outbox_events`. Полезные запросы:
+
+```sql
+SELECT event_type, count(*) FROM outbox_events WHERE published_at IS NULL AND dead_at IS NULL GROUP BY 1;
+SELECT id, event_type, attempts, last_error, dead_at FROM outbox_events WHERE dead_at IS NOT NULL ORDER BY id DESC LIMIT 20;
+```
+
+- Растущее число необработанных строк значит, что воркеры не успевают или остановлены (смотрите журнал
+  `outbox: cannot process events`).
+- Строка с `dead_at` исчерпала попытки. Исправив причину (например SMTP), верните её в очередь:
+  `UPDATE outbox_events SET dead_at = NULL, attempts = 0, next_attempt_at = now() WHERE id = ...`. У писем
+  тело удаляется только после успешной отправки, поэтому такая строка ещё пригодна.
+- Строки пока не удаляются автоматически.
+
 ## Типовые сбои
 
 | Симптом | Причина и действие |
@@ -125,7 +140,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build   
 | Сервер не стартует: схема отстаёт или dirty | `migrate -action up`; при dirty сначала разберите упавшую миграцию и `force` |
 | 503 с `Retry-After` на входе | Заняты все слоты argon2; подождите, поднимите `AUTH_HASH_CONCURRENCY` под число CPU и память |
 | 429 у всех пользователей сразу | Не задан `TRUSTED_PROXIES`, все клиенты выглядят одним адресом |
-| Письма не приходят | Проверьте `MAIL_DRIVER`, `SMTP_*`, журнал `mail: cannot send a message`, см. [`mail.md`](mail.md) |
+| Письма не приходят | Проверьте `MAIL_DRIVER`, `SMTP_*`, журнал `outbox: event failed, will retry`, см. [`mail.md`](mail.md) и раздел «Очередь outbox» |
 | Webhook перестал приходить | Канал отключён после `NOTIFICATION_WEBHOOK_MAX_FAILURES` неудач; исправьте приёмник и подтвердите канал заново |
 | WebSocket сразу закрывается | Прокси не передаёт `Upgrade`, билет просрочен (30 с) или пользователь вышел везде |
 | Картинки ведут не на тот адрес | Не задан или неверен `PUBLIC_BASE_URL` |
