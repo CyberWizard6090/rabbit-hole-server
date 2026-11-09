@@ -134,10 +134,8 @@ func TestForms_SubmissionTaskIsRecordedInActivityAfterCommit(t *testing.T) {
 func TestForms_FailedTaskCreationWritesNoActivity(t *testing.T) {
 	tc := newTestContext(t)
 	f := newFormFixture(t, tc, "formnoact")
-	rec := request(t, tc.Router, http.MethodDelete,
-		"/api/v1/lists/"+itoa(f.listID)+"/statuses/"+itoa(f.statusID), f.owner.token, nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("delete status: %d %s", rec.Code, rec.Body.String())
+	if err := tc.DB.Exec("UPDATE task_statuses SET deleted_at = now() WHERE id = ?", f.statusID).Error; err != nil {
+		t.Fatalf("remove the target status: %v", err)
 	}
 	code, _, body := f.submit(t, tc, "noact-1", "Will fail")
 	if code != http.StatusCreated || body["task_creation_status"] != "failed" {

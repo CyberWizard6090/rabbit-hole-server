@@ -463,7 +463,7 @@ func (m *taskRepositoryMock) List(_ context.Context, _ uint, query domain.TaskQu
 func (m *taskRepositoryMock) GetByID(_ context.Context, id uint) (*domain.Task, error) {
 	return m.task, m.getErr
 }
-func (m *taskRepositoryMock) Update(_ context.Context, id uint, apply func(*domain.Task) error, addTagIDs []uint, replaceAssigneeIDs *[]uint) (*domain.Task, *domain.Task, error) {
+func (m *taskRepositoryMock) Update(_ context.Context, id uint, apply func(*domain.Task) error, addTagIDs, removeTagIDs []uint, replaceAssigneeIDs *[]uint) (*domain.Task, *domain.Task, error) {
 	m.replacedAssignees = replaceAssigneeIDs
 	m.updatedTask = m.task
 	m.addedTaskID = id

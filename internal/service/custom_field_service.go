@@ -125,7 +125,7 @@ func (s *customFieldService) SetTaskValue(
 	}
 	if isEmptyCustomFieldValue(value) {
 		if field.Required {
-			return fmt.Errorf("%w: %q is required", domain.ErrInvalidCustomField, field.Name)
+			return &domain.CustomFieldRequiredError{FieldIDs: []uint{field.ID}}
 		}
 		err := s.values.DeleteTaskValue(ctx, taskID, fieldID)
 		if errors.Is(err, domain.ErrNotFound) {
@@ -180,8 +180,12 @@ func (s *customFieldService) DeleteTaskValue(
 	if err != nil {
 		return err
 	}
-	if _, err := s.Get(ctx, workspaceID, fieldID); err != nil {
+	field, err := s.Get(ctx, workspaceID, fieldID)
+	if err != nil {
 		return err
+	}
+	if field.Required {
+		return &domain.CustomFieldRequiredError{FieldIDs: []uint{field.ID}}
 	}
 	return s.values.DeleteTaskValue(ctx, taskID, fieldID)
 }
