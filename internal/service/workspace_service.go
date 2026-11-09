@@ -15,6 +15,7 @@ const adminRoleName = "Admin"
 var (
 	ErrWorkspaceNameRequired = errors.New("workspace name is required")
 	ErrWorkspaceNotFound     = errors.New("workspace not found")
+	ErrInvalidAuditAction    = errors.New("unknown audit action")
 
 	ErrInvalidMemberRole    = errors.New("role cannot be assigned")
 	ErrMemberNotContact     = errors.New("user must be one of your contacts")
@@ -40,8 +41,9 @@ type WorkspaceService interface {
 	ChangeMemberRole(ctx context.Context, workspaceID, actorID, targetID uint, roleName string) error
 	RemoveMember(ctx context.Context, workspaceID, actorID, targetID uint) error
 	Leave(ctx context.Context, workspaceID, userID uint) error
-	UpdateWorkspace(ctx context.Context, id uint, name, description *string) (*domain.Workspace, error)
+	UpdateWorkspace(ctx context.Context, id, actorID uint, name, description *string) (*domain.Workspace, error)
 	DeleteWorkspace(ctx context.Context, id uint) error
+	ListAuditLog(ctx context.Context, workspaceID uint, action string, limit, offset int) ([]domain.WorkspaceAuditEntry, int64, error)
 }
 
 type WorkspaceAvatarRemover interface {
@@ -53,13 +55,15 @@ type workspaceService struct {
 	revoker     ConnectionRevoker
 	avatars     WorkspaceAvatarRemover
 	permissions PermissionChecker
+	audit       domain.WorkspaceAuditRepository
+	tx          TransactionRunner
 }
 
 func NewWorkspaceServiceWithRevoker(repo domain.WorkspaceRepository, revoker ConnectionRevoker, permissions PermissionChecker) WorkspaceService {
 	return &workspaceService{repo: repo, revoker: revoker, permissions: permissions}
 }
 
-func NewWorkspaceServiceWithAvatars(repo domain.WorkspaceRepository, revoker ConnectionRevoker, permissions PermissionChecker, avatars WorkspaceAvatarRemover) WorkspaceService {
+func NewWorkspaceServiceWithAvatars(repo domain.WorkspaceRepository, revoker ConnectionRevoker, permissions PermissionChecker, avatars WorkspaceAvatarRemover) *workspaceService {
 	return &workspaceService{repo: repo, revoker: revoker, avatars: avatars, permissions: permissions}
 }
 
@@ -133,6 +137,31 @@ func (s *workspaceService) ListMembers(ctx context.Context, workspaceID uint) ([
 	return s.repo.ListMembers(ctx, workspaceID)
 }
 
+func (s *workspaceService) WithAudit(audit domain.WorkspaceAuditRepository, tx TransactionRunner) *workspaceService {
+	s.audit = audit
+	s.tx = tx
+	return s
+}
+
+func (s *workspaceService) record(ctx context.Context, draft domain.WorkspaceAuditDraft) error {
+	if s.audit == nil {
+		return nil
+	}
+	return s.audit.Record(ctx, draft)
+}
+
+func (s *workspaceService) ListAuditLog(
+	ctx context.Context, workspaceID uint, action string, limit, offset int,
+) ([]domain.WorkspaceAuditEntry, int64, error) {
+	if s.audit == nil {
+		return []domain.WorkspaceAuditEntry{}, 0, nil
+	}
+	if action != "" && !domain.ValidAuditAction(action) {
+		return nil, 0, ErrInvalidAuditAction
+	}
+	return s.audit.List(ctx, workspaceID, action, limit, offset)
+}
+
 func (s *workspaceService) assignableRole(ctx context.Context, workspaceID uint, roleName string) (*domain.Role, error) {
 	if !slices.Contains(domain.AssignableRoles(), roleName) {
 		return nil, ErrInvalidMemberRole
@@ -170,7 +199,15 @@ func (s *workspaceService) AddMember(ctx context.Context, workspaceID, actorID, 
 		return ErrMemberNotContact
 	}
 
-	return s.repo.AddMember(ctx, &domain.Member{WorkspaceID: workspaceID, UserID: targetID, RoleID: role.ID})
+	return runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		if err := s.repo.AddMember(txCtx, &domain.Member{WorkspaceID: workspaceID, UserID: targetID, RoleID: role.ID}); err != nil {
+			return err
+		}
+		return s.record(txCtx, domain.WorkspaceAuditDraft{
+			WorkspaceID: workspaceID, ActorID: actorID, TargetUserID: targetID, Action: domain.AuditMemberAdded,
+			Changes: mustJSON(map[string]any{"role": roleName}),
+		})
+	})
 }
 
 func (s *workspaceService) ensureNotOwner(ctx context.Context, workspaceID, targetID uint) error {
@@ -215,13 +252,19 @@ func (s *workspaceService) ChangeMemberRole(ctx context.Context, workspaceID, ac
 			return err
 		}
 	}
-	if err := s.repo.UpdateMemberRole(ctx, workspaceID, targetID, role.ID); err != nil {
-		if errors.Is(err, domain.ErrMemberNotFound) {
-			return ErrMemberTargetNotFound
+	err = runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		if err := s.repo.UpdateMemberRole(txCtx, workspaceID, targetID, role.ID); err != nil {
+			return err
 		}
-		return err
+		return s.record(txCtx, domain.WorkspaceAuditDraft{
+			WorkspaceID: workspaceID, ActorID: actorID, TargetUserID: targetID, Action: domain.AuditMemberRoleChanged,
+			Changes: mustJSON(map[string]any{"from": current, "to": roleName}),
+		})
+	})
+	if errors.Is(err, domain.ErrMemberNotFound) {
+		return ErrMemberTargetNotFound
 	}
-	return nil
+	return err
 }
 
 func (s *workspaceService) RemoveMember(ctx context.Context, workspaceID, actorID, targetID uint) error {
@@ -237,18 +280,31 @@ func (s *workspaceService) RemoveMember(ctx context.Context, workspaceID, actorI
 			return err
 		}
 	}
-	return s.remove(ctx, workspaceID, targetID)
+	return s.remove(ctx, workspaceID, actorID, targetID, domain.AuditMemberRemoved, current)
 }
 
 func (s *workspaceService) Leave(ctx context.Context, workspaceID, userID uint) error {
 	if err := s.ensureNotOwner(ctx, workspaceID, userID); err != nil {
 		return err
 	}
-	return s.remove(ctx, workspaceID, userID)
+	current, err := s.currentRole(ctx, workspaceID, userID)
+	if err != nil {
+		return err
+	}
+	return s.remove(ctx, workspaceID, userID, userID, domain.AuditMemberLeft, current)
 }
 
-func (s *workspaceService) remove(ctx context.Context, workspaceID, targetID uint) error {
-	if err := s.repo.RemoveMember(ctx, workspaceID, targetID); err != nil {
+func (s *workspaceService) remove(ctx context.Context, workspaceID, actorID, targetID uint, action, role string) error {
+	err := runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		if err := s.repo.RemoveMember(txCtx, workspaceID, targetID); err != nil {
+			return err
+		}
+		return s.record(txCtx, domain.WorkspaceAuditDraft{
+			WorkspaceID: workspaceID, ActorID: actorID, TargetUserID: targetID, Action: action,
+			Changes: mustJSON(map[string]any{"role": role}),
+		})
+	})
+	if err != nil {
 		if errors.Is(err, domain.ErrMemberNotFound) {
 			return ErrMemberTargetNotFound
 		}
@@ -258,24 +314,43 @@ func (s *workspaceService) remove(ctx context.Context, workspaceID, targetID uin
 	return nil
 }
 
-func (s *workspaceService) UpdateWorkspace(ctx context.Context, id uint, name, description *string) (*domain.Workspace, error) {
+func (s *workspaceService) UpdateWorkspace(ctx context.Context, id, actorID uint, name, description *string) (*domain.Workspace, error) {
 	workspace, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
+	changes := map[string]any{}
 	if name != nil {
 		trimmed := strings.TrimSpace(*name)
 		if trimmed == "" {
 			return nil, ErrWorkspaceNameRequired
 		}
+		if trimmed != workspace.Name {
+			changes["name"] = map[string]any{"from": workspace.Name, "to": trimmed}
+		}
 		workspace.Name = trimmed
 	}
 	if description != nil {
-		workspace.Description = strings.TrimSpace(*description)
+		trimmed := strings.TrimSpace(*description)
+		if trimmed != workspace.Description {
+			changes["description"] = map[string]any{"from": workspace.Description, "to": trimmed}
+		}
+		workspace.Description = trimmed
 	}
 
-	if err := s.repo.Update(ctx, workspace); err != nil {
+	err = runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		if err := s.repo.Update(txCtx, workspace); err != nil {
+			return err
+		}
+		if len(changes) == 0 {
+			return nil
+		}
+		return s.record(txCtx, domain.WorkspaceAuditDraft{
+			WorkspaceID: id, ActorID: actorID, Action: domain.AuditWorkspaceUpdated, Changes: mustJSON(changes),
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 	return workspace, nil

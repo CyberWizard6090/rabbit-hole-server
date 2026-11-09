@@ -936,3 +936,21 @@ CREATE TABLE login_lockouts (
     locked_until TIMESTAMPTZ
 );
 CREATE INDEX idx_login_lockouts_last_fail ON login_lockouts(last_fail_at);
+
+CREATE TABLE workspace_audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    workspace_id BIGINT NOT NULL,
+    actor_id BIGINT,
+    target_user_id BIGINT,
+    action TEXT NOT NULL,
+    changes JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT fk_workspace_audit_workspace FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE,
+    CONSTRAINT fk_workspace_audit_actor FOREIGN KEY (actor_id) REFERENCES users (id) ON DELETE SET NULL,
+    CONSTRAINT fk_workspace_audit_target FOREIGN KEY (target_user_id) REFERENCES users (id) ON DELETE SET NULL,
+    CONSTRAINT chk_workspace_audit_action CHECK (action IN (
+        'workspace.updated', 'workspace.avatar_changed', 'workspace.avatar_removed',
+        'member.added', 'member.role_changed', 'member.removed', 'member.left'))
+);
+CREATE INDEX idx_workspace_audit_log_workspace ON workspace_audit_log (workspace_id, id DESC);
+
