@@ -23,6 +23,9 @@ const (
 	ActivityAttachmentCreated = "attachment.created"
 	ActivityAttachmentDeleted = "attachment.deleted"
 
+	ActivityRelationAdded   = "relation.added"
+	ActivityRelationRemoved = "relation.removed"
+
 	ActivityFormSubmissionCreated = "form.submission_created"
 )
 

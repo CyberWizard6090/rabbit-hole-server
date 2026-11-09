@@ -1,3 +1,4 @@
+DROP TABLE task_relations;
 DROP TABLE task_time_entries;
 DROP TABLE saved_views;
 DROP TABLE workspace_audit_log;

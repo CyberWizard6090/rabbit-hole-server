@@ -997,3 +997,21 @@ CREATE INDEX idx_time_entries_task ON task_time_entries (task_id, id DESC);
 CREATE INDEX idx_time_entries_user_started ON task_time_entries (user_id, started_at);
 CREATE UNIQUE INDEX uq_time_entries_one_running_timer ON task_time_entries (user_id) WHERE ended_at IS NULL;
 
+CREATE TABLE task_relations (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    from_task_id BIGINT NOT NULL,
+    to_task_id BIGINT NOT NULL,
+    kind TEXT NOT NULL,
+    created_by BIGINT,
+    CONSTRAINT chk_task_relations_kind CHECK (kind IN ('blocks', 'related')),
+    CONSTRAINT chk_task_relations_distinct CHECK (from_task_id <> to_task_id),
+    CONSTRAINT chk_task_relations_related_order CHECK (kind <> 'related' OR from_task_id < to_task_id),
+    CONSTRAINT uq_task_relations UNIQUE (from_task_id, to_task_id, kind),
+    CONSTRAINT fk_task_relations_from FOREIGN KEY (from_task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+    CONSTRAINT fk_task_relations_to FOREIGN KEY (to_task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+    CONSTRAINT fk_task_relations_creator FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
+);
+CREATE INDEX idx_task_relations_to ON task_relations (to_task_id);
+CREATE INDEX idx_task_relations_creator ON task_relations (created_by) WHERE created_by IS NOT NULL;
+

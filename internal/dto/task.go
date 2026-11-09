@@ -92,3 +92,8 @@ type UpdateTimeEntryRequest struct {
 	Seconds *int    `json:"seconds" binding:"omitempty,gte=1,lte=86400"`
 	Note    *string `json:"note" binding:"omitempty,max=2000"`
 }
+
+type AddRelationRequest struct {
+	TaskID uint   `json:"task_id" binding:"required,gt=0"`
+	Kind   string `json:"kind" binding:"required,oneof=blocks blocked_by related"`
+}
