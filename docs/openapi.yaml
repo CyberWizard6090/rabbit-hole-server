@@ -551,6 +551,79 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/views:
+    get:
+      tags: [workspaces]
+      summary: "Saved filters and sort orders (views) the caller can use"
+      description: |
+        The caller's own views plus the views shared with the workspace, shared first and then by name. `list_id` limits the
+        answer to the views of that list and the views that are not tied to a list. A view of a deleted list is not listed.
+        Each view has `name`, `list_id`, `shared`, `filters` (an object of the list query parameters, for example
+        `{"priority": "4,5", "has_due": "true"}`), `sort`, `is_owner` and the public `owner`; never an e-mail address.
+        Apply a view by sending its `filters` and `sort` to `GET /lists/{id}/tasks`.
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: list_id, in: query, required: false, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [workspaces]
+      summary: "Save a view"
+      description: |
+        `name` (up to 100 characters), optional `list_id`, `shared`, `filters` and `sort`. The filters are checked like the
+        list query: only `q`, `status_id`, `priority`, `tag_id`, `no_tags`, `assignee_id`, `unassigned`, `created_*`, `due_*`,
+        `start_*`, `has_due`, `parent_id`, `has_parent` and `has_open_checklist_items` are allowed (400 `INVALID_FILTER` with a
+        detail on `filters.<name>` otherwise), values must be valid and `sort` must be a valid sort. A personal view needs
+        `task.read`; sharing needs `space.update` (403 `VIEW_FORBIDDEN`). At most 200 views per user and workspace (409
+        `VIEW_LIMIT_REACHED`).
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/views/{view_id}:
+    patch:
+      tags: [workspaces]
+      summary: "Change a view"
+      description: "The owner changes a personal view; a shared view is changed by its owner or by anyone with `space.update`. Making a view shared needs `space.update`. Someone else's personal view answers 404 `VIEW_NOT_FOUND`."
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: view_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [workspaces]
+      summary: "Delete a view (same rules as changing it)"
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+        - {name: view_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
   /workspaces/{workspace_id}/audit-log:
     get:
       tags: [workspaces]
