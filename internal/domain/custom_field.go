@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 )
 
@@ -68,6 +69,18 @@ type CustomField struct {
 	Required    bool                `json:"required"`
 	Config      map[string]any      `json:"config"`
 	Options     []CustomFieldOption `json:"options"`
+}
+
+// MarshalJSON never sends null for options or config.
+func (f CustomField) MarshalJSON() ([]byte, error) {
+	type plain CustomField
+	if f.Options == nil {
+		f.Options = []CustomFieldOption{}
+	}
+	if f.Config == nil {
+		f.Config = map[string]any{}
+	}
+	return json.Marshal(plain(f))
 }
 
 type CustomFieldRepository interface {

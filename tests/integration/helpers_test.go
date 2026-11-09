@@ -159,7 +159,7 @@ func newTestContextWith(t *testing.T, adjust func(cfg *config.Config), opts ...a
 	rawRouter := app.SetupRouter(container, &cfg)
 	return &TestContext{
 		DB:            integrationDB,
-		Router:        drainingHandler{inner: rawRouter, workers: container.Workers},
+		Router:        contractHandler{inner: drainingHandler{inner: rawRouter, workers: container.Workers}, t: t},
 		Raw:           rawRouter,
 		Workers:       container.Workers,
 		Config:        cfg,

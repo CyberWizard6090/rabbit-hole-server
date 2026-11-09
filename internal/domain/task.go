@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -53,6 +54,19 @@ type Task struct {
 
 	SortStatusPosition int     `json:"-"`
 	SortAssignee       *string `json:"-"`
+}
+
+// MarshalJSON never sends null for assignees or tags: clients can iterate them without a check,
+// whichever endpoint built the task.
+func (t Task) MarshalJSON() ([]byte, error) {
+	type plain Task
+	if t.Assignees == nil {
+		t.Assignees = []CommentUser{}
+	}
+	if t.Tags == nil {
+		t.Tags = []Tag{}
+	}
+	return json.Marshal(plain(t))
 }
 
 func (t Task) RevealRequester() Task {
