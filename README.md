@@ -30,6 +30,15 @@ See `.env.example`. Important variables: `APP_ENV`, `DB_URL`, `JWT_SECRET`, `JWT
 configuration at startup and refuses to start with one error that lists every problem (variable, what is
 wrong, how to fix it); secret values are never printed. `go run ./cmd/migrate` checks the database settings the same way.
 
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md): layers, request flow, transactions, soft delete, schema map
+- [`docs/permissions.md`](docs/permissions.md): roles, permission codes, tokens and sign-in protection
+- [`docs/forms.md`](docs/forms.md): forms, public submissions, task creation, templates, custom fields
+- [`docs/notifications.md`](docs/notifications.md): events, channels, webhook signing, preferences
+- [`docs/operations.md`](docs/operations.md): runbook, migrations, limits, failures, release checklist
+- [`docs/mail.md`](docs/mail.md), [`docs/realtime.md`](docs/realtime.md), [`docs/error-codes.md`](docs/error-codes.md), [`docs/openapi.yaml`](docs/openapi.yaml)
+
 ## API
 
 The contract lives in [`docs/openapi.yaml`](docs/openapi.yaml). Summary of behaviour the frontend

@@ -1,0 +1,110 @@
+# Архитектура
+
+Бэкенд на Go (Gin, GORM, PostgreSQL). Один бинарник `cmd/server` и утилита миграций `cmd/migrate`.
+Контракт API описан в [`openapi.yaml`](openapi.yaml), коды ошибок в [`error-codes.md`](error-codes.md).
+
+## Слои
+
+```
+handler  ->  service  ->  repository  ->  PostgreSQL
+ (gin)      (правила)     (gorm / SQL)
+```
+
+| Пакет | Назначение |
+|---|---|
+| `internal/domain` | Модели, интерфейсы репозиториев и сервисов, коды прав, ошибки домена |
+| `internal/dto` | Тела запросов и ответов; правила валидации (`binding`) |
+| `internal/handler` | Разбор HTTP, вызов сервиса, ответ в едином конверте |
+| `internal/service` | Бизнес-правила, транзакции, права, события |
+| `internal/repository` | Доступ к БД; весь доступ только через `database.DBFromContext` |
+| `internal/app` | `container.go` собирает зависимости, `router.go` регистрирует маршруты |
+| `internal/middleware` | Аутентификация, права, лимиты, JSON-валидация, request id |
+| `internal/http` | `response` (конверт), `errors`, `pagination`, `jsonscan`, `taskquery` |
+| `internal/config` | Чтение окружения; `check.go` проверяет всю конфигурацию при старте |
+| `internal/realtime` | WebSocket-хаб, одноразовые билеты |
+| `internal/mail`, `internal/storage`, `internal/safehttp` | Почта, файлы (local или S3), безопасный исходящий HTTP |
+| `internal/txhook`, `internal/ratelimit`, `internal/logging` | Хуки после коммита, лимиты, журнал |
+| `internal/architecture` | Тесты, которые охраняют правила ниже |
+
+Зависимость идёт только вниз. Хендлер не обращается к репозиторию, репозиторий не знает о HTTP.
+
+## Правила, которые проверяют тесты
+
+Пакет `internal/architecture` падает, если:
+
+- репозиторий использует прямой `.db.` вместо `database.DBFromContext` (иначе запрос выйдет из транзакции);
+- в типах ответов появляется JSON-поле с e-mail (приватность контактов);
+- `docs/error-codes.md` расходится с кодами в коде. Обновить: `UPDATE_ERROR_CODES=1 go test ./internal/architecture`.
+
+## Запрос от начала до конца
+
+1. `request_id`, журнал доступа, восстановление после паники, заголовки безопасности.
+2. Лимит тела (`BodyLimitByRoute`): 1 МиБ, публичные формы 128 КиБ.
+3. `middleware.JSONBody`: `application/json` (иначе 415), без NUL, корректный UTF-8, целые в пределах int64.
+4. `middleware.PathIDs`: идентификаторы в пути.
+5. Аутентификация (bearer) и проверка прав в рабочем пространстве (`inWorkspace(domain.Perm...)`).
+6. Хендлер, сервис, репозиторий.
+7. Ответ в конверте `{data, error, pagination}`.
+
+Неизвестный маршрут отвечает 404 `ROUTE_NOT_FOUND`, неверный метод 405, оба в стандартном конверте.
+
+## Конверт ошибки
+
+```json
+{"error": {"code": "VALIDATION_FAILED", "params": {}, "details": [{"field": "name", "code": "TOO_LONG", "params": {"max": 255}}], "request_id": "..."}}
+```
+
+Текста нет: клиент переводит `code`. `details` перечисляет проблемные поля. Отсутствующий, удалённый и чужой
+идентификатор дают одинаковый `403 FORBIDDEN` (защита от перебора); 404 только для вложенного объекта внутри
+доступного контейнера.
+
+## Транзакции и события
+
+- `database.WithTransaction` открывает транзакцию, вложенные вызовы подхватывают её из контекста.
+- `txhook.AfterCommit(ctx, fn)` откладывает действие до коммита самой внешней транзакции. Через него идут запись
+  активности, уведомления и realtime-события: откат не оставляет «призрачных» событий.
+- `ActivityRecorder` пишет запись активности (кто, что, старое и новое значение), а `NotifyingRecorder` после
+  записи передаёт её диспетчеру уведомлений ([`notifications.md`](notifications.md)).
+- Ошибка записи активности логируется и не ломает запрос.
+
+## Мягкое удаление
+
+Удаление рабочего пространства, пространства, папки, списка или задачи помечает всё ниже одной и той же
+отметкой `deleted_at` в одной транзакции (задача уносит подзадачи). Чтение дополнительно проверяет всю цепочку
+предков через общие предикаты `internal/repository/liveness.go`, поэтому комментарии, вложения, чек-листы,
+активность, уведомления, билеты realtime, публичные формы и публичные картинки удалённого родителя недоступны.
+
+## Целостность данных
+
+- Составные внешние ключи: статус задачи принадлежит списку, список принадлежит пространству.
+- `PATCH /tasks/{id}` блокирует список, затем строку задачи и пишет только изменённые колонки, поэтому не
+  откатывает параллельное перемещение, смену статуса или удаление.
+- Позиция задачи (`position`) целая в пределах списка, `POST /tasks/{id}/move` меняет порядок, статус или список.
+- Миграции встроены в бинарник (`db/migrations`). Сервер при старте проверяет версию схемы и завершается с
+  понятным сообщением, если база отстаёт или в состоянии dirty.
+
+## Основные таблицы
+
+| Область | Таблицы |
+|---|---|
+| Учётные записи | `users`, `user_sessions` (семейства refresh-токенов), `email_tokens`, `user_contacts` |
+| Рабочие пространства | `workspaces`, `workspace_members`, `roles`, `permissions`, `role_permissions` |
+| Структура | `spaces`, `folders`, `lists`, `task_statuses` |
+| Задачи | `tasks`, `tags`, `task_tags`, `task_assignees`, `task_comments`, `task_checklists`, `task_activities`, `files` |
+| Поля и шаблоны | `custom_fields`, `custom_field_options`, `task_custom_field_values`, `task_templates`, `task_template_versions` |
+| Формы | `forms`, `form_slug_aliases`, `form_versions`, `form_questions`, `form_question_options`, `form_submissions`, `submission_answers`, `form_task_configs`, `form_submission_tasks`, `form_uploads`, `form_idempotency_keys` |
+| Уведомления | `notifications`, `notification_preferences`, `notification_settings`, `notification_channels`, `channel_confirmations`, `task_watchers` |
+| Прочее | `outbox_events` (заготовка), поисковые индексы `pg_trgm` |
+
+## Фоновая работа в процессе
+
+Очереди живут в памяти процесса: диспетчер уведомлений (1024 пакета), асинхронная отправка почты, доставка
+webhook, чистка просроченных загрузок форм. На SIGTERM сервер ждёт их до `SHUTDOWN_TIMEOUT`. После аварийного
+падения содержимое очередей теряется (доставка best effort). Таблица `outbox_events` пока не используется.
+
+## Ограничения, о которых нужно знать
+
+- Лимиты запросов, блокировка входа и семафор argon2 хранятся в памяти процесса: при N репликах бюджет умножается на N.
+- Нет квот на размер рабочего пространства (число задач, участников, файлов).
+- Фоновая очистка старых данных (активность, прочитанные уведомления) не настроена, кроме лимита
+  `NOTIFICATION_MAX_PER_USER`.
