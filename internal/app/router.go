@@ -241,6 +241,18 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					workspaces.PATCH("/:workspace_id",
 						inWorkspace(domain.PermWorkspaceUpdate),
 						deps.WorkspaceHandler.Update)
+					workspaces.GET("/:workspace_id/views",
+						inWorkspace(domain.PermTaskRead),
+						deps.SavedViewHandler.List)
+					workspaces.POST("/:workspace_id/views",
+						inWorkspace(domain.PermTaskRead),
+						deps.SavedViewHandler.Create)
+					workspaces.PATCH("/:workspace_id/views/:view_id",
+						inWorkspace(domain.PermTaskRead),
+						deps.SavedViewHandler.Update)
+					workspaces.DELETE("/:workspace_id/views/:view_id",
+						inWorkspace(domain.PermTaskRead),
+						deps.SavedViewHandler.Delete)
 					workspaces.GET("/:workspace_id/audit-log",
 						inWorkspace(domain.PermMemberManage),
 						deps.WorkspaceHandler.AuditLog)

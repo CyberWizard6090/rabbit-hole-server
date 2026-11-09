@@ -957,3 +957,23 @@ CREATE TABLE workspace_audit_log (
 );
 CREATE INDEX idx_workspace_audit_log_workspace ON workspace_audit_log (workspace_id, id DESC);
 
+CREATE TABLE saved_views (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    workspace_id BIGINT NOT NULL,
+    list_id BIGINT,
+    owner_id BIGINT NOT NULL,
+    name TEXT NOT NULL,
+    shared BOOLEAN NOT NULL DEFAULT false,
+    filters JSONB NOT NULL DEFAULT '{}'::jsonb,
+    sort TEXT NOT NULL DEFAULT '',
+    CONSTRAINT chk_saved_views_name CHECK (btrim(name) <> ''),
+    CONSTRAINT fk_saved_views_workspace FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE,
+    CONSTRAINT fk_saved_views_list FOREIGN KEY (list_id) REFERENCES lists (id) ON DELETE CASCADE,
+    CONSTRAINT fk_saved_views_owner FOREIGN KEY (owner_id) REFERENCES users (id) ON DELETE CASCADE
+);
+CREATE INDEX idx_saved_views_workspace_list ON saved_views (workspace_id, list_id);
+CREATE INDEX idx_saved_views_owner ON saved_views (owner_id, workspace_id);
+CREATE INDEX idx_saved_views_list ON saved_views (list_id) WHERE list_id IS NOT NULL;
+
