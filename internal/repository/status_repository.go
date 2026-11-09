@@ -2,7 +2,9 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"strconv"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -162,25 +164,39 @@ func (r *statusRepository) Delete(ctx context.Context, listID uint, statusID uin
 			return err
 		}
 
-		var inUse int64
-		if err := tx.Model(&persistence.Task{}).Where("status_id = ?", statusID).Count(&inUse).Error; err != nil {
+		formIDs, err := publishedFormsUsingStatus(tx, statusID)
+		if err != nil {
 			return err
 		}
-		if inUse > 0 {
-			if replacementID == nil {
-				return domain.ErrStatusInUse
-			}
+		if len(formIDs) > 0 {
+			return &domain.StatusUsedByFormError{FormIDs: formIDs}
+		}
+
+		var replacement *persistence.TaskStatus
+		if replacementID != nil {
 			if *replacementID == statusID {
 				return domain.ErrInvalidReplacementStatus
 			}
-			var replacement persistence.TaskStatus
-			if err := tx.Where(statusListPredicate, listID).First(&replacement, *replacementID).Error; err != nil {
+			var found persistence.TaskStatus
+			if err := tx.Where(statusListPredicate, listID).First(&found, *replacementID).Error; err != nil {
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					return domain.ErrInvalidReplacementStatus
 				}
 				return err
 			}
-			if err := tx.Model(&persistence.Task{}).Where("status_id = ?", statusID).
+			replacement = &found
+		}
+
+		var inUse int64
+		if err := tx.Model(&persistence.Task{}).Where("status_id = ?", statusID).Count(&inUse).Error; err != nil {
+			return err
+		}
+		if inUse > 0 && replacement == nil {
+			return domain.ErrStatusInUse
+		}
+		if replacement != nil {
+			if err := tx.Unscoped().Model(&persistence.Task{}).
+				Where("list_id = ? AND status_id = ?", listID, statusID).
 				Update("status_id", replacement.ID).Error; err != nil {
 				return err
 			}
@@ -194,4 +210,31 @@ func (r *statusRepository) Delete(ctx context.Context, listID uint, statusID uin
 			Where(statusListPredicate+" AND position > ?", listID, status.Position).
 			Update("position", gorm.Expr("position - 1")).Error
 	}))
+}
+
+const publishedFormsUsingStatusSQL = `
+SELECT DISTINCT f.id
+FROM forms f
+JOIN form_task_configs c ON c.form_id = f.id AND c.form_version_id = f.current_version_id
+WHERE f.status = 'published' AND c.enabled
+  AND (
+    c.configuration->'task_defaults'->>'status_id' = @status
+    OR EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements(COALESCE(c.configuration->'mappings', '[]'::jsonb)) m,
+           jsonb_each_text(COALESCE(m->'transform'->'values', '{}'::jsonb)) kv
+      WHERE m->'target'->>'field' = 'status_id' AND kv.value = @status
+    )
+    OR EXISTS (
+      SELECT 1 FROM task_template_versions v
+      WHERE v.id = c.template_version_id AND v.configuration->'task'->>'status_id' = @status
+    )
+  )
+ORDER BY f.id`
+
+func publishedFormsUsingStatus(tx *gorm.DB, statusID uint) ([]uint, error) {
+	var ids []uint
+	err := tx.Raw(publishedFormsUsingStatusSQL, sql.Named("status", strconv.FormatUint(uint64(statusID), 10))).
+		Scan(&ids).Error
+	return ids, err
 }

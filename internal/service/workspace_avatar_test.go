@@ -221,7 +221,7 @@ func TestDeleteWorkspaceRemovesTheAvatarBestEffort(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			repo := &deleteRepoFake{}
-			svc := NewWorkspaceServiceWithAvatars(repo, nil, remover)
+			svc := NewWorkspaceServiceWithAvatars(repo, nil, nil, remover)
 			if err := svc.DeleteWorkspace(context.Background(), 9); err != nil {
 				t.Fatal(err)
 			}
@@ -233,14 +233,14 @@ func TestDeleteWorkspaceRemovesTheAvatarBestEffort(t *testing.T) {
 
 	failing := &deleteRepoFake{err: errors.New("db")}
 	remover := &avatarRemoverFake{}
-	if err := NewWorkspaceServiceWithAvatars(failing, nil, remover).DeleteWorkspace(context.Background(), 9); err == nil {
+	if err := NewWorkspaceServiceWithAvatars(failing, nil, nil, remover).DeleteWorkspace(context.Background(), 9); err == nil {
 		t.Fatal("expected the delete error")
 	}
 	if len(remover.ids) != 0 {
 		t.Fatal("the avatar was removed although the workspace was not deleted")
 	}
 	passing := &deleteRepoFake{}
-	if err := NewWorkspaceServiceWithAvatars(passing, nil, nil).DeleteWorkspace(context.Background(), 9); err != nil {
+	if err := NewWorkspaceServiceWithAvatars(passing, nil, nil, nil).DeleteWorkspace(context.Background(), 9); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -99,7 +99,7 @@ func TestSpaceServiceSimpleOperations(t *testing.T) {
 		t.Fatalf("GetListsByFolder: %+v %v", got, err)
 	}
 	name := "new"
-	got, err = svc.UpdateList(context.Background(), 4, &name)
+	got, err = svc.UpdateList(context.Background(), 4, &name, domain.Nullable[uint]{})
 	if err != nil || got.Name != "saved" {
 		t.Fatalf("UpdateList: %+v %v", got, err)
 	}

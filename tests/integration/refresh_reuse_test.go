@@ -50,29 +50,60 @@ func registerForReuse(t *testing.T, tc *TestContext, email string) {
 	}
 }
 
-func TestRefreshReuse_ReplayedTokenRevokesAllSessions(t *testing.T) {
+func backdateRotations(t *testing.T, tc *TestContext, age string) {
+	t.Helper()
+	if err := tc.DB.Exec("UPDATE user_sessions SET rotated_at = now() - ?::interval WHERE rotated_at IS NOT NULL", age).Error; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func requireRefresh(t *testing.T, tc *TestContext, name string, ck *http.Cookie, want int) *http.Cookie {
+	t.Helper()
+	code, next := doRefresh(tc, ck)
+	if code != want {
+		t.Fatalf("%s: expected %d, got %d", name, want, code)
+	}
+	return next
+}
+
+func TestRefreshReuse_ReplayAfterGraceRevokesTheWholeFamilyButNotOtherLogins(t *testing.T) {
 	tc := newTestContext(t)
 	registerForReuse(t, tc, "reuse@example.test")
 	laptop := loginWithCookie(t, tc, "reuse@example.test", "password-123")
 	phone := loginWithCookie(t, tc, "reuse@example.test", "password-123")
 
-	code, rotated := doRefresh(tc, laptop.refresh)
-	if code != http.StatusOK || rotated == nil {
-		t.Fatalf("legitimate refresh: %d", code)
-	}
+	first := requireRefresh(t, tc, "first rotation", laptop.refresh, http.StatusOK)
+	second := requireRefresh(t, tc, "second rotation", first, http.StatusOK)
+	newest := requireRefresh(t, tc, "third rotation", second, http.StatusOK)
+	backdateRotations(t, tc, "5 minutes")
 
-	if err := tc.DB.Exec("UPDATE user_sessions SET created_at = now() - interval '5 minutes'").Error; err != nil {
+	requireRefresh(t, tc, "replayed token", laptop.refresh, http.StatusUnauthorized)
+	for name, ck := range map[string]*http.Cookie{"newest descendant": newest, "middle descendant": second} {
+		requireRefresh(t, tc, name+" after reuse detection", ck, http.StatusUnauthorized)
+	}
+	requireRefresh(t, tc, "another login of the same user", phone.refresh, http.StatusOK)
+
+	var left int64
+	if err := tc.DB.Table("user_sessions").Count(&left).Error; err != nil {
 		t.Fatal(err)
 	}
+	if left == 0 {
+		t.Fatal("the other login must keep its session")
+	}
+}
 
-	if code, _ := doRefresh(tc, laptop.refresh); code != http.StatusUnauthorized {
-		t.Fatalf("replayed token: expected 401, got %d", code)
-	}
-	for name, ck := range map[string]*http.Cookie{"phone": phone.refresh, "rotated laptop token": rotated} {
-		if code, _ := doRefresh(tc, ck); code != http.StatusUnauthorized {
-			t.Errorf("%s after reuse detection: expected 401 (all sessions revoked), got %d", name, code)
-		}
-	}
+func TestRefreshReuse_ReplayIsDetectedEvenWhenAnotherDeviceJustLoggedIn(t *testing.T) {
+	tc := newTestContext(t)
+	registerForReuse(t, tc, "busy@example.test")
+	laptop := loginWithCookie(t, tc, "busy@example.test", "password-123")
+	rotated := requireRefresh(t, tc, "rotation", laptop.refresh, http.StatusOK)
+	backdateRotations(t, tc, "5 minutes")
+
+	phone := loginWithCookie(t, tc, "busy@example.test", "password-123")
+
+	requireRefresh(t, tc, "replayed token", laptop.refresh, http.StatusUnauthorized)
+	requireRefresh(t, tc, "rotated cookie of the replayed family", rotated, http.StatusUnauthorized)
+	requireRefresh(t, tc, "fresh login on another device", phone.refresh, http.StatusOK)
 }
 
 func TestRefreshReuse_ConcurrentRefreshRaceIsTolerated(t *testing.T) {
@@ -81,13 +112,79 @@ func TestRefreshReuse_ConcurrentRefreshRaceIsTolerated(t *testing.T) {
 	laptop := loginWithCookie(t, tc, "race@example.test", "password-123")
 	phone := loginWithCookie(t, tc, "race@example.test", "password-123")
 
-	if code, _ := doRefresh(tc, laptop.refresh); code != http.StatusOK {
-		t.Fatalf("first refresh: %d", code)
+	winner := requireRefresh(t, tc, "first refresh", laptop.refresh, http.StatusOK)
+	requireRefresh(t, tc, "second (racing) refresh", laptop.refresh, http.StatusUnauthorized)
+	requireRefresh(t, tc, "the cookie the winner received", winner, http.StatusOK)
+	requireRefresh(t, tc, "other device after a race", phone.refresh, http.StatusOK)
+}
+
+func TestRefreshReuse_ReplayJustInsideTheGraceKeepsTheFamily(t *testing.T) {
+	tc := newTestContext(t)
+	registerForReuse(t, tc, "grace@example.test")
+	laptop := loginWithCookie(t, tc, "grace@example.test", "password-123")
+	rotated := requireRefresh(t, tc, "rotation", laptop.refresh, http.StatusOK)
+	backdateRotations(t, tc, "5 seconds")
+
+	requireRefresh(t, tc, "replay inside the grace window", laptop.refresh, http.StatusUnauthorized)
+	requireRefresh(t, tc, "descendant stays valid", rotated, http.StatusOK)
+
+	backdateRotations(t, tc, "30 seconds")
+	requireRefresh(t, tc, "replay just after the grace window", laptop.refresh, http.StatusUnauthorized)
+}
+
+func TestRefreshReuse_ReplayOfALoggedOutCookieDoesNotTouchOtherLogins(t *testing.T) {
+	tc := newTestContext(t)
+	registerForReuse(t, tc, "logout@example.test")
+	laptop := loginWithCookie(t, tc, "logout@example.test", "password-123")
+	phone := loginWithCookie(t, tc, "logout@example.test", "password-123")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	req.AddCookie(laptop.refresh)
+	rec := httptest.NewRecorder()
+	tc.Router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
+		t.Fatalf("logout: %d: %s", rec.Code, rec.Body.String())
 	}
-	if code, _ := doRefresh(tc, laptop.refresh); code != http.StatusUnauthorized {
-		t.Fatalf("second (racing) refresh: expected 401, got %d", code)
+
+	requireRefresh(t, tc, "replay of the logged-out cookie", laptop.refresh, http.StatusUnauthorized)
+	requireRefresh(t, tc, "other login", phone.refresh, http.StatusOK)
+}
+
+func TestRefreshReuse_LogoutEndsTheWholeFamily(t *testing.T) {
+	tc := newTestContext(t)
+	registerForReuse(t, tc, "family-logout@example.test")
+	laptop := loginWithCookie(t, tc, "family-logout@example.test", "password-123")
+	rotated := requireRefresh(t, tc, "rotation", laptop.refresh, http.StatusOK)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	req.AddCookie(rotated)
+	rec := httptest.NewRecorder()
+	tc.Router.ServeHTTP(rec, req)
+
+	var left int64
+	if err := tc.DB.Table("user_sessions").Count(&left).Error; err != nil {
+		t.Fatal(err)
 	}
-	if code, _ := doRefresh(tc, phone.refresh); code != http.StatusOK {
-		t.Fatalf("other device must stay signed in after a race, got %d", code)
+	if left != 0 {
+		t.Fatalf("logout left %d sessions of the family behind", left)
 	}
+}
+
+func TestRefreshReuse_RotatedRecordsAreForgottenAfterTheRetention(t *testing.T) {
+	tc := newTestContext(t)
+	registerForReuse(t, tc, "retention@example.test")
+	laptop := loginWithCookie(t, tc, "retention@example.test", "password-123")
+	first := requireRefresh(t, tc, "first rotation", laptop.refresh, http.StatusOK)
+	backdateRotations(t, tc, "72 hours")
+	second := requireRefresh(t, tc, "second rotation", first, http.StatusOK)
+
+	var rotated int64
+	if err := tc.DB.Table("user_sessions").Where("rotated_at IS NOT NULL").Count(&rotated).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rotated != 1 {
+		t.Fatalf("rotated records = %d, want only the fresh one", rotated)
+	}
+	requireRefresh(t, tc, "ancient replay is just unknown", laptop.refresh, http.StatusUnauthorized)
+	requireRefresh(t, tc, "descendant is not affected by an unknown token", second, http.StatusOK)
 }

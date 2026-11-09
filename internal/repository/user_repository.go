@@ -14,6 +14,8 @@ import (
 	"rabbit-hole-server/internal/persistence"
 )
 
+const rotatedSessionRetention = "48 hours"
+
 type UserRepository struct {
 	db *gorm.DB
 }
@@ -117,27 +119,57 @@ func (r *UserRepository) FindSession(ctx context.Context, tokenHash string) (*do
 	return &session, nil
 }
 
-func (r *UserRepository) DeleteSession(ctx context.Context, tokenHash string) error {
-	return mapErr(database.DBFromContext(ctx, r.db).Where("token_hash = ?", tokenHash).Delete(&persistence.UserSession{}).Error)
+func (r *UserRepository) DeleteSessionFamily(ctx context.Context, tokenHash string) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Exec(
+		"DELETE FROM user_sessions WHERE family_id <> '' AND family_id = (SELECT family_id FROM user_sessions WHERE token_hash = ?)",
+		tokenHash,
+	).Error)
+}
+
+func (r *UserRepository) RevokeSessionFamily(ctx context.Context, familyID string) error {
+	if familyID == "" {
+		return nil
+	}
+	return mapErr(database.DBFromContext(ctx, r.db).Where("family_id = ?", familyID).Delete(&persistence.UserSession{}).Error)
 }
 
 func (r *UserRepository) RotateSession(ctx context.Context, tokenHash string, replacement *domain.UserSession) error {
 	m := sessionFromDomain(*replacement)
 	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("user_id = ? AND expires_at < NOW()", replacement.UserID).
+		if err := tx.Where("user_id = ? AND (expires_at < NOW() OR rotated_at < NOW() - ?::interval)",
+			replacement.UserID, rotatedSessionRetention).
 			Delete(&persistence.UserSession{}).Error; err != nil {
 			return err
 		}
-		result := tx.Where("token_hash = ? AND expires_at > NOW()", tokenHash).
-			Delete(&persistence.UserSession{})
-		if result.Error != nil {
-			return result.Error
+		var rows []struct {
+			ID       uint
+			FamilyID string
+			Rotated  bool
+			AgeSecs  float64
 		}
-		if result.RowsAffected != 1 {
+		if err := tx.Raw(`SELECT id, family_id, rotated_at IS NOT NULL AS rotated,
+				COALESCE(EXTRACT(EPOCH FROM (NOW() - rotated_at)), 0) AS age_secs
+			FROM user_sessions WHERE token_hash = ? AND expires_at > NOW() FOR UPDATE`, tokenHash).Scan(&rows).Error; err != nil {
+			return err
+		}
+		if len(rows) != 1 {
 			return domain.ErrNotFound
 		}
+		row := rows[0]
+		if row.Rotated {
+			return &domain.SessionReplay{FamilyID: row.FamilyID, Age: time.Duration(row.AgeSecs * float64(time.Second))}
+		}
+		if err := tx.Model(&persistence.UserSession{}).Where("id = ?", row.ID).
+			UpdateColumn("rotated_at", gorm.Expr("NOW()")).Error; err != nil {
+			return err
+		}
+		m.FamilyID = row.FamilyID
 		return tx.Create(&m).Error
 	})
+	var replay *domain.SessionReplay
+	if errors.As(err, &replay) {
+		return replay
+	}
 	if err != nil {
 		return mapErr(err)
 	}
@@ -262,12 +294,4 @@ func (r *UserRepository) AnonymizeIfNoOwnedWorkspaces(ctx context.Context, userI
 		}
 		return tx.Where("user_id = ?", userID).Delete(&persistence.Member{}).Error
 	}))
-}
-
-func (r *UserRepository) HasSessionCreatedSince(ctx context.Context, userID uint, since time.Time) (bool, error) {
-	var count int64
-	err := database.DBFromContext(ctx, r.db).Model(&persistence.UserSession{}).
-		Where("user_id = ? AND created_at >= ?", userID, since).
-		Count(&count).Error
-	return count > 0, mapErr(err)
 }

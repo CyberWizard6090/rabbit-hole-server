@@ -31,9 +31,20 @@ The HTTP status says how to react, the `code` says what to tell the user:
 | 400 / 409 / 422 | Show the translated `code`; mark the fields named in `details`. |
 | 401 `ACCESS_TOKEN_EXPIRED` | Refresh the token silently and repeat the request. |
 | 401 other (`UNAUTHORIZED`, `ACCESS_TOKEN_INVALID`) | The session is gone: go to the login page. |
-| 403 `FORBIDDEN` | The user lacks the permission. The code of the missing permission is deliberately not disclosed. |
+| 400 `INVALID_CURRENT_PASSWORD` | The password typed into a "current password" field is wrong (detail on `current_password`). Show it on the field; the session is fine. |
+| 403 `FORBIDDEN` | The user lacks the permission, **or the object does not exist or was deleted**: the answer is identical on purpose so ids cannot be enumerated. The code of the missing permission is deliberately not disclosed. |
+| 403 `OWNER_IMMUTABLE` | The workspace owner cannot be demoted, removed or leave. |
+| 403 `ADMIN_ROLE_OWNER_ONLY` | Only the workspace owner may grant the Admin role, or demote or remove an Admin. |
+| 404 | A child object (form, submission, custom field, tag, comment, ...) is missing inside a workspace, space or task the caller can access. The status is the contract: a response may carry the generic `NOT_FOUND` or a more specific `*_NOT_FOUND` code, so do not branch on the code. |
 | 429 `RATE_LIMIT_EXCEEDED` | Wait `params.retry_after` seconds (also sent as the `Retry-After` header). |
 | 5xx | Show a generic message with `request_id`. The code only identifies the failing operation. |
+
+## 403 versus 404
+
+Objects addressed by a workspace, space, folder, list, task, task template or form submission id answer
+`403 FORBIDDEN` when they are missing or deleted, exactly like when the caller has no access, also for the
+workspace owner. Only a missing child object inside a container the caller can access answers `404`. See
+"Access policy" and "Roles and permissions" in `docs/openapi.yaml`.
 
 ## Detail codes
 
@@ -78,6 +89,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `ACCESS_TOKEN_INVALID`
 - `ACCOUNT_DELETE_FAILED`
 - `ACTIVITY_FETCH_FAILED`
+- `ADMIN_ROLE_OWNER_ONLY`
 - `AFTER_FIELD`
 - `ALREADY_LOGGED_OUT`
 - `ALREADY_MEMBER`
@@ -119,6 +131,8 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `CONFIRMATION_MAIL_FAILED`
 - `CONFIRMATION_TOO_SOON`
 - `CONFLICTING_FIELD`
+- `CONFLICTING_TAG_CHANGE`
+- `CONFLICTS_WITH`
 - `CONTACTS_FETCH_FAILED`
 - `CONTACT_DELETE_FAILED`
 - `CONTACT_NOT_FOUND`
@@ -137,6 +151,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `CUSTOM_FIELD_NAME_TAKEN`
 - `CUSTOM_FIELD_NOT_FOUND`
 - `CUSTOM_FIELD_UPDATE_FAILED`
+- `CUSTOM_FIELD_VALUE_OUT_OF_RANGE`
 - `EMAIL_CHANGE_COOLDOWN`
 - `EMAIL_CHANGE_FAILED`
 - `EMAIL_NOT_VERIFIED`
@@ -209,6 +224,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `INVALID_CONTACT_ID`
 - `INVALID_COUNT`
 - `INVALID_CREDENTIALS`
+- `INVALID_CURRENT_PASSWORD`
 - `INVALID_CUSTOM_FIELD`
 - `INVALID_DATE`
 - `INVALID_DATE_RANGE`
@@ -217,6 +233,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `INVALID_ENCODING`
 - `INVALID_FILTER`
 - `INVALID_FOLDER_ID`
+- `INVALID_FOLDER_REFERENCE`
 - `INVALID_FORM`
 - `INVALID_FORMAT`
 - `INVALID_FORM_TASK_CONFIG`
@@ -258,6 +275,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `LISTS_FETCH_FAILED`
 - `LIST_CREATE_FAILED`
 - `LIST_DELETE_FAILED`
+- `LIST_NOT_FOUND`
 - `LIST_UPDATE_FAILED`
 - `LOGOUT_FAILED`
 - `MEMBERS_FETCH_FAILED`
@@ -277,6 +295,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `NOT_FOUND`
 - `NOT_LESS_THAN_FIELD`
 - `NOT_SUPPORTED`
+- `OPTION_IN_USE`
 - `OUT_OF_RANGE`
 - `OWNER_IMMUTABLE`
 - `OWNS_WORKSPACES`
@@ -313,7 +332,9 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `STATUS_CREATE_FAILED`
 - `STATUS_DELETE_FAILED`
 - `STATUS_IN_USE`
+- `STATUS_NOT_FOUND`
 - `STATUS_UPDATE_FAILED`
+- `STATUS_USED_BY_FORM`
 - `SUBMISSION_FETCH_FAILED`
 - `SUBMISSION_FILE_DOWNLOAD_FAILED`
 - `SUBMISSION_OR_FORM_NOT_FOUND`
@@ -371,6 +392,11 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `USER_NOT_FOUND`
 - `USER_SEARCH_FAILED`
 - `VALIDATION_FAILED`
+- `VALUES_EXIST`
+- `VALUE_ABOVE_MAX`
+- `VALUE_BELOW_MIN`
+- `VALUE_TOO_LONG`
+- `VALUE_TOO_SHORT`
 - `WATCHERS_FETCH_FAILED`
 - `WATCH_FAILED`
 - `WEAK_PASSWORD`

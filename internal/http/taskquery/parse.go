@@ -56,6 +56,11 @@ func Parse(values url.Values) (domain.TaskQuery, *httperrors.AppError) {
 	f.DueFrom, f.DueTo = p.dateRange("due_from", "due_to")
 	f.StartFrom, f.StartTo = p.dateRange("start_from", "start_to")
 	f.HasDue = p.optionalBool("has_due")
+	f.ParentIDs = p.ids("parent_id")
+	f.HasParent = p.optionalBool("has_parent")
+	if len(f.ParentIDs) > 0 && f.HasParent != nil && !*f.HasParent {
+		p.fail("has_parent", "CONFLICTS_WITH", map[string]any{"other": "parent_id"})
+	}
 	f.HasOpenChecklistItems = p.optionalBool("has_open_checklist_items")
 	query.WithTotal = p.boolean("with_total")
 

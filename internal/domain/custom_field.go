@@ -9,7 +9,29 @@ var (
 	ErrInvalidCustomField   = errors.New("invalid custom field")
 	ErrCustomFieldInUse     = errors.New("custom field has values and cannot be deleted")
 	ErrCustomFieldNameTaken = errors.New("custom field name already exists in this workspace")
+
+	ErrCustomFieldRequired        = errors.New("required custom field value is missing")
+	ErrCustomFieldValueOutOfRange = errors.New("custom field has stored values that the new definition would invalidate")
 )
+
+type CustomFieldRequiredError struct {
+	FieldIDs []uint
+}
+
+func (e *CustomFieldRequiredError) Error() string { return ErrCustomFieldRequired.Error() }
+
+func (e *CustomFieldRequiredError) Is(target error) bool { return target == ErrCustomFieldRequired }
+
+type CustomFieldEditError struct {
+	Cause  error
+	Field  string
+	Code   string
+	Params map[string]any
+}
+
+func (e *CustomFieldEditError) Error() string { return e.Cause.Error() }
+
+func (e *CustomFieldEditError) Unwrap() error { return e.Cause }
 
 type CustomFieldType string
 

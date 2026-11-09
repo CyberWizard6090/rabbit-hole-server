@@ -207,7 +207,7 @@ func TestAPI_WorkspaceSpaceFolderListStatusTagLifecycle(t *testing.T) {
 	}
 
 	rec = request(t, tc.Router, http.MethodGet, "/api/v1/lists/"+itoa(listID)+"/statuses", tc.Token, nil)
-	if rec.Code != http.StatusOK || len(decodeJSON(t, rec)["data"].([]any)) != 0 {
+	if rec.Code != http.StatusOK || len(decodeJSON(t, rec)["data"].([]any)) != 3 {
 		t.Fatalf("list statuses: %d %s", rec.Code, rec.Body.String())
 	}
 

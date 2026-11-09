@@ -252,7 +252,10 @@ func TestFormUploads_SubmissionFilesAreReadableByWorkspaceMembersOnly(t *testing
 	fileID := uint(dataObject(t, rec)["files"].([]any)[0].(map[string]any)["id"].(float64))
 	path := "/api/v1/workspaces/" + itoa(f.owner.workspaceID) + "/submissions/" + itoa(submissionID) + "/files/" + itoa(fileID)
 
-	for name, token := range map[string]string{"owner": f.owner.token, "member": f.member, "guest": f.guest} {
+	if rec = request(t, tc.Router, http.MethodGet, path, f.guest, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("guest download: %d, want 403", rec.Code)
+	}
+	for name, token := range map[string]string{"owner": f.owner.token, "member": f.member} {
 		rec = request(t, tc.Router, http.MethodGet, path, token, nil)
 		if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), image) {
 			t.Fatalf("%s download: %d", name, rec.Code)
@@ -283,7 +286,10 @@ func TestFormUploads_SubmissionFilesAreReadableByWorkspaceMembersOnly(t *testing
 		t.Fatalf("file of another submission: %d", rec.Code)
 	}
 
-	list := request(t, tc.Router, http.MethodGet, f.formURL+"/"+itoa(f.formID)+"/submissions", f.guest, nil)
+	if guestList := request(t, tc.Router, http.MethodGet, f.formURL+"/"+itoa(f.formID)+"/submissions", f.guest, nil); guestList.Code != http.StatusForbidden {
+		t.Fatalf("guest submission list: %d, want 403", guestList.Code)
+	}
+	list := request(t, tc.Router, http.MethodGet, f.formURL+"/"+itoa(f.formID)+"/submissions", f.member, nil)
 	items := responseArray(t, list)
 	if list.Code != http.StatusOK || len(items) != 1 || len(items[0].(map[string]any)["files"].([]any)) != 1 {
 		t.Fatalf("submission list: %d %s", list.Code, list.Body.String())

@@ -164,7 +164,8 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		response.HandleError(c, httperrors.BadRequest("WEAK_PASSWORD", err.Error(), err))
 		return
 	case errors.Is(err, service.ErrInvalidCredentials):
-		response.HandleError(c, httperrors.Unauthorized("INVALID_CREDENTIALS", "current password is incorrect", err))
+		response.HandleError(c, httperrors.BadRequest("INVALID_CURRENT_PASSWORD", "current password is incorrect", err).
+			WithDetails(httperrors.Detail{Field: "current_password", Code: "INVALID_VALUE"}))
 		return
 	case err != nil:
 		response.HandleError(c, httperrors.Internal("PASSWORD_CHANGE_FAILED", "internal server error", err))

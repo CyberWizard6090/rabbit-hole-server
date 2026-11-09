@@ -41,10 +41,10 @@ type AuthUserStore interface {
 	GetByID(ctx context.Context, id uint) (*domain.User, error)
 	GetTokenVersion(ctx context.Context, userID uint) (int, error)
 	CreateSession(ctx context.Context, session *domain.UserSession) error
-	DeleteSession(ctx context.Context, tokenHash string) error
+	DeleteSessionFamily(ctx context.Context, tokenHash string) error
+	RevokeSessionFamily(ctx context.Context, familyID string) error
 	RotateSession(ctx context.Context, tokenHash string, replacement *domain.UserSession) error
 	RevokeAll(ctx context.Context, userID uint) (int, error)
-	HasSessionCreatedSince(ctx context.Context, userID uint, since time.Time) (bool, error)
 	UpdatePasswordAndRevoke(ctx context.Context, userID uint, passwordHash string) (int, error)
 	AnonymizeIfNoOwnedWorkspaces(ctx context.Context, userID uint) error
 }
@@ -280,10 +280,23 @@ func (s *AuthService) issueTokenPair(ctx context.Context, userID uint, version i
 	if err != nil {
 		return dto.TokenPair{}, err
 	}
+	familyID, err := newFamilyID()
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	session.FamilyID = familyID
 	if err := s.repo.CreateSession(ctx, session); err != nil {
 		return dto.TokenPair{}, err
 	}
 	return pair, nil
+}
+
+func newFamilyID() (string, error) {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate session family id: %w", err)
+	}
+	return hex.EncodeToString(raw), nil
 }
 
 func (s *AuthService) generateTokenPair(userID uint, version int) (dto.TokenPair, *domain.UserSession, error) {
@@ -359,8 +372,12 @@ func (s *AuthService) Refresh(ctx context.Context, refreshTokenString string) (d
 		return dto.TokenPair{}, err
 	}
 	if err := s.repo.RotateSession(ctx, tokenHash, replacement); err != nil {
+		var replay *domain.SessionReplay
+		if errors.As(err, &replay) {
+			s.handleReplayedRefreshToken(ctx, claims.UserID, replay)
+			return dto.TokenPair{}, errors.New("session not found")
+		}
 		if errors.Is(err, domain.ErrNotFound) {
-			s.handleUnknownRefreshSession(ctx, claims.UserID)
 			return dto.TokenPair{}, errors.New("session not found")
 		}
 		return dto.TokenPair{}, fmt.Errorf("rotate refresh session: %w", err)
@@ -370,22 +387,21 @@ func (s *AuthService) Refresh(ctx context.Context, refreshTokenString string) (d
 
 const refreshReuseGrace = 10 * time.Second
 
-func (s *AuthService) handleUnknownRefreshSession(ctx context.Context, userID uint) {
-	recent, err := s.repo.HasSessionCreatedSince(ctx, userID, time.Now().Add(-refreshReuseGrace))
-	if err != nil || recent {
+func (s *AuthService) handleReplayedRefreshToken(ctx context.Context, userID uint, replay *domain.SessionReplay) {
+	if replay.Age <= refreshReuseGrace {
 		return
 	}
-	if _, err := s.repo.RevokeAll(context.WithoutCancel(ctx), userID); err != nil {
-		slog.Error("auth: cannot revoke sessions after refresh token reuse", "user_id", userID, "error", err)
+	if err := s.repo.RevokeSessionFamily(context.WithoutCancel(ctx), replay.FamilyID); err != nil {
+		slog.Error("auth: cannot revoke the session family after refresh token reuse", "user_id", userID, "error", err)
 		return
 	}
 	disconnectUser(s.revoker, userID)
-	slog.Warn("auth: refresh token reuse detected, all sessions revoked", "user_id", userID)
+	slog.Warn("auth: refresh token reuse detected, session family revoked", "user_id", userID)
 }
 
 func (s *AuthService) Logout(ctx context.Context, refreshTokenString string) error {
 	tokenHash := s.hashToken(refreshTokenString)
-	return s.repo.DeleteSession(ctx, tokenHash)
+	return s.repo.DeleteSessionFamily(ctx, tokenHash)
 }
 
 func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
