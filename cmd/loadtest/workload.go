@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -42,7 +43,12 @@ func (e *environment) pick(r *rand.Rand) (token string, userIdx int) {
 	return e.tokens[i], i
 }
 
-func (e *environment) randomList(r *rand.Rand) uint { return e.listIDs[r.Intn(len(e.listIDs))] }
+func (e *environment) randomList(r *rand.Rand) uint {
+	if e.hotList != 0 {
+		return e.hotList
+	}
+	return e.listIDs[r.Intn(len(e.listIDs))]
+}
 func (e *environment) randomTask(r *rand.Rand) uint { return e.taskIDs[r.Intn(len(e.taskIDs))] }
 
 var queries = []string{"deploy", "invoice", "refactor", "customer", "report", "release", "login"}
@@ -69,6 +75,43 @@ func scenarios() []scenario {
 		{"list tasks (text filter)", 4, do(http.MethodGet, func(e *environment, r *rand.Rand) string {
 			return fmt.Sprintf("/lists/%d/tasks?limit=50&q=%s", e.randomList(r), url.QueryEscape(e.words[r.Intn(len(e.words))]))
 		}, nil)},
+		{"list tasks (status filter)", 3, func(e *environment, r *rand.Rand) (int, time.Duration, error) {
+			list := e.randomList(r)
+			st := e.statuses[list]
+			token, _ := e.pick(r)
+			status, _, d, err := e.call(http.MethodGet, fmt.Sprintf("/lists/%d/tasks?limit=50&status_id=%d", list, st[r.Intn(len(st))]), token, nil, nil)
+			return status, d, err
+		}},
+		{"list tasks (assignee filter)", 3, func(e *environment, r *rand.Rand) (int, time.Duration, error) {
+			token, _ := e.pick(r)
+			status, _, d, err := e.call(http.MethodGet, fmt.Sprintf("/lists/%d/tasks?limit=50&assignee_id=%d&sort=due_date", e.randomList(r), e.userIDs[r.Intn(len(e.userIDs))]), token, nil, nil)
+			return status, d, err
+		}},
+		{"list tasks (with total)", 2, do(http.MethodGet, func(e *environment, r *rand.Rand) string {
+			return fmt.Sprintf("/lists/%d/tasks?limit=50&with_total=true", e.randomList(r))
+		}, nil)},
+		{"list tasks (page 6)", 2, func(e *environment, r *rand.Rand) (int, time.Duration, error) {
+			token, _ := e.pick(r)
+			list := e.randomList(r)
+			var total time.Duration
+			cursor := ""
+			for page := 0; page < 6; page++ {
+				path := fmt.Sprintf("/lists/%d/tasks?limit=50", list)
+				if cursor != "" {
+					path += "&cursor=" + url.QueryEscape(cursor)
+				}
+				status, data, d, err := e.call(http.MethodGet, path, token, nil, nil)
+				total += d
+				if err != nil || status != http.StatusOK {
+					return status, total, err
+				}
+				cursor = nextCursor(data)
+				if cursor == "" {
+					break
+				}
+			}
+			return http.StatusOK, total, nil
+		}},
 		{"get task", 14, do(http.MethodGet, func(e *environment, r *rand.Rand) string {
 			return fmt.Sprintf("/tasks/%d", e.randomTask(r))
 		}, nil)},
@@ -256,4 +299,16 @@ func printDatabaseStats(db *gorm.DB) {
 	for _, r := range rows {
 		fmt.Printf("| %s | %d | %s | %d | %d | %d |\n", r.Relname, r.Live, r.Size, r.SeqScan, r.SeqTupRead, r.IdxScan)
 	}
+}
+
+func nextCursor(data []byte) string {
+	var out struct {
+		Data struct {
+			NextCursor string `json:"next_cursor"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return ""
+	}
+	return out.Data.NextCursor
 }

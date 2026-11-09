@@ -333,7 +333,7 @@ CREATE TABLE task_comments (
     CONSTRAINT fk_task_comments_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT
 );
 CREATE INDEX idx_task_comments_deleted_at ON task_comments (deleted_at);
-CREATE INDEX idx_task_comments_task_id_id ON task_comments (task_id, id) WHERE deleted_at IS NULL;
+CREATE INDEX idx_task_comments_task_id_id ON task_comments (task_id, id);
 CREATE INDEX idx_task_comments_body_trgm ON task_comments USING GIN (body gin_trgm_ops) WHERE deleted_at IS NULL;
 CREATE TRIGGER trg_task_comments_updated_at BEFORE UPDATE ON task_comments
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -392,6 +392,7 @@ CREATE TABLE files (
 CREATE UNIQUE INDEX uq_files_public_id ON files (public_id);
 CREATE UNIQUE INDEX uq_files_storage_key ON files (storage_key);
 CREATE INDEX idx_files_task_id_id ON files (task_id, id) WHERE kind = 'attachment';
+CREATE INDEX idx_files_task_id ON files (task_id) WHERE task_id IS NOT NULL;
 CREATE INDEX idx_files_user_avatar ON files (user_id) WHERE kind = 'avatar';
 CREATE UNIQUE INDEX uq_files_workspace_avatar ON files (workspace_id) WHERE kind = 'workspace_avatar';
 
@@ -505,6 +506,8 @@ CREATE TABLE notifications (
 );
 CREATE INDEX idx_notifications_user_id_id ON notifications (user_id, id DESC);
 CREATE INDEX idx_notifications_user_unread ON notifications (user_id, type) WHERE read_at IS NULL;
+CREATE INDEX idx_notifications_task_id ON notifications (task_id) WHERE task_id IS NOT NULL;
+CREATE INDEX idx_notifications_actor_id ON notifications (actor_id) WHERE actor_id IS NOT NULL;
 
 ALTER TABLE tasks
     ADD COLUMN source VARCHAR(30) NOT NULL DEFAULT 'manual',
