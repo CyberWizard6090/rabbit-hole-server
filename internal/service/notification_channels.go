@@ -15,6 +15,7 @@ import (
 	"rabbit-hole-server/internal/domain"
 	mailer "rabbit-hole-server/internal/mail"
 	"rabbit-hole-server/internal/ratelimit"
+	"rabbit-hole-server/internal/txhook"
 )
 
 var ErrEmailThrottled = errors.New("hourly e-mail limit reached")
@@ -120,7 +121,7 @@ func (c *inAppChannel) Deliver(ctx context.Context, d Delivery) error {
 	if err != nil {
 		return err
 	}
-	c.push.created(ctx, d.RecipientID, ref, d.Content)
+	txhook.AfterCommit(ctx, func() { c.push.created(ctx, d.RecipientID, ref, d.Content) })
 	return nil
 }
 

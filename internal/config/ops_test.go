@@ -62,6 +62,8 @@ func TestOperationalSettingsAreValidated(t *testing.T) {
 		{"huge hash concurrency", map[string]string{"AUTH_HASH_CONCURRENCY": "100000"}, "AUTH_HASH_CONCURRENCY"},
 		{"lock without base", map[string]string{"AUTH_LOGIN_LOCK_BASE": "0s"}, "AUTH_LOGIN_LOCK_BASE"},
 		{"max below base", map[string]string{"AUTH_LOGIN_LOCK_BASE": "1m", "AUTH_LOGIN_LOCK_MAX": "10s"}, "AUTH_LOGIN_LOCK_MAX"},
+		{"zero retention interval", map[string]string{"RETENTION_INTERVAL": "0s"}, "RETENTION_INTERVAL"},
+		{"negative outbox retention", map[string]string{"RETENTION_OUTBOX_DONE": "-1h"}, "RETENTION_OUTBOX_DONE"},
 		{"unknown rate limit store", map[string]string{"RATE_LIMIT_STORE": "redis"}, "RATE_LIMIT_STORE"},
 	}
 	for _, tc := range cases {

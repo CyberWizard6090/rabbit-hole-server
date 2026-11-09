@@ -19,6 +19,7 @@ type Config struct {
 	JWT            JWTConfig `envPrefix:"JWT_"`
 	Auth           AuthConfig
 	RateLimit      RateLimitConfig
+	Retention      RetentionConfig
 	Storage        StorageConfig
 	Mail           MailConfig
 	Notifications  NotificationConfig
@@ -60,6 +61,13 @@ func (a AuthConfig) HashSlots() int {
 
 type RateLimitConfig struct {
 	Store string `env:"RATE_LIMIT_STORE" envDefault:"postgres" validate:"oneof=postgres memory"`
+}
+
+type RetentionConfig struct {
+	Interval      time.Duration `env:"RETENTION_INTERVAL" envDefault:"1h" validate:"gt=0"`
+	OutboxDone    time.Duration `env:"RETENTION_OUTBOX_DONE" envDefault:"168h" validate:"gte=0"`
+	OutboxDead    time.Duration `env:"RETENTION_OUTBOX_DEAD" envDefault:"720h" validate:"gte=0"`
+	ExpiredTokens time.Duration `env:"RETENTION_EXPIRED_TOKENS" envDefault:"168h" validate:"gte=0"`
 }
 
 type DBConfig struct {
