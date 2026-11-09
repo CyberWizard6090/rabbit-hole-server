@@ -37,6 +37,7 @@ type options struct {
 	skipSeed    bool
 	only        string
 	exclude     string
+	hotTasks    int
 }
 
 func main() {
@@ -48,6 +49,7 @@ func main() {
 	flag.DurationVar(&o.duration, "duration", 60*time.Second, "how long to run the mixed workload")
 	flag.IntVar(&o.concurrency, "concurrency", 32, "concurrent virtual users")
 	flag.BoolVar(&o.skipSeed, "skip-seed", false, "reuse the data of a previous run")
+	flag.IntVar(&o.hotTasks, "hot-tasks", 0, "add this many tasks to one list and send every list request to it")
 	flag.StringVar(&o.exclude, "exclude", "", "skip the scenarios whose name contains this text")
 	flag.StringVar(&o.only, "only", "", "run only the scenarios whose name contains this text")
 	flag.Parse()
@@ -137,6 +139,11 @@ func run(o options) error {
 		fmt.Printf("seeded in %s\n", time.Since(started).Round(time.Second))
 	} else if err := env.reload(o); err != nil {
 		return err
+	}
+	if o.hotTasks > 0 {
+		if err := env.addHotList(o.hotTasks); err != nil {
+			return err
+		}
 	}
 	if err := execAll(db, "SELECT pg_stat_reset()"); err != nil {
 		return err

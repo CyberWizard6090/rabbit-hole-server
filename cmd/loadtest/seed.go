@@ -24,6 +24,7 @@ type environment struct {
 	statuses    map[uint][]uint
 	taskIDs     []uint
 	words       []string
+	hotList     uint
 	formSlug    string
 	questionID  uint
 }
@@ -232,5 +233,39 @@ func (e *environment) reload(o options) error {
 		e.formSlug = slug
 		e.db.Raw("SELECT id FROM form_questions ORDER BY id LIMIT 1").Scan(&e.questionID)
 	}
+	return nil
+}
+
+func (e *environment) addHotList(n int) error {
+	var list uint
+	if err := e.db.Raw("SELECT list_id FROM tasks GROUP BY list_id ORDER BY count(*) DESC, list_id LIMIT 1").Scan(&list).Error; err != nil {
+		return err
+	}
+	var extra int64
+	if err := e.db.Raw("SELECT count(*) FROM tasks WHERE list_id = ?", list).Scan(&extra).Error; err != nil {
+		return err
+	}
+	if int(extra) < n {
+		if err := execAll(e.db, fmt.Sprintf(`
+			INSERT INTO tasks (space_id, list_id, status_id, title, description, priority, user_id, due_date, position, created_at)
+			SELECT l.space_id, l.id, s.id,
+			       (ARRAY['Deploy','Invoice','Refactor','Customer','Report','Login','Search','Release'])[1 + g %% 8] || ' ' ||
+			       left(md5(g::text || 'hot'), 7) || ' ' || left(md5('hot' || g::text), 7),
+			       'Hot description ' || g, 1 + g %% 5, %d,
+			       CASE WHEN g %% 3 = 0 THEN now() + ((g %% 90) || ' days')::interval END, 1000000 + g,
+			       now() - (g || ' seconds')::interval
+			FROM lists l
+			CROSS JOIN LATERAL generate_series(1, %d) g
+			JOIN LATERAL (SELECT id FROM task_statuses WHERE list_id = l.id AND deleted_at IS NULL ORDER BY position OFFSET (g %% 5) LIMIT 1) s ON true
+			WHERE l.id = %d`, e.userIDs[0], n, list),
+			fmt.Sprintf(`
+			INSERT INTO task_assignees (task_id, user_id)
+			SELECT t.id, (ARRAY[%s])[1 + (t.id %% %d)] FROM tasks t
+			WHERE t.list_id = %d AND t.position >= 1000000 AND t.id %% 3 = 0`, joinIDs(e.userIDs), len(e.userIDs), list),
+			"ANALYZE tasks", "ANALYZE task_assignees"); err != nil {
+			return err
+		}
+	}
+	e.hotList = list
 	return nil
 }
