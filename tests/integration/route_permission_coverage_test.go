@@ -44,6 +44,7 @@ var (
 		"GET /api/v1/users/search":                        "public projection only",
 		"GET /api/v1/form-templates":                      "static catalog of form presets, no workspace data",
 		"GET /api/v1/list-templates":                      "static catalog of list templates, no workspace data",
+		"GET /api/v1/time/running":                        "the caller's own running timer",
 		"POST /api/v1/tasks/bulk":                         "permission is checked for every task in the body, covered by TestBulkTasks_PermissionsAreCheckedForEveryTask",
 		"GET /api/v1/contacts":                            "caller's own contacts",
 		"POST /api/v1/contacts":                           "creates a pending request from the caller; the answer is identical for every target",
@@ -142,7 +143,7 @@ func buildRouteFixture(t *testing.T, tc *TestContext, token string, userID uint)
 
 	return routeFixture{params: map[string]string{
 		"workspace_id": itoa(ws), "space_id": itoa(sp), "folder_id": itoa(fo), "list_id": itoa(li),
-		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "attachment_id": itoa(att), "checklist_id": itoa(cl), "item_id": itoa(it), "user_id": itoa(userID), "contact_id": itoa(userID), "notification_id": "1", "channel_id": "1", "view_id": "1",
+		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "attachment_id": itoa(att), "checklist_id": itoa(cl), "item_id": itoa(it), "user_id": itoa(userID), "contact_id": itoa(userID), "notification_id": "1", "channel_id": "1", "view_id": "1", "entry_id": "1",
 		"field_id": itoa(cf),
 		"form_id":  itoa(form), "question_id": itoa(question), "submission_id": itoa(submission), "file_id": "1",
 		"slug":        formSlug,

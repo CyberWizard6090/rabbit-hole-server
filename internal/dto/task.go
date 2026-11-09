@@ -77,3 +77,18 @@ type BulkTasksResponse struct {
 	Succeeded int              `json:"succeeded"`
 	Failed    int              `json:"failed"`
 }
+
+type StartTimerRequest struct {
+	Note string `json:"note" binding:"max=2000"`
+}
+
+type AddTimeEntryRequest struct {
+	Seconds   int        `json:"seconds" binding:"required,gte=1,lte=86400"`
+	StartedAt *time.Time `json:"started_at"`
+	Note      string     `json:"note" binding:"max=2000"`
+}
+
+type UpdateTimeEntryRequest struct {
+	Seconds *int    `json:"seconds" binding:"omitempty,gte=1,lte=86400"`
+	Note    *string `json:"note" binding:"omitempty,max=2000"`
+}
