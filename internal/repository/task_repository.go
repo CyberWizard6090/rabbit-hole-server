@@ -27,7 +27,7 @@ func NewTaskRepository(db *gorm.DB) domain.TaskRepository {
 func (r *taskRepository) Create(ctx context.Context, task *domain.Task, assigneeIDs []uint, tagIDs []uint) error {
 	m := taskFromDomain(*task)
 	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
-		if err := lockExistingLists(tx, task.ListID); err != nil {
+		if err := lockListForAppend(tx, task.ListID); err != nil {
 			return err
 		}
 		if err := validateTaskReferences(tx, task, assigneeIDs, tagIDs); err != nil {

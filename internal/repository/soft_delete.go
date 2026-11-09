@@ -13,9 +13,21 @@ import (
 const maxLockAttempts = 3
 
 func lockExistingLists(tx *gorm.DB, ids ...uint) error {
+	return lockExistingListsAs(tx, "UPDATE", ids...)
+}
+
+func lockExistingListsShared(tx *gorm.DB, ids ...uint) error {
+	return lockExistingListsAs(tx, "KEY SHARE", ids...)
+}
+
+func lockListForAppend(tx *gorm.DB, id uint) error {
+	return lockExistingListsAs(tx, "NO KEY UPDATE", id)
+}
+
+func lockExistingListsAs(tx *gorm.DB, strength string, ids ...uint) error {
 	unique := uniqueIDs(ids)
 	var rows []persistence.List
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+	if err := tx.Clauses(clause.Locking{Strength: strength}).
 		Select("id").Where("id IN ?", unique).Order("id").Find(&rows).Error; err != nil {
 		return err
 	}
@@ -31,7 +43,7 @@ func lockTaskRow(tx *gorm.DB, id uint) (persistence.Task, error) {
 		if err := tx.Select("id", "list_id").Where("id = ?", id).First(&seen).Error; err != nil {
 			return persistence.Task{}, err
 		}
-		if err := lockExistingLists(tx, seen.ListID); err != nil {
+		if err := lockExistingListsShared(tx, seen.ListID); err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
 				return persistence.Task{}, gorm.ErrRecordNotFound
 			}
