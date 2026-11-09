@@ -60,6 +60,7 @@ type Container struct {
 	FormTaskHandler     *handler.FormTaskHandler
 	TaskTemplateHandler *handler.TaskTemplateHandler
 	TimeHandler         *handler.TimeHandler
+	TaskRelationHandler *handler.TaskRelationHandler
 	SavedViewHandler    *handler.SavedViewHandler
 
 	PermissionChecker service.PermissionChecker
@@ -277,13 +278,14 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		TaskTemplateHandler: handler.NewTaskTemplateHandler(
 			templateService, permissionChecker, templateApplier,
 		),
-		TimeHandler:       handler.NewTimeHandler(service.NewTimeService(repository.NewTimeEntryRepository(db)), taskService, permissionChecker).WithPublisher(hub),
-		SavedViewHandler:  handler.NewSavedViewHandler(service.NewSavedViewService(repository.NewSavedViewRepository(db), permissionChecker)),
-		WorkspaceHandler:  handler.NewWorkspaceHandler(workspaceService),
-		FolderHandler:     handler.NewFolderHandler(folderService),
-		ListHandler:       handler.NewListHandler(spaceServ, folderService),
-		PermissionChecker: permissionChecker,
-		Ready:             sqlDB.PingContext,
+		TaskRelationHandler: handler.NewTaskRelationHandler(service.NewTaskRelationService(repository.NewTaskRelationRepository(db), activityRecorder, transactions)),
+		TimeHandler:         handler.NewTimeHandler(service.NewTimeService(repository.NewTimeEntryRepository(db)), taskService, permissionChecker).WithPublisher(hub),
+		SavedViewHandler:    handler.NewSavedViewHandler(service.NewSavedViewService(repository.NewSavedViewRepository(db), permissionChecker)),
+		WorkspaceHandler:    handler.NewWorkspaceHandler(workspaceService),
+		FolderHandler:       handler.NewFolderHandler(folderService),
+		ListHandler:         handler.NewListHandler(spaceServ, folderService),
+		PermissionChecker:   permissionChecker,
+		Ready:               sqlDB.PingContext,
 
 		Realtime:        hub,
 		RealtimeHandler: handler.NewRealtimeHandler(hub, tickets, permissionChecker, cfg.AllowedOrigins).WithTokenVersions(authServ),

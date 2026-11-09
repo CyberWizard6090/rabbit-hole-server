@@ -2327,6 +2327,62 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/relations:
+    get:
+      tags: [tasks]
+      summary: "What the task blocks, what blocks it and what is related to it"
+      description: |
+        `blocks` (tasks that wait for this one), `blocked_by` (tasks this one waits for) and `related` (symmetric), each item
+        `{id, title, list_id, status_id, done}`; deleted tasks are not listed. `blocked` is true while at least one blocker
+        is not done (its status type is not `done`); nothing is enforced, the flag is for display.
+      x-permission: task.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [tasks]
+      summary: "Relate this task to another one"
+      description: |
+        Body `{task_id, kind}` with `kind` `blocks` (this task blocks `task_id`), `blocked_by` or `related`. Both tasks must be
+        live and in the same workspace (404 `TASK_NOT_FOUND` otherwise), not the same task (400 `RELATION_SELF`). 409
+        `RELATION_EXISTS` for a pair that is already linked, 409 `RELATION_CYCLE` when the blocking would form a circle
+        (A blocks B blocks C blocks A), 409 `RELATION_LIMIT_REACHED` beyond 50 relations on either task. Cycle checks of a
+        workspace are serialized, so two opposite requests at the same time cannot both succeed. The change is written to
+        the activity feed of this task (`relation.added`, `relation.removed`). Answers with the relations of the task.
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '201': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /tasks/{task_id}/relations/{other_id}:
+    delete:
+      tags: [tasks]
+      summary: "Remove a relation (`kind` query parameter is required)"
+      description: "`kind` is `blocks`, `blocked_by` or `related`, seen from this task; the same pair can be removed from either task. 404 `RELATION_NOT_FOUND` if it does not exist."
+      x-permission: task.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: task_id, in: path, required: true, schema: {type: integer}}
+        - {name: other_id, in: path, required: true, schema: {type: integer}}
+        - {name: kind, in: query, required: true, schema: {type: string, enum: [blocks, blocked_by, related]}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
   /tasks/{task_id}/time:
     get:
       tags: [tasks]

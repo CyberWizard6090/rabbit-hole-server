@@ -485,6 +485,15 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					tasks.DELETE("",
 						inTask(domain.PermTaskDelete),
 						deps.TaskHandler.Delete)
+					tasks.GET("/relations",
+						inTask(domain.PermTaskRead),
+						deps.TaskRelationHandler.List)
+					tasks.POST("/relations",
+						inTask(domain.PermTaskUpdate),
+						deps.TaskRelationHandler.Add)
+					tasks.DELETE("/relations/:other_id",
+						inTask(domain.PermTaskUpdate),
+						deps.TaskRelationHandler.Remove)
 					tasks.GET("/time",
 						inTask(domain.PermTaskRead),
 						deps.TimeHandler.List)
