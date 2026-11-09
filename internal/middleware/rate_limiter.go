@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log/slog"
 	"math"
 	"net/http"
 	"strconv"
@@ -12,11 +13,14 @@ import (
 	"rabbit-hole-server/internal/ratelimit"
 )
 
-func RateLimiter(max int, period time.Duration) gin.HandlerFunc {
-	window := ratelimit.NewWindow(max, period)
-
+func RateLimiter(limiter ratelimit.Limiter, bucket string, max int, period time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		allowed, wait := window.Allow(ratelimit.ClientKey(c.ClientIP()))
+		allowed, wait, err := limiter.Allow(c.Request.Context(), bucket, ratelimit.ClientKey(c.ClientIP()), max, period)
+		if err != nil {
+			slog.Warn("rate limit: store unavailable, letting the request through", "bucket", bucket, "error", err)
+			c.Next()
+			return
+		}
 		if allowed {
 			c.Next()
 			return

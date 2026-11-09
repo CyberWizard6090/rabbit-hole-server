@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -8,17 +10,23 @@ import (
 )
 
 type submissionLimiter struct {
-	window *ratelimit.Window
+	limiter ratelimit.Limiter
+	max     int
+	period  time.Duration
 }
 
-func newSubmissionLimiter(max int, period time.Duration) *submissionLimiter {
-	return &submissionLimiter{window: ratelimit.NewWindow(max, period)}
+func newSubmissionLimiter(limiter ratelimit.Limiter, max int, period time.Duration) *submissionLimiter {
+	return &submissionLimiter{limiter: limiter, max: max, period: period}
 }
 
-func (l *submissionLimiter) allow(formID uint) bool {
-	if l == nil {
+func (l *submissionLimiter) allow(ctx context.Context, formID uint) bool {
+	if l == nil || l.limiter == nil {
 		return true
 	}
-	allowed, _ := l.window.Allow(strconv.FormatUint(uint64(formID), 10))
+	allowed, _, err := l.limiter.Allow(ctx, "form-submissions", strconv.FormatUint(uint64(formID), 10), l.max, l.period)
+	if err != nil {
+		slog.Warn("forms: cannot check the submission limit, accepting the submission", "form_id", formID, "error", err)
+		return true
+	}
 	return allowed
 }

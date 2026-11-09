@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"rabbit-hole-server/internal/ratelimit"
 )
 
 func TestRateLimiterReturns429AndStopsChain(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(RateLimiter(1, time.Hour))
+	router.Use(RateLimiter(ratelimit.NewMemory(), "test", 1, time.Hour))
 
 	handlerCalls := 0
 	router.GET("/limited", func(c *gin.Context) {
@@ -60,7 +62,7 @@ func TestRateLimiterReturns429AndStopsChain(t *testing.T) {
 func TestRateLimiterAllowsRequestsAfterPeriod(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(RateLimiter(1, 10*time.Millisecond))
+	router.Use(RateLimiter(ratelimit.NewMemory(), "test", 1, 10*time.Millisecond))
 	router.GET("/limited", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 
 	first := httptest.NewRecorder()

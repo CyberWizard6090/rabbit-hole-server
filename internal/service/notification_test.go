@@ -11,6 +11,7 @@ import (
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/mail"
+	"rabbit-hole-server/internal/ratelimit"
 )
 
 type fakeSource struct {
@@ -240,7 +241,7 @@ func newNotifyRig(t *testing.T, perms allowPerms, emailLimit int) *notifyRig {
 	rig := &notifyRig{
 		inbox: &fakeInbox{}, mailbox: mail.NewMemory(), watchers: &fakeWatchers{},
 		settings: &fakeSettings{prefs: map[uint][]domain.NotificationPreference{}, locale: map[uint]string{}},
-		channels: newFakeChannelRepo(), comments: &fakeComments{}, throttle: NewEmailThrottle(emailLimit, time.Hour),
+		channels: newFakeChannelRepo(), comments: &fakeComments{}, throttle: NewEmailThrottle(ratelimit.NewMemory(), emailLimit, time.Hour),
 	}
 	source := &fakeSource{accounts: map[uint]domain.AccountMailTarget{
 		1: {Email: "actor@example.test", Verified: true},
@@ -345,18 +346,18 @@ func TestEffectiveEnabledUsesStoredPreferenceOverDefault(t *testing.T) {
 }
 
 func TestEmailThrottleWindow(t *testing.T) {
-	th := NewEmailThrottle(2, time.Hour)
 	now := time.Now()
-	th.now = func() time.Time { return now }
-	first, second, third := th.Allow(1), th.Allow(1), th.Allow(1)
+	th := NewEmailThrottle(ratelimit.NewMemory().WithClock(func() time.Time { return now }), 2, time.Hour)
+	ctx := context.Background()
+	first, second, third := th.Allow(ctx, 1), th.Allow(ctx, 1), th.Allow(ctx, 1)
 	if !first || !second || third {
 		t.Fatal("the third mail within the hour must be refused")
 	}
-	if !th.Allow(2) {
+	if !th.Allow(ctx, 2) {
 		t.Fatal("limits are per user")
 	}
 	now = now.Add(61 * time.Minute)
-	if !th.Allow(1) {
+	if !th.Allow(ctx, 1) {
 		t.Fatal("mails are allowed again after the window")
 	}
 }
@@ -513,7 +514,7 @@ func TestChannelServiceValidationLimitsAndCooldown(t *testing.T) {
 	mailbox := mail.NewMemory()
 	registry := NewChannelRegistry(
 		NewInAppChannel(&fakeInbox{}, 10, nil),
-		NewEmailChannel(&fakeSource{}, repo, mailbox, "https://app.example.test", NewEmailThrottle(1, time.Hour)),
+		NewEmailChannel(&fakeSource{}, repo, mailbox, "https://app.example.test", NewEmailThrottle(ratelimit.NewMemory(), 1, time.Hour)),
 	)
 	svc := NewNotificationChannelService(repo, &fakeSource{}, registry)
 	ctx := context.Background()
@@ -654,7 +655,7 @@ func TestPreferencesMatrixReportsUsability(t *testing.T) {
 	source := &fakeSource{accounts: map[uint]domain.AccountMailTarget{
 		2: {Email: "a@b.test", Verified: true}, 3: {Email: "c@d.test"},
 	}}
-	registry := NewChannelRegistry(NewInAppChannel(&fakeInbox{}, 10, nil), NewEmailChannel(source, repo, mail.NewMemory(), "x", NewEmailThrottle(1, time.Hour)))
+	registry := NewChannelRegistry(NewInAppChannel(&fakeInbox{}, 10, nil), NewEmailChannel(source, repo, mail.NewMemory(), "x", NewEmailThrottle(ratelimit.NewMemory(), 1, time.Hour)))
 	svc := NewNotificationService(&fakeInbox{}, settings, &fakeWatchers{}, registry)
 
 	matrix, err := svc.Preferences(context.Background(), 3)

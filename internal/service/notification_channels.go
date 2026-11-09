@@ -8,12 +8,13 @@ import (
 	"log/slog"
 	"net/mail"
 	"net/url"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"rabbit-hole-server/internal/domain"
 	mailer "rabbit-hole-server/internal/mail"
+	"rabbit-hole-server/internal/ratelimit"
 )
 
 var ErrEmailThrottled = errors.New("hourly e-mail limit reached")
@@ -124,43 +125,22 @@ func (c *inAppChannel) Deliver(ctx context.Context, d Delivery) error {
 }
 
 type EmailThrottle struct {
-	mu     sync.Mutex
-	limit  int
-	window time.Duration
-	now    func() time.Time
-	hits   map[uint][]time.Time
-	sweep  time.Time
+	limiter ratelimit.Limiter
+	limit   int
+	window  time.Duration
 }
 
-func NewEmailThrottle(limit int, window time.Duration) *EmailThrottle {
-	return &EmailThrottle{limit: limit, window: window, now: time.Now, hits: make(map[uint][]time.Time)}
+func NewEmailThrottle(limiter ratelimit.Limiter, limit int, window time.Duration) *EmailThrottle {
+	return &EmailThrottle{limiter: limiter, limit: limit, window: window}
 }
 
-func (t *EmailThrottle) Allow(userID uint) bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	now := t.now()
-	cutoff := now.Add(-t.window)
-	if now.After(t.sweep) {
-		for id, times := range t.hits {
-			if len(times) == 0 || !times[len(times)-1].After(cutoff) {
-				delete(t.hits, id)
-			}
-		}
-		t.sweep = now.Add(t.window)
+func (t *EmailThrottle) Allow(ctx context.Context, userID uint) bool {
+	allowed, _, err := t.limiter.Allow(ctx, "notification-email", strconv.FormatUint(uint64(userID), 10), t.limit, t.window)
+	if err != nil {
+		slog.Warn("notification: cannot check the e-mail limit, sending anyway", "user_id", userID, "error", err)
+		return true
 	}
-	kept := t.hits[userID][:0]
-	for _, at := range t.hits[userID] {
-		if at.After(cutoff) {
-			kept = append(kept, at)
-		}
-	}
-	if len(kept) >= t.limit {
-		t.hits[userID] = kept
-		return false
-	}
-	t.hits[userID] = append(kept, now)
-	return true
+	return allowed
 }
 
 const maxEmailLength = 254
@@ -230,7 +210,7 @@ func (c *emailChannel) Destinations(ctx context.Context, userID uint) ([]string,
 }
 
 func (c *emailChannel) Deliver(ctx context.Context, d Delivery) error {
-	if !c.throttle.Allow(d.RecipientID) {
+	if !c.throttle.Allow(ctx, d.RecipientID) {
 		return ErrEmailThrottled
 	}
 	subject, text, html, err := renderNotificationMail(d.Locale, c.frontendURL, d.Content)

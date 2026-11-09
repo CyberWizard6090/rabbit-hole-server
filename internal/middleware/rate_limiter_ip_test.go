@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"rabbit-hole-server/internal/ratelimit"
 )
 
 func TestRateLimiterKeysIPv6ByPrefixAndIPv4ByAddress(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(RateLimiter(1, time.Hour))
+	router.Use(RateLimiter(ratelimit.NewMemory(), "test", 1, time.Hour))
 	router.GET("/limited", func(c *gin.Context) { c.Status(http.StatusNoContent) })
 
 	status := func(remote string) int {

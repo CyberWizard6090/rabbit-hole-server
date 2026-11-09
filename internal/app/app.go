@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -46,10 +47,35 @@ func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 		defer a.running.Done()
 		service.RunFormUploadCleanup(workerCtx, container.FormUploads, formUploadCleanupInterval)
 	}()
+	if container.PurgeRateLimits != nil {
+		a.running.Add(1)
+		go func() {
+			defer a.running.Done()
+			runRateLimitPurge(workerCtx, container.PurgeRateLimits, rateLimitPurgeInterval)
+		}()
+	}
 	return a, nil
 }
 
-const formUploadCleanupInterval = 10 * time.Minute
+const (
+	formUploadCleanupInterval = 10 * time.Minute
+	rateLimitPurgeInterval    = 10 * time.Minute
+)
+
+func runRateLimitPurge(ctx context.Context, purge func(context.Context) error, every time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := purge(ctx); err != nil && ctx.Err() == nil {
+				slog.Warn("rate limit: cannot purge expired counters", "error", err)
+			}
+		}
+	}
+}
 
 func (a *App) Run(addr string) error {
 	return a.router.Run(addr)

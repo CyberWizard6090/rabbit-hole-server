@@ -18,6 +18,7 @@ type Config struct {
 	DB             DBConfig
 	JWT            JWTConfig `envPrefix:"JWT_"`
 	Auth           AuthConfig
+	RateLimit      RateLimitConfig
 	Storage        StorageConfig
 	Mail           MailConfig
 	Notifications  NotificationConfig
@@ -43,12 +44,11 @@ func (s ServerConfig) Proxies() []string {
 }
 
 type AuthConfig struct {
-	HashConcurrency      int           `env:"AUTH_HASH_CONCURRENCY" envDefault:"0" validate:"gte=0,max=1024"`
-	HashWait             time.Duration `env:"AUTH_HASH_WAIT" envDefault:"1s" validate:"gte=0"`
-	LoginFailureLimit    int           `env:"AUTH_LOGIN_FAILURE_LIMIT" envDefault:"5" validate:"gte=0"`
-	LoginLockBase        time.Duration `env:"AUTH_LOGIN_LOCK_BASE" envDefault:"30s" validate:"gte=0"`
-	LoginLockMax         time.Duration `env:"AUTH_LOGIN_LOCK_MAX" envDefault:"15m" validate:"gte=0"`
-	LoginTrackedAccounts int           `env:"AUTH_LOGIN_TRACKED_ACCOUNTS" envDefault:"100000" validate:"gt=0"`
+	HashConcurrency   int           `env:"AUTH_HASH_CONCURRENCY" envDefault:"0" validate:"gte=0,max=1024"`
+	HashWait          time.Duration `env:"AUTH_HASH_WAIT" envDefault:"1s" validate:"gte=0"`
+	LoginFailureLimit int           `env:"AUTH_LOGIN_FAILURE_LIMIT" envDefault:"5" validate:"gte=0"`
+	LoginLockBase     time.Duration `env:"AUTH_LOGIN_LOCK_BASE" envDefault:"30s" validate:"gte=0"`
+	LoginLockMax      time.Duration `env:"AUTH_LOGIN_LOCK_MAX" envDefault:"15m" validate:"gte=0"`
 }
 
 func (a AuthConfig) HashSlots() int {
@@ -56,6 +56,10 @@ func (a AuthConfig) HashSlots() int {
 		return a.HashConcurrency
 	}
 	return runtime.NumCPU()
+}
+
+type RateLimitConfig struct {
+	Store string `env:"RATE_LIMIT_STORE" envDefault:"postgres" validate:"oneof=postgres memory"`
 }
 
 type DBConfig struct {

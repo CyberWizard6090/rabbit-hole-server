@@ -89,7 +89,7 @@ type AuthService struct {
 	verification    VerificationSender
 	requireVerified bool
 	revoker         ConnectionRevoker
-	backoff         *ratelimit.Backoff
+	backoff         ratelimit.Lockout
 }
 
 func NewAuthService(r AuthUserStore, jwtSecret string, accessTTL, refreshTTL time.Duration) *AuthService {
@@ -232,14 +232,48 @@ func burnPasswordHashLimited(ctx context.Context, password string) error {
 	return nil
 }
 
-func (s *AuthService) WithLoginBackoff(backoff *ratelimit.Backoff) *AuthService {
+func (s *AuthService) WithLoginBackoff(backoff ratelimit.Lockout) *AuthService {
 	s.backoff = backoff
 	return s
 }
 
+func (s *AuthService) lockoutActive() bool {
+	return s.backoff != nil && s.backoff.Enabled()
+}
+
+func (s *AuthService) loginLocked(ctx context.Context, email string) bool {
+	if !s.lockoutActive() {
+		return false
+	}
+	locked, _, err := s.backoff.Locked(ctx, email)
+	if err != nil {
+		slog.Warn("auth: cannot read the sign-in lock", "error", err)
+		return false
+	}
+	return locked
+}
+
+func (s *AuthService) loginFailed(ctx context.Context, email string) {
+	if !s.lockoutActive() {
+		return
+	}
+	if _, err := s.backoff.Fail(ctx, email); err != nil {
+		slog.Warn("auth: cannot record a failed sign-in", "error", err)
+	}
+}
+
+func (s *AuthService) loginSucceeded(ctx context.Context, email string) {
+	if !s.lockoutActive() {
+		return
+	}
+	if err := s.backoff.Succeed(ctx, email); err != nil {
+		slog.Warn("auth: cannot clear the sign-in lock", "error", err)
+	}
+}
+
 func (s *AuthService) Login(ctx context.Context, email, password string) (dto.TokenPair, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
-	if locked, _ := s.backoff.Locked(email); locked {
+	if s.loginLocked(ctx, email) {
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
 	user, err := s.repo.GetByEmail(ctx, email)
@@ -247,7 +281,7 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (dto.To
 		if busy := burnPasswordHashLimited(ctx, password); busy != nil {
 			return dto.TokenPair{}, busy
 		}
-		s.backoff.Fail(email)
+		s.loginFailed(ctx, email)
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
 
@@ -256,10 +290,10 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (dto.To
 		return dto.TokenPair{}, err
 	}
 	if !matches {
-		s.backoff.Fail(email)
+		s.loginFailed(ctx, email)
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
-	s.backoff.Succeed(email)
+	s.loginSucceeded(ctx, email)
 	if s.requireVerified && user.EmailVerifiedAt == nil {
 		return dto.TokenPair{}, ErrEmailNotVerified
 	}

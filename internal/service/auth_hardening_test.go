@@ -85,7 +85,7 @@ func newHardeningService(t *testing.T) (*AuthService, *hardeningStore) {
 
 func TestLoginLocksAfterRepeatedFailuresWithTheUsualAnswer(t *testing.T) {
 	svc, store := newHardeningService(t)
-	svc.WithLoginBackoff(ratelimit.NewBackoff(ratelimit.BackoffConfig{Threshold: 3, Base: time.Hour, Max: time.Hour}))
+	svc.WithLoginBackoff(ratelimit.NewMemoryLockout(ratelimit.BackoffConfig{Threshold: 3, Base: time.Hour, Max: time.Hour}))
 	ctx := context.Background()
 
 	for i := 0; i < 3; i++ {
@@ -104,7 +104,7 @@ func TestLoginLocksAfterRepeatedFailuresWithTheUsualAnswer(t *testing.T) {
 
 func TestLoginLockCoversUnknownAddressesTheSameWay(t *testing.T) {
 	svc, store := newHardeningService(t)
-	svc.WithLoginBackoff(ratelimit.NewBackoff(ratelimit.BackoffConfig{Threshold: 2, Base: time.Hour, Max: time.Hour}))
+	svc.WithLoginBackoff(ratelimit.NewMemoryLockout(ratelimit.BackoffConfig{Threshold: 2, Base: time.Hour, Max: time.Hour}))
 	ctx := context.Background()
 
 	for i := 0; i < 2; i++ {
@@ -120,7 +120,7 @@ func TestLoginLockCoversUnknownAddressesTheSameWay(t *testing.T) {
 
 func TestSuccessfulLoginClearsTheFailureCounter(t *testing.T) {
 	svc, _ := newHardeningService(t)
-	svc.WithLoginBackoff(ratelimit.NewBackoff(ratelimit.BackoffConfig{Threshold: 3, Base: time.Hour, Max: time.Hour}))
+	svc.WithLoginBackoff(ratelimit.NewMemoryLockout(ratelimit.BackoffConfig{Threshold: 3, Base: time.Hour, Max: time.Hour}))
 	ctx := context.Background()
 
 	for i := 0; i < 2; i++ {

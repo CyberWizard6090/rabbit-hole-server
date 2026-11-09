@@ -919,3 +919,20 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_validate_form_task_config_workspace
     BEFORE INSERT OR UPDATE ON form_task_configs
     FOR EACH ROW EXECUTE FUNCTION validate_form_task_config_workspace();
+
+CREATE TABLE rate_limit_windows (
+    bucket TEXT NOT NULL,
+    key TEXT NOT NULL,
+    count INTEGER NOT NULL,
+    reset_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (bucket, key)
+);
+CREATE INDEX idx_rate_limit_windows_reset ON rate_limit_windows(reset_at);
+
+CREATE TABLE login_lockouts (
+    subject TEXT PRIMARY KEY,
+    failures INTEGER NOT NULL,
+    last_fail_at TIMESTAMPTZ NOT NULL,
+    locked_until TIMESTAMPTZ
+);
+CREATE INDEX idx_login_lockouts_last_fail ON login_lockouts(last_fail_at);

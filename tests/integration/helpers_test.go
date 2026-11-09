@@ -231,6 +231,8 @@ func resetIntegrationDatabase() error {
 	return integrationDB.Exec(`
 		TRUNCATE TABLE
 			outbox_events,
+			rate_limit_windows,
+			login_lockouts,
 			task_assignees,
 			task_tags,
 			tasks,
