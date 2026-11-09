@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -13,7 +14,7 @@ func submissionNotice(recipients ...uint) FormSubmissionNotice {
 
 func TestFormSubmissionNotifiesListedMembersInApp(t *testing.T) {
 	rig := newNotifyRig(t, allowPerms{}, 10)
-	rig.dispatcher.NotifyFormSubmission(submissionNotice(2, 4))
+	_ = rig.dispatcher.NotifyFormSubmission(context.Background(), submissionNotice(2, 4))
 	rig.dispatcher.Wait()
 
 	types := draftTypes(rig.inbox.drafts)
@@ -39,7 +40,7 @@ func TestFormSubmissionNotifiesListedMembersInApp(t *testing.T) {
 
 func TestFormSubmissionSkipsMembersWhoLostWorkspaceAccess(t *testing.T) {
 	rig := newNotifyRig(t, allowPerms{deniedWorkspace: map[uint]bool{4: true}}, 10)
-	rig.dispatcher.NotifyFormSubmission(submissionNotice(2, 4))
+	_ = rig.dispatcher.NotifyFormSubmission(context.Background(), submissionNotice(2, 4))
 	rig.dispatcher.Wait()
 	types := draftTypes(rig.inbox.drafts)
 	if len(types) != 1 || types[2] == "" {
@@ -49,7 +50,7 @@ func TestFormSubmissionSkipsMembersWhoLostWorkspaceAccess(t *testing.T) {
 
 func TestFormSubmissionWithoutRecipientsIsIgnored(t *testing.T) {
 	rig := newNotifyRig(t, allowPerms{}, 10)
-	rig.dispatcher.NotifyFormSubmission(submissionNotice())
+	_ = rig.dispatcher.NotifyFormSubmission(context.Background(), submissionNotice())
 	rig.dispatcher.Wait()
 	if len(rig.inbox.drafts) != 0 {
 		t.Fatalf("drafts = %+v", rig.inbox.drafts)
@@ -61,7 +62,7 @@ func TestFormSubmissionMailLinksToTheSubmission(t *testing.T) {
 	rig.settings.prefs[2] = []domain.NotificationPreference{
 		{Type: domain.NotificationFormSubmitted, Channel: domain.ChannelKindEmail, Enabled: true},
 	}
-	rig.dispatcher.NotifyFormSubmission(submissionNotice(2))
+	_ = rig.dispatcher.NotifyFormSubmission(context.Background(), submissionNotice(2))
 	rig.dispatcher.Wait()
 
 	messages := rig.mailbox.To("two@example.test")
@@ -82,7 +83,7 @@ func TestFormSubmissionWordingIsLocalised(t *testing.T) {
 	rig.settings.prefs[2] = []domain.NotificationPreference{
 		{Type: domain.NotificationFormSubmitted, Channel: domain.ChannelKindEmail, Enabled: true},
 	}
-	rig.dispatcher.NotifyFormSubmission(submissionNotice(2))
+	_ = rig.dispatcher.NotifyFormSubmission(context.Background(), submissionNotice(2))
 	rig.dispatcher.Wait()
 	messages := rig.mailbox.To("two@example.test")
 	if len(messages) != 1 || messages[0].Subject != "Новый ответ в форме «Contact us»" {
@@ -102,7 +103,7 @@ func TestFormSubmissionMailTextsAreConsistent(t *testing.T) {
 	rig.settings.prefs[2] = []domain.NotificationPreference{
 		{Type: domain.NotificationFormSubmitted, Channel: domain.ChannelKindEmail, Enabled: true},
 	}
-	rig.dispatcher.NotifyFormSubmission(submissionNotice(2))
+	_ = rig.dispatcher.NotifyFormSubmission(context.Background(), submissionNotice(2))
 	rig.dispatcher.Wait()
 	messages := rig.mailbox.To("two@example.test")
 	if len(messages) != 1 {

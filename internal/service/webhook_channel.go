@@ -16,11 +16,11 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/safehttp"
+	"rabbit-hole-server/internal/txhook"
 )
 
 const (
@@ -35,11 +35,12 @@ const (
 	webhookConfirmAttempts  = 2
 	webhookBaseBackoff      = 500 * time.Millisecond
 	webhookResponseCap      = 4096
-	webhookWorkers          = 4
-	webhookQueueSize        = 256
 	webhookDeliveryDeadline = 45 * time.Second
 	webhookMaxURLLength     = 2048
+	webhookOutboxAttempts   = 6
 )
+
+var webhookOutboxBackoff = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour}
 
 type WebhookClient interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -51,6 +52,7 @@ type WebhookConfig struct {
 	Repo        domain.WebhookChannelRepository
 	Channels    domain.NotificationChannelRepository
 	Box         *SecretBox
+	Outbox      domain.OutboxRepository
 	FrontendURL string
 	AllowHTTP   bool
 	MaxFailures int
@@ -77,15 +79,7 @@ type webhookChannel struct {
 	cfg     WebhookConfig
 	backoff time.Duration
 	now     func() time.Time
-
-	ctx    context.Context
-	cancel context.CancelFunc
-	queue  chan Delivery
-	mu     sync.RWMutex
-	closed bool
-
-	workers sync.WaitGroup
-	pending sync.WaitGroup
+	poke    func()
 }
 
 func NewWebhookChannel(cfg WebhookConfig) Channel {
@@ -93,16 +87,15 @@ func NewWebhookChannel(cfg WebhookConfig) Channel {
 		cfg.MaxFailures = 10
 	}
 	cfg.FrontendURL = strings.TrimRight(cfg.FrontendURL, "/")
-	ctx, cancel := context.WithCancel(context.Background())
-	c := &webhookChannel{
-		cfg: cfg, backoff: webhookBaseBackoff, now: time.Now,
-		ctx: ctx, cancel: cancel, queue: make(chan Delivery, webhookQueueSize),
-	}
-	for i := 0; i < webhookWorkers; i++ {
-		c.workers.Add(1)
-		go c.work()
-	}
-	return c
+	return &webhookChannel{cfg: cfg, backoff: webhookBaseBackoff, now: time.Now}
+}
+
+func (c *webhookChannel) AttachWorker(worker *OutboxWorker) {
+	c.poke = worker.Poke
+	worker.Register(OutboxRoute{
+		Type: domain.OutboxDeliveryWebhook, Handler: OutboxHandlerFunc(c.handleEvent),
+		MaxAttempts: webhookOutboxAttempts, Backoff: webhookOutboxBackoff,
+	})
 }
 
 func (c *webhookChannel) Kind() string { return domain.ChannelKindWebhook }
@@ -144,104 +137,104 @@ func (c *webhookChannel) IssueSecret(ctx context.Context, userID, channelID uint
 	return secret, nil
 }
 
-func (c *webhookChannel) Deliver(_ context.Context, d Delivery) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.closed {
-		return errors.New("webhook delivery is shut down")
-	}
-	c.pending.Add(1)
-	select {
-	case c.queue <- d:
-		return nil
-	default:
-		c.pending.Done()
-		return errors.New("webhook queue is full")
-	}
+type webhookJob struct {
+	RecipientID uint               `json:"recipient_id"`
+	Locale      string             `json:"locale"`
+	Destination string             `json:"destination"`
+	TypeKey     string             `json:"type"`
+	TaskID      uint               `json:"task_id"`
+	TaskTitle   string             `json:"task_title"`
+	WorkspaceID uint               `json:"workspace_id"`
+	Actor       domain.CommentUser `json:"actor"`
+	ActorID     uint               `json:"actor_id"`
+	Payload     map[string]any     `json:"payload"`
 }
 
-func (c *webhookChannel) Wait() { c.pending.Wait() }
-
-func (c *webhookChannel) Shutdown(ctx context.Context) error {
-	c.mu.Lock()
-	if !c.closed {
-		c.closed = true
-		close(c.queue)
+func (c *webhookChannel) Deliver(ctx context.Context, d Delivery) error {
+	raw, err := json.Marshal(webhookJob{
+		RecipientID: d.RecipientID, Locale: d.Locale, Destination: d.Destination, TypeKey: d.Content.Type.Key,
+		TaskID: d.Content.TaskID, TaskTitle: d.Content.TaskTitle, WorkspaceID: d.Content.WorkspaceID,
+		Actor: d.Content.Actor, ActorID: d.Content.ActorID, Payload: d.Content.Payload,
+	})
+	if err != nil {
+		return err
 	}
-	c.mu.Unlock()
-	done := make(chan struct{})
-	go func() {
-		c.workers.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		c.cancel()
-		return nil
-	case <-ctx.Done():
-		c.cancel()
-		return ctx.Err()
+	if err := c.cfg.Outbox.Add(ctx, []domain.OutboxEvent{{
+		Type: domain.OutboxDeliveryWebhook, AggregateType: "user", AggregateID: d.RecipientID, Payload: raw,
+	}}); err != nil {
+		return err
 	}
+	if c.poke != nil {
+		txhook.AfterCommit(ctx, c.poke)
+	}
+	return nil
 }
 
-func (c *webhookChannel) work() {
-	defer c.workers.Done()
-	for d := range c.queue {
-		c.handle(d)
-		c.pending.Done()
+func (c *webhookChannel) handleEvent(ctx context.Context, event domain.OutboxEvent, final bool) error {
+	var job webhookJob
+	if err := json.Unmarshal(event.Payload, &job); err != nil {
+		return PermanentOutboxError(fmt.Errorf("decode webhook delivery: %w", err))
 	}
-}
-
-func (c *webhookChannel) handle(d Delivery) {
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("webhook: recovered from a panic", "panic", fmt.Sprint(r))
-		}
-	}()
-	ctx, cancel := context.WithTimeout(c.ctx, webhookDeliveryDeadline)
+	typeDef, ok := domain.NotificationTypeByKey(job.TypeKey)
+	if !ok {
+		return PermanentOutboxError(fmt.Errorf("unknown notification type %q", job.TypeKey))
+	}
+	d := Delivery{
+		RecipientID: job.RecipientID, Locale: job.Locale, Destination: job.Destination,
+		Content: NotificationContent{
+			Type: typeDef, TaskID: job.TaskID, TaskTitle: job.TaskTitle, WorkspaceID: job.WorkspaceID,
+			Actor: job.Actor, ActorID: job.ActorID, Payload: job.Payload,
+		},
+	}
+	ctx, cancel := context.WithTimeout(ctx, webhookDeliveryDeadline)
 	defer cancel()
 	target, err := c.cfg.Repo.ActiveTarget(ctx, d.RecipientID, d.Destination)
 	if err != nil {
-		if !errors.Is(err, domain.ErrNotFound) {
-			slog.Warn("webhook: cannot load the channel", "user_id", d.RecipientID, "error", err)
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil
 		}
-		return
+		return err
 	}
 	failure := c.send(ctx, d, target)
-	if err := c.cfg.Repo.RecordDelivery(context.WithoutCancel(ctx), target.ChannelID, failure, c.cfg.MaxFailures); err != nil {
-		slog.Warn("webhook: cannot record the delivery result", "channel_id", target.ChannelID, "error", err)
+	if failure == nil {
+		return c.record(ctx, target.ChannelID, "")
 	}
-	if failure != "" {
-		slog.Warn("webhook: delivery failed", "channel_id", target.ChannelID, "reason", failure)
+	if failure.retryable && !final {
+		return failure
 	}
+	if err := c.record(ctx, target.ChannelID, failure.message); err != nil {
+		return err
+	}
+	slog.Warn("webhook: delivery failed", "channel_id", target.ChannelID, "reason", failure.message)
+	return PermanentOutboxError(failure)
 }
 
-func (c *webhookChannel) send(ctx context.Context, d Delivery, target *domain.WebhookTarget) string {
+func (c *webhookChannel) record(ctx context.Context, channelID uint, failure string) error {
+	return c.cfg.Repo.RecordDelivery(context.WithoutCancel(ctx), channelID, failure, c.cfg.MaxFailures)
+}
+
+func (c *webhookChannel) send(ctx context.Context, d Delivery, target *domain.WebhookTarget) *webhookFailure {
 	secret, err := c.cfg.Box.Open(target.ChannelID, target.SecretEnc)
 	if err != nil {
-		return "the signing secret cannot be read"
+		return &webhookFailure{message: "the signing secret cannot be read", cause: err}
 	}
 	deliveryID, err := newDeliveryID()
 	if err != nil {
-		return "internal error"
+		return &webhookFailure{message: "internal error", cause: err, retryable: true}
 	}
 	body, err := json.Marshal(c.eventBody(d, deliveryID))
 	if err != nil {
-		return "internal error"
+		return &webhookFailure{message: "internal error", cause: err}
 	}
 	err = c.post(ctx, d.Destination, d.Content.Type.Key, deliveryID, body, secret, webhookMaxAttempts)
-	if err != nil {
-		return sanitizedFailure(err)
+	if err == nil {
+		return nil
 	}
-	return ""
-}
-
-func sanitizedFailure(err error) string {
 	var failure *webhookFailure
 	if errors.As(err, &failure) {
-		return failure.message
+		return failure
 	}
-	return "delivery failed"
+	return &webhookFailure{message: "delivery failed", cause: err, retryable: true}
 }
 
 type webhookTask struct {

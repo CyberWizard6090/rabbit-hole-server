@@ -232,6 +232,7 @@ type notifyRig struct {
 	channels   *fakeChannelRepo
 	comments   *fakeComments
 	throttle   *EmailThrottle
+	outbox     *memOutbox
 }
 
 func newNotifyRig(t *testing.T, perms allowPerms, emailLimit int) *notifyRig {
@@ -251,16 +252,17 @@ func newNotifyRig(t *testing.T, perms allowPerms, emailLimit int) *notifyRig {
 		NewInAppChannel(rig.inbox, 1000, nil),
 		NewEmailChannel(source, rig.channels, rig.mailbox, "https://app.example.test", rig.throttle),
 	)
+	rig.outbox = newMemOutbox()
 	rig.dispatcher = NewNotificationDispatcher(NotificationDispatcherDeps{
 		Source: source, Watchers: rig.watchers, Settings: rig.settings, Comments: rig.comments,
-		Perms: perms, Channels: registry,
+		Perms: perms, Channels: registry, Outbox: rig.outbox,
 	})
-	t.Cleanup(rig.dispatcher.Close)
+	rig.dispatcher.AttachWorker(NewOutboxWorker(rig.outbox, passthroughTx{}, 1, nil))
 	return rig
 }
 
 func (r *notifyRig) run(entries ...domain.ActivityEntry) {
-	r.dispatcher.Enqueue(entries)
+	_ = r.dispatcher.Enqueue(context.Background(), entries)
 	r.dispatcher.Wait()
 }
 
@@ -555,90 +557,93 @@ func TestChannelServiceValidationLimitsAndCooldown(t *testing.T) {
 	}
 }
 
-func TestDispatcherSurvivesPanicsAndDrainsOnClose(t *testing.T) {
+func TestDispatcherRetriesAPanickingEventAndKeepsGoing(t *testing.T) {
 	rig := newNotifyRig(t, allowPerms{}, 30)
 	rig.dispatcher.mappers["boom"] = func(context.Context, *NotificationDispatcher, domain.ActivityEntry) (*notificationPlan, error) {
 		panic("boom")
 	}
-	rig.dispatcher.Enqueue([]domain.ActivityEntry{{TaskID: 1, Actor: domain.UserActor(1), Action: "boom"}})
+	_ = rig.dispatcher.Enqueue(context.Background(), []domain.ActivityEntry{{TaskID: 1, Actor: domain.UserActor(1), Action: "boom"}})
 	rig.watchers.active = []uint{2}
 	rig.run(domain.ActivityEntry{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(7)})
 	if len(rig.inbox.drafts) != 1 {
-		t.Fatal("the worker must keep running after a panic")
+		t.Fatal("the worker must keep going after a panic")
 	}
-	rig.dispatcher.Enqueue([]domain.ActivityEntry{{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(8)}})
-	rig.dispatcher.Close()
-	if len(rig.inbox.drafts) != 2 {
-		t.Fatal("Close must drain queued events")
+	rows := rig.outbox.rowsOfType(domain.OutboxNotifyEntry)
+	if len(rows) != 2 || rows[0].done || rows[0].dead || !rows[0].nextAttempt.After(time.Now()) || rows[1].event.Attempts != 1 || !rows[1].done {
+		t.Fatalf("outbox rows = %+v", rows)
 	}
-	rig.dispatcher.Enqueue([]domain.ActivityEntry{{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(9)}})
-	rig.dispatcher.Wait()
 }
 
-func TestDispatcherShutdownHonorsContextAndCancelsCurrentBatch(t *testing.T) {
+func TestDispatcherGivesUpAfterTheAttemptLimit(t *testing.T) {
 	rig := newNotifyRig(t, allowPerms{}, 30)
-	started := make(chan struct{})
-	rig.dispatcher.mappers["block"] = func(ctx context.Context, _ *NotificationDispatcher, _ domain.ActivityEntry) (*notificationPlan, error) {
-		close(started)
-		<-ctx.Done()
-		return nil, ctx.Err()
+	clock := time.Now()
+	rig.outbox.now = func() time.Time { return clock }
+	rig.dispatcher.worker.now = func() time.Time { return clock }
+	failures := 0
+	rig.dispatcher.mappers["fail"] = func(context.Context, *NotificationDispatcher, domain.ActivityEntry) (*notificationPlan, error) {
+		failures++
+		return nil, errors.New("database unavailable")
 	}
-	rig.dispatcher.Enqueue([]domain.ActivityEntry{{Action: "block"}})
-	<-started
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	if err := rig.dispatcher.Shutdown(ctx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Shutdown error = %v, want deadline exceeded", err)
+	_ = rig.dispatcher.Enqueue(context.Background(), []domain.ActivityEntry{{TaskID: 1, Actor: domain.UserActor(1), Action: "fail"}})
+	for i := 0; i < notificationAttempts+2; i++ {
+		rig.dispatcher.Wait()
+		clock = clock.Add(3 * time.Hour)
 	}
-	select {
-	case <-rig.dispatcher.done:
-	case <-time.After(time.Second):
-		t.Fatal("notification worker did not stop after cancellation")
+	rows := rig.outbox.rowsOfType(domain.OutboxNotifyEntry)
+	if failures != notificationAttempts || len(rows) != 1 || !rows[0].dead || rows[0].done {
+		t.Fatalf("failures=%d rows=%+v", failures, rows)
 	}
 }
 
-func TestDispatcherQueueIsRaceFree(t *testing.T) {
-	rig := newNotifyRig(t, allowPerms{}, 1000)
-	rig.watchers.active = []uint{2, 4}
-	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 25; j++ {
-				rig.dispatcher.Enqueue([]domain.ActivityEntry{{
-					TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(7),
-				}})
-			}
-		}()
+func TestDispatcherDropsAnUndecodableEventAtOnce(t *testing.T) {
+	rig := newNotifyRig(t, allowPerms{}, 30)
+	if err := rig.outbox.Add(context.Background(), []domain.OutboxEvent{{Type: domain.OutboxNotifyEntry, Payload: []byte("not json")}}); err != nil {
+		t.Fatal(err)
 	}
-	wg.Wait()
-	rig.dispatcher.Close()
-	rig.inbox.mu.Lock()
-	defer rig.inbox.mu.Unlock()
-	if len(rig.inbox.drafts) != 8*25*2 {
-		t.Fatalf("drafts = %d, want %d", len(rig.inbox.drafts), 8*25*2)
+	rig.dispatcher.Wait()
+	rows := rig.outbox.rowsOfType(domain.OutboxNotifyEntry)
+	if len(rows) != 1 || !rows[0].dead || rows[0].event.Attempts != 1 {
+		t.Fatalf("rows = %+v", rows)
 	}
 }
 
-func TestNotifyingRecorderForwardsAndDispatches(t *testing.T) {
+func TestNotifyingRecorderForwardsAndQueuesTheEvent(t *testing.T) {
 	rig := newNotifyRig(t, allowPerms{}, 30)
 	rig.watchers.active = []uint{2}
 	var forwarded []domain.ActivityEntry
-	next := recorderFunc(func(_ context.Context, e ...domain.ActivityEntry) { forwarded = append(forwarded, e...) })
-	recorder := NewNotifyingRecorder(next, rig.dispatcher)
-	recorder.Record(context.Background(), domain.ActivityEntry{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(7)})
+	next := recorderFunc(func(_ context.Context, e ...domain.ActivityEntry) error {
+		forwarded = append(forwarded, e...)
+		return nil
+	})
+	recorder := NewNotifyingRecorder(next, rig.dispatcher, passthroughTx{})
+	if err := recorder.Record(context.Background(), domain.ActivityEntry{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated, Field: "status_id", NewValue: raw(7)}); err != nil {
+		t.Fatal(err)
+	}
+	if len(rig.outbox.rowsOfType(domain.OutboxNotifyEntry)) != 1 || len(rig.inbox.drafts) != 0 {
+		t.Fatal("the event must be stored first and processed by the worker later")
+	}
 	rig.dispatcher.Wait()
 	if len(forwarded) != 1 || len(rig.inbox.drafts) != 1 {
 		t.Fatalf("forwarded=%d drafts=%d", len(forwarded), len(rig.inbox.drafts))
 	}
 }
 
-type recorderFunc func(ctx context.Context, entries ...domain.ActivityEntry)
+func TestNotifyingRecorderStopsWhenTheActivityCannotBeWritten(t *testing.T) {
+	rig := newNotifyRig(t, allowPerms{}, 30)
+	failing := recorderFunc(func(context.Context, ...domain.ActivityEntry) error { return errors.New("disk full") })
+	recorder := NewNotifyingRecorder(failing, rig.dispatcher, passthroughTx{})
+	if err := recorder.Record(context.Background(), domain.ActivityEntry{TaskID: 5, Actor: domain.UserActor(1), Action: domain.ActivityTaskUpdated}); err == nil {
+		t.Fatal("a failed activity write must fail the change")
+	}
+	if len(rig.outbox.rowsOfType(domain.OutboxNotifyEntry)) != 0 {
+		t.Fatal("no notification event may be queued for an activity that was not written")
+	}
+}
 
-func (f recorderFunc) Record(ctx context.Context, entries ...domain.ActivityEntry) {
-	f(ctx, entries...)
+type recorderFunc func(ctx context.Context, entries ...domain.ActivityEntry) error
+
+func (f recorderFunc) Record(ctx context.Context, entries ...domain.ActivityEntry) error {
+	return f(ctx, entries...)
 }
 
 func TestPreferencesMatrixReportsUsability(t *testing.T) {

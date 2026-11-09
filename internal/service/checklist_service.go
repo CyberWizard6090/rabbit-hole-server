@@ -22,21 +22,34 @@ type ChecklistService interface {
 type checklistService struct {
 	repo     domain.ChecklistRepository
 	activity ActivityRecorder
+	tx       TransactionRunner
 }
 
-func NewChecklistService(repo domain.ChecklistRepository, activity ActivityRecorder) ChecklistService {
+func NewChecklistService(repo domain.ChecklistRepository, activity ActivityRecorder) *checklistService {
 	return &checklistService{repo: repo, activity: activity}
 }
 
+func (s *checklistService) WithTransactions(tx TransactionRunner) *checklistService {
+	s.tx = tx
+	return s
+}
+
 func (s *checklistService) CreateChecklist(ctx context.Context, userID, taskID uint, name string) (*domain.Checklist, error) {
-	list, err := s.repo.CreateChecklist(ctx, taskID, name)
+	var list *domain.Checklist
+	err := runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		created, err := s.repo.CreateChecklist(txCtx, taskID, name)
+		if err != nil {
+			return err
+		}
+		list = created
+		return recordActivity(txCtx, s.activity, domain.ActivityEntry{
+			TaskID: taskID, Actor: domain.UserActor(userID), Action: domain.ActivityChecklistCreated,
+			NewValue: mustJSON(map[string]any{"checklist_id": created.ID, "name": created.Name}),
+		})
+	})
 	if err != nil {
 		return nil, err
 	}
-	recordActivity(ctx, s.activity, domain.ActivityEntry{
-		TaskID: taskID, Actor: domain.UserActor(userID), Action: domain.ActivityChecklistCreated,
-		NewValue: mustJSON(map[string]any{"checklist_id": list.ID, "name": list.Name}),
-	})
 	return list, nil
 }
 
@@ -53,14 +66,15 @@ func (s *checklistService) DeleteChecklist(ctx context.Context, userID, taskID, 
 	if err != nil {
 		return err
 	}
-	if err := s.repo.DeleteChecklist(ctx, taskID, checklistID); err != nil {
-		return err
-	}
-	recordActivity(ctx, s.activity, domain.ActivityEntry{
-		TaskID: taskID, Actor: domain.UserActor(userID), Action: domain.ActivityChecklistDeleted,
-		OldValue: mustJSON(map[string]any{"checklist_id": existing.ID, "name": existing.Name}),
+	return runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		if err := s.repo.DeleteChecklist(txCtx, taskID, checklistID); err != nil {
+			return err
+		}
+		return recordActivity(txCtx, s.activity, domain.ActivityEntry{
+			TaskID: taskID, Actor: domain.UserActor(userID), Action: domain.ActivityChecklistDeleted,
+			OldValue: mustJSON(map[string]any{"checklist_id": existing.ID, "name": existing.Name}),
+		})
 	})
-	return nil
 }
 
 func (s *checklistService) ReorderChecklists(ctx context.Context, taskID uint, ids []uint) error {
@@ -70,19 +84,26 @@ func (s *checklistService) ReorderChecklists(ctx context.Context, taskID uint, i
 func (s *checklistService) CreateItem(
 	ctx context.Context, userID, taskID, checklistID uint, text string, assigneeID *uint,
 ) (*domain.ChecklistItem, error) {
-	item, err := s.repo.CreateItem(ctx, taskID, checklistID, text, assigneeID)
+	var item *domain.ChecklistItem
+	err := runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		created, err := s.repo.CreateItem(txCtx, taskID, checklistID, text, assigneeID)
+		if err != nil {
+			return err
+		}
+		item = created
+		return s.recordAssignment(txCtx, userID, taskID, created)
+	})
 	if err != nil {
 		return nil, err
 	}
-	s.recordAssignment(ctx, userID, taskID, item)
 	return item, nil
 }
 
-func (s *checklistService) recordAssignment(ctx context.Context, userID, taskID uint, item *domain.ChecklistItem) {
+func (s *checklistService) recordAssignment(ctx context.Context, userID, taskID uint, item *domain.ChecklistItem) error {
 	if item.Assignee == nil {
-		return
+		return nil
 	}
-	recordActivity(ctx, s.activity, domain.ActivityEntry{
+	return recordActivity(ctx, s.activity, domain.ActivityEntry{
 		TaskID: taskID, Actor: domain.UserActor(userID), Action: domain.ActivityChecklistItemAssigned,
 		NewValue: mustJSON(map[string]any{
 			"checklist_id": item.ChecklistID, "item_id": item.ID, "text": item.Text, "assignee_id": item.Assignee.ID,
@@ -97,22 +118,32 @@ func (s *checklistService) UpdateItem(
 	if err != nil {
 		return nil, err
 	}
-	item, err := s.repo.UpdateItem(ctx, taskID, checklistID, itemID, userID, update)
+	var item *domain.ChecklistItem
+	err = runInTransaction(ctx, s.tx, func(txCtx context.Context) error {
+		updated, err := s.repo.UpdateItem(txCtx, taskID, checklistID, itemID, userID, update)
+		if err != nil {
+			return err
+		}
+		item = updated
+		if updated.Resolved != before.Resolved {
+			action := domain.ActivityChecklistItemReopened
+			if updated.Resolved {
+				action = domain.ActivityChecklistItemResolved
+			}
+			if err := recordActivity(txCtx, s.activity, domain.ActivityEntry{
+				TaskID: taskID, Actor: domain.UserActor(userID), Action: action,
+				NewValue: mustJSON(map[string]any{"checklist_id": checklistID, "item_id": itemID, "text": updated.Text}),
+			}); err != nil {
+				return err
+			}
+		}
+		if updated.Assignee != nil && (before.Assignee == nil || before.Assignee.ID != updated.Assignee.ID) {
+			return s.recordAssignment(txCtx, userID, taskID, updated)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	if item.Resolved != before.Resolved {
-		action := domain.ActivityChecklistItemReopened
-		if item.Resolved {
-			action = domain.ActivityChecklistItemResolved
-		}
-		recordActivity(ctx, s.activity, domain.ActivityEntry{
-			TaskID: taskID, Actor: domain.UserActor(userID), Action: action,
-			NewValue: mustJSON(map[string]any{"checklist_id": checklistID, "item_id": itemID, "text": item.Text}),
-		})
-	}
-	if item.Assignee != nil && (before.Assignee == nil || before.Assignee.ID != item.Assignee.ID) {
-		s.recordAssignment(ctx, userID, taskID, item)
 	}
 	return item, nil
 }

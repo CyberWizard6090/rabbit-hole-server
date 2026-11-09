@@ -24,7 +24,7 @@ const (
 var accentColorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 
 type FormSubmissionNotifier interface {
-	NotifyFormSubmission(notice FormSubmissionNotice)
+	NotifyFormSubmission(ctx context.Context, notice FormSubmissionNotice) error
 }
 
 type PublicFormSettings struct {
@@ -234,12 +234,12 @@ func formClosed(settings domain.FormSettings, now time.Time) bool {
 }
 
 func (s *formService) notifySubmission(
-	form *domain.Form, name string, settings domain.FormSettings, submissionID uint,
-) {
+	ctx context.Context, form *domain.Form, name string, settings domain.FormSettings, submissionID uint,
+) error {
 	if s.notifier == nil || len(settings.NotifyOnSubmit) == 0 {
-		return
+		return nil
 	}
-	s.notifier.NotifyFormSubmission(FormSubmissionNotice{
+	return s.notifier.NotifyFormSubmission(ctx, FormSubmissionNotice{
 		WorkspaceID: form.WorkspaceID, FormID: form.ID, FormName: name,
 		SubmissionID: submissionID, Recipients: settings.NotifyOnSubmit,
 	})

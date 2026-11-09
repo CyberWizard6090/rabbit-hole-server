@@ -24,8 +24,9 @@ type recorderStub struct {
 	entries []domain.ActivityEntry
 }
 
-func (r *recorderStub) Record(_ context.Context, entries ...domain.ActivityEntry) {
+func (r *recorderStub) Record(_ context.Context, entries ...domain.ActivityEntry) error {
 	r.entries = append(r.entries, entries...)
+	return nil
 }
 
 type activityRepositoryMock struct {

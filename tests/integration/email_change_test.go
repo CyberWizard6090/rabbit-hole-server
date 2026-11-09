@@ -1,10 +1,13 @@
 package integration
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"rabbit-hole-server/internal/service"
 )
 
 const changePath = "/api/v1/profile/email"
@@ -214,17 +217,23 @@ func TestEmailChange_CancelAndDeliveryFailure(t *testing.T) {
 	acc := newChangeAccount(t, tc, "ann@example.test")
 
 	tc.Mail.FailWith(http.ErrHandlerTimeout)
-	if rec := requestChange(t, tc, acc.access, "new@example.test", mailTestPassword); rec.Code < 500 {
-		t.Fatalf("delivery failure: %d", rec.Code)
+	if rec := requestChange(t, tc, acc.access, "new@example.test", mailTestPassword); rec.Code != http.StatusAccepted {
+		t.Fatalf("a queued mail must not fail the request: %d", rec.Code)
 	}
-	var rows int64
-	tc.DB.Table("email_tokens").Where("kind = 'change_email'").Count(&rows)
-	if rows != 0 {
-		t.Fatal("the token of an undelivered mail was kept")
+	if len(tc.Mail.To("new@example.test")) != 0 {
+		t.Fatal("the mail went out although the transport was down")
 	}
 	tc.Mail.FailWith(nil)
-
-	token := startChange(t, tc, acc, "new@example.test")
+	if err := tc.DB.Exec("UPDATE outbox_events SET next_attempt_at = now() WHERE event_type = 'delivery.mail' AND published_at IS NULL").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := service.DrainOutbox(context.Background(), tc.Workers...); err != nil {
+		t.Fatal(err)
+	}
+	if len(tc.Mail.To("new@example.test")) != 1 {
+		t.Fatal("the queued confirmation was not delivered once the transport recovered")
+	}
+	token := linkToken(t, only(t, tc, "new@example.test"), "/confirm-email-change")
 	if profileField(t, tc, acc.access, "pending_email") != "new@example.test" {
 		t.Fatal("pending_email missing")
 	}

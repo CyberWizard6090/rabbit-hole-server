@@ -2,20 +2,20 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
-	"sync"
 	"time"
 
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/txhook"
 )
 
-const (
-	notificationQueueSize = 1024
-	notificationWorkLimit = 30 * time.Second
-)
+const notificationAttempts = 6
+
+var notificationBackoff = []time.Duration{10 * time.Second, time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour}
 
 type NotificationDispatcher struct {
 	source   domain.NotificationSourceRepository
@@ -27,14 +27,9 @@ type NotificationDispatcher struct {
 	mappers  map[string]eventMapper
 	logger   *slog.Logger
 
-	queue  chan []domain.ActivityEntry
-	ctx    context.Context
-	cancel context.CancelFunc
-	done   chan struct{}
-
-	mu      sync.RWMutex
-	closed  bool
-	pending sync.WaitGroup
+	outbox   domain.OutboxRepository
+	worker   *OutboxWorker
+	drainers []*OutboxWorker
 }
 
 type NotificationDispatcherDeps struct {
@@ -44,6 +39,7 @@ type NotificationDispatcherDeps struct {
 	Comments domain.CommentRepository
 	Perms    PermissionChecker
 	Channels *ChannelRegistry
+	Outbox   domain.OutboxRepository
 	Logger   *slog.Logger
 }
 
@@ -52,128 +48,113 @@ func NewNotificationDispatcher(deps NotificationDispatcherDeps) *NotificationDis
 	if logger == nil {
 		logger = slog.Default()
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	d := &NotificationDispatcher{
+	return &NotificationDispatcher{
 		source: deps.Source, watchers: deps.Watchers, settings: deps.Settings, comments: deps.Comments,
 		perms: deps.Perms, channels: deps.Channels, mappers: defaultEventMappers(), logger: logger,
-		queue: make(chan []domain.ActivityEntry, notificationQueueSize),
-		ctx:   ctx, cancel: cancel, done: make(chan struct{}),
-	}
-	go d.run()
-	return d
-}
-
-func (d *NotificationDispatcher) run() {
-	defer close(d.done)
-	for {
-		select {
-		case <-d.ctx.Done():
-			for range d.queue {
-				d.pending.Done()
-			}
-			return
-		case batch, ok := <-d.queue:
-			if !ok {
-				return
-			}
-			d.handleBatch(batch)
-			d.pending.Done()
-		}
+		outbox: deps.Outbox,
 	}
 }
 
-func (d *NotificationDispatcher) handleBatch(batch []domain.ActivityEntry) {
-	defer func() {
-		if r := recover(); r != nil {
-			d.logger.Error("notifications: recovered from a panic", "panic", fmt.Sprint(r))
-		}
-	}()
-	ctx, cancel := context.WithTimeout(d.ctx, notificationWorkLimit)
-	defer cancel()
-	for _, entry := range batch {
-		d.handleEntry(ctx, entry)
-	}
+func (d *NotificationDispatcher) DrainAlso(workers ...*OutboxWorker) {
+	d.drainers = append(d.drainers, workers...)
 }
 
-func (d *NotificationDispatcher) handleEntry(ctx context.Context, entry domain.ActivityEntry) {
-	defer func() {
-		if r := recover(); r != nil {
-			d.logger.Error("notifications: recovered from a panic", "action", entry.Action, "panic", fmt.Sprint(r))
-		}
-	}()
+func (d *NotificationDispatcher) AttachWorker(worker *OutboxWorker) {
+	d.worker = worker
+	d.drainers = append(d.drainers, worker)
+	worker.Register(OutboxRoute{
+		Type: domain.OutboxNotifyEntry, Handler: OutboxHandlerFunc(d.handleEvent), Transactional: true,
+		MaxAttempts: notificationAttempts, Backoff: notificationBackoff,
+	})
+}
+
+type outboxEntry struct {
+	TaskID     uint             `json:"task_id"`
+	ActorType  domain.ActorType `json:"actor_type"`
+	ActorID    uint             `json:"actor_id"`
+	ActorLabel string           `json:"actor_label"`
+	Action     string           `json:"action"`
+	Field      string           `json:"field"`
+	OldValue   json.RawMessage  `json:"old_value,omitempty"`
+	NewValue   json.RawMessage  `json:"new_value,omitempty"`
+}
+
+func encodeEntry(e domain.ActivityEntry) (domain.OutboxEvent, error) {
+	actor := e.Actor.Normalized()
+	raw, err := json.Marshal(outboxEntry{
+		TaskID: e.TaskID, ActorType: actor.Type, ActorID: actor.ID, ActorLabel: actor.Label,
+		Action: e.Action, Field: e.Field, OldValue: e.OldValue, NewValue: e.NewValue,
+	})
+	if err != nil {
+		return domain.OutboxEvent{}, err
+	}
+	return domain.OutboxEvent{
+		Type: domain.OutboxNotifyEntry, AggregateType: "task", AggregateID: e.TaskID, Payload: raw,
+	}, nil
+}
+
+func decodeEntry(raw json.RawMessage) (domain.ActivityEntry, error) {
+	var in outboxEntry
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return domain.ActivityEntry{}, err
+	}
+	return domain.ActivityEntry{
+		TaskID: in.TaskID, Actor: domain.Actor{Type: in.ActorType, ID: in.ActorID, Label: in.ActorLabel},
+		Action: in.Action, Field: in.Field, OldValue: in.OldValue, NewValue: in.NewValue,
+	}, nil
+}
+
+func (d *NotificationDispatcher) handleEvent(ctx context.Context, event domain.OutboxEvent, _ bool) error {
+	entry, err := decodeEntry(event.Payload)
+	if err != nil {
+		return PermanentOutboxError(fmt.Errorf("decode notification event: %w", err))
+	}
+	return d.handleEntry(ctx, entry)
+}
+
+func (d *NotificationDispatcher) handleEntry(ctx context.Context, entry domain.ActivityEntry) error {
 	mapper, ok := d.mappers[entry.Action]
 	if !ok {
-		return
+		return nil
 	}
 	plan, err := mapper(ctx, d, entry)
 	if err != nil {
-		d.logger.Warn("notifications: cannot map an activity entry", "action", entry.Action, "task_id", entry.TaskID, "error", err)
-		return
+		return fmt.Errorf("map %s: %w", entry.Action, err)
 	}
 	if plan == nil {
-		return
+		return nil
 	}
-	if err := d.process(ctx, plan); err != nil {
-		d.logger.Warn("notifications: cannot process an event", "action", entry.Action, "task_id", entry.TaskID, "error", err)
-	}
+	return d.process(ctx, plan)
 }
 
-func (d *NotificationDispatcher) Enqueue(entries []domain.ActivityEntry) {
-	if len(entries) == 0 {
-		return
+func (d *NotificationDispatcher) Enqueue(ctx context.Context, entries []domain.ActivityEntry) error {
+	if len(entries) == 0 || d.outbox == nil {
+		return nil
 	}
-	batch := append([]domain.ActivityEntry(nil), entries...)
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	if d.closed {
-		return
+	events := make([]domain.OutboxEvent, 0, len(entries))
+	for _, e := range entries {
+		event, err := encodeEntry(e)
+		if err != nil {
+			return fmt.Errorf("encode notification event: %w", err)
+		}
+		events = append(events, event)
 	}
-	d.pending.Add(1)
-	select {
-	case d.queue <- batch:
-	default:
-		d.pending.Done()
-		d.logger.Warn("notifications: queue is full, dropping an event", "task_id", batch[0].TaskID)
+	if err := d.outbox.Add(ctx, events); err != nil {
+		return err
 	}
+	if d.worker != nil {
+		txhook.AfterCommit(ctx, d.worker.Poke)
+	}
+	return nil
 }
 
 func (d *NotificationDispatcher) Wait() {
-	d.pending.Wait()
-	for _, ch := range d.channels.All() {
-		if w, ok := ch.(interface{ Wait() }); ok {
-			w.Wait()
-		}
+	if len(d.drainers) == 0 {
+		return
 	}
-}
-
-func (d *NotificationDispatcher) Close() {
-	if err := d.Shutdown(context.Background()); err != nil {
-		d.logger.Error("notifications: cannot shut down dispatcher", "error", err)
+	if err := DrainOutbox(context.Background(), d.drainers...); err != nil {
+		d.logger.Error("notifications: cannot drain the outbox", "error", err)
 	}
-}
-
-func (d *NotificationDispatcher) Shutdown(ctx context.Context) error {
-	d.mu.Lock()
-	if !d.closed {
-		d.closed = true
-		close(d.queue)
-	}
-	d.mu.Unlock()
-
-	select {
-	case <-d.done:
-		d.cancel()
-	case <-ctx.Done():
-		d.cancel()
-		return ctx.Err()
-	}
-	var shutdownErr error
-	for _, ch := range d.channels.All() {
-		if s, ok := ch.(interface{ Shutdown(context.Context) error }); ok {
-			shutdownErr = errors.Join(shutdownErr, s.Shutdown(ctx))
-		}
-	}
-	return shutdownErr
 }
 
 func stronger(current string, candidate string) bool {
@@ -221,7 +202,7 @@ func (d *NotificationDispatcher) process(ctx context.Context, plan *notification
 		return d.processWorkspaceEvent(ctx, plan)
 	}
 	if err := d.watchers.AutoWatch(ctx, plan.TaskID, plan.AutoWatch); err != nil {
-		d.logger.Warn("notifications: cannot auto-watch", "task_id", plan.TaskID, "error", err)
+		return err
 	}
 	var watchers []uint
 	if plan.WatcherType != "" {
@@ -255,19 +236,20 @@ func (d *NotificationDispatcher) process(ctx context.Context, plan *notification
 		}
 		allowed, err := d.perms.HasTaskPermission(ctx, userID, plan.TaskID, domain.PermTaskRead)
 		if err != nil {
-			d.logger.Warn("notifications: cannot check access", "user_id", userID, "error", err)
-			continue
+			return err
 		}
 		if !allowed {
 			continue
 		}
-		d.deliver(ctx, userID, Delivery{
+		if err := d.deliver(ctx, userID, Delivery{
 			RecipientID: userID,
 			Content: NotificationContent{
 				Type: typeDef, TaskID: plan.TaskID, TaskTitle: info.Title, WorkspaceID: info.WorkspaceID,
 				Actor: *actor, ActorID: plan.Actor.UserID(), Payload: plan.Payload,
 			},
-		})
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -287,11 +269,10 @@ func (d *NotificationDispatcher) actorFor(ctx context.Context, plan *notificatio
 	return &domain.CommentUser{FirstName: label}, nil
 }
 
-func (d *NotificationDispatcher) deliver(ctx context.Context, userID uint, base Delivery) {
+func (d *NotificationDispatcher) deliver(ctx context.Context, userID uint, base Delivery) error {
 	stored, err := d.settings.ListPreferences(ctx, userID)
 	if err != nil {
-		d.logger.Warn("notifications: cannot load preferences", "user_id", userID, "error", err)
-		return
+		return err
 	}
 	prefs := make(map[[2]string]bool, len(stored))
 	for _, p := range stored {
@@ -308,33 +289,47 @@ func (d *NotificationDispatcher) deliver(ctx context.Context, userID uint, base 
 		}
 		destinations, err := ch.Destinations(ctx, userID)
 		if err != nil {
-			logDeliveryFailure(userID, ch.Kind(), err)
-			continue
+			return err
 		}
 		for _, destination := range destinations {
 			delivery := base
 			delivery.Destination = destination
 			if err := ch.Deliver(ctx, delivery); err != nil {
-				logDeliveryFailure(userID, ch.Kind(), err)
+				if errors.Is(err, ErrEmailThrottled) {
+					logDeliveryFailure(userID, ch.Kind(), err)
+					continue
+				}
+				return fmt.Errorf("deliver %s notification: %w", ch.Kind(), err)
 			}
 		}
 	}
+	return nil
 }
 
 type NotifyingRecorder struct {
 	next       ActivityRecorder
 	dispatcher *NotificationDispatcher
+	tx         TransactionRunner
 }
 
-func NewNotifyingRecorder(next ActivityRecorder, dispatcher *NotificationDispatcher) *NotifyingRecorder {
-	return &NotifyingRecorder{next: next, dispatcher: dispatcher}
+func NewNotifyingRecorder(next ActivityRecorder, dispatcher *NotificationDispatcher, tx TransactionRunner) *NotifyingRecorder {
+	return &NotifyingRecorder{next: next, dispatcher: dispatcher, tx: tx}
 }
 
-func (r *NotifyingRecorder) Record(ctx context.Context, entries ...domain.ActivityEntry) {
-	if r.next != nil {
-		r.next.Record(ctx, entries...)
+func (r *NotifyingRecorder) Record(ctx context.Context, entries ...domain.ActivityEntry) error {
+	write := func(ctx context.Context) error {
+		if r.next != nil {
+			if err := r.next.Record(ctx, entries...); err != nil {
+				return err
+			}
+		}
+		if r.dispatcher != nil {
+			return r.dispatcher.Enqueue(ctx, entries)
+		}
+		return nil
 	}
-	if r.dispatcher != nil {
-		r.dispatcher.Enqueue(entries)
+	if r.tx == nil {
+		return write(ctx)
 	}
+	return r.tx.Run(ctx, write)
 }

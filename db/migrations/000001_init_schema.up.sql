@@ -865,9 +865,14 @@ CREATE TABLE outbox_events (
     aggregate_id BIGINT NOT NULL,
     payload JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    published_at TIMESTAMPTZ
+    published_at TIMESTAMPTZ,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    locked_until TIMESTAMPTZ,
+    last_error TEXT,
+    dead_at TIMESTAMPTZ
 );
-CREATE INDEX idx_outbox_events_pending ON outbox_events(created_at, id) WHERE published_at IS NULL;
+CREATE INDEX idx_outbox_events_pending ON outbox_events(next_attempt_at, id) WHERE published_at IS NULL AND dead_at IS NULL;
 
 ALTER TABLE forms ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
 

@@ -535,8 +535,8 @@ func (r *formRepository) ProcessSubmission(
 		if err != nil {
 			return fmt.Errorf("encode task creation outbox event: %w", err)
 		}
-		if err := tx.Exec(`INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, created_at)
-			VALUES (?, 'form_submission', ?, ?::jsonb, now())`,
+		if err := tx.Exec(`INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, created_at, published_at)
+			VALUES (?, 'form_submission', ?, ?::jsonb, now(), now())`,
 			"form.submission.task_created", submissionID, string(payload)).Error; err != nil {
 			return err
 		}

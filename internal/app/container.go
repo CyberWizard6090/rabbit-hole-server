@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -13,6 +12,7 @@ import (
 
 	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/database"
+	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/handler"
 	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/mail"
@@ -29,7 +29,6 @@ type Container struct {
 	AuthHandler         *handler.AuthHandler
 	AccountEmailHandler *handler.AccountEmailHandler
 	EmailChangeHandler  *handler.EmailChangeHandler
-	CloseMail           func(context.Context) error
 	TaskHandler         *handler.TaskHandler
 	CommentHandler      *handler.CommentHandler
 	ActivityHandler     *handler.ActivityHandler
@@ -37,6 +36,7 @@ type Container struct {
 	FileHandler         *handler.FileHandler
 	NotificationHandler *handler.NotificationHandler
 	Notifications       *service.NotificationDispatcher
+	Workers             []*service.OutboxWorker
 	UserHandler         *handler.UserHandler
 
 	WorkspaceHandler *handler.WorkspaceHandler
@@ -63,34 +63,25 @@ type Container struct {
 }
 
 func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
-	sender, closeMail, err := newMailSender(cfg)
+	transport, err := newMailTransport(cfg)
 	if err != nil {
 		return nil, err
 	}
-	container, err := NewContainerWithMailer(db, cfg, sender)
-	if err != nil {
-		if closeErr := closeMail(context.Background()); closeErr != nil {
-			return nil, errors.Join(err, fmt.Errorf("close mail sender: %w", closeErr))
-		}
-		return nil, err
-	}
-	container.CloseMail = closeMail
-	return container, nil
+	return NewContainerWithMailer(db, cfg, transport)
 }
 
-func newMailSender(cfg *config.Config) (mail.Sender, func(context.Context) error, error) {
+func newMailTransport(cfg *config.Config) (mail.Sender, error) {
 	if cfg.Mail.Driver != "smtp" {
-		return mail.NewLog(slog.Default()).WithBody(cfg.Environment == "development"), func(context.Context) error { return nil }, nil
+		return mail.NewLog(slog.Default()).WithBody(cfg.Environment == "development"), nil
 	}
 	smtp, err := mail.NewSMTP(mail.SMTPOptions{
 		Host: cfg.Mail.SMTPHost, Port: cfg.Mail.SMTPPort, Username: cfg.Mail.SMTPUsername, Password: cfg.Mail.SMTPPassword,
 		Security: cfg.Mail.SMTPSecurity, From: cfg.Mail.From,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("configure the mail sender: %w", err)
+		return nil, fmt.Errorf("configure the mail sender: %w", err)
 	}
-	async := mail.NewAsync(smtp, slog.Default())
-	return async, async.Shutdown, nil
+	return smtp, nil
 }
 
 type ContainerOption func(*containerOptions)
@@ -108,7 +99,7 @@ func WithRemoteFetcher(fetcher service.RemoteFetcher) ContainerOption {
 	return func(o *containerOptions) { o.remoteFetcher = fetcher }
 }
 
-func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender, opts ...ContainerOption) (*Container, error) {
+func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Sender, opts ...ContainerOption) (*Container, error) {
 	options := containerOptions{
 		remoteFetcher: safehttp.New(),
 		webhookClient: safehttp.New(
@@ -119,6 +110,16 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 		opt(&options)
 	}
 	hub := realtime.NewHub(realtime.DefaultMaxConnectionsPerUser, slog.Default())
+	secretBox, err := service.NewSecretBox(cfg.JWT.Secret)
+	if err != nil {
+		return nil, fmt.Errorf("create secret box: %w", err)
+	}
+	outboxRepo := repository.NewOutboxRepository(db)
+	transactions := database.NewTransactionRunner(db)
+	eventWorker := service.NewOutboxWorker(outboxRepo, transactions, 1, slog.Default())
+	deliveryWorker := service.NewOutboxWorker(outboxRepo, nil, deliveryWorkers, slog.Default())
+	sender := service.NewOutboxMailer(outboxRepo, secretBox, transport)
+	sender.AttachWorker(deliveryWorker)
 	userRepo := repository.NewUserRepository(db)
 	taskRepo := repository.NewTaskRepository(db)
 	contactRepo := repository.NewContactRepository(db)
@@ -169,11 +170,13 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	activityService := service.NewActivityService(repository.NewActivityRepository(db))
 	permissionChecker := repository.NewPermissionChecker(db)
 	tickets := realtime.NewTicketStore(realtime.DefaultTicketTTL)
-	notifications, err := newNotifications(db, cfg, sender, permissionChecker, hub, options.webhookClient)
+	notifications, err := newNotifications(db, cfg, sender, permissionChecker, hub, options.webhookClient, secretBox, outboxRepo, deliveryWorker)
 	if err != nil {
 		return nil, err
 	}
-	activityRecorder := service.NewNotifyingRecorder(activityService, notifications.dispatcher)
+	notifications.dispatcher.AttachWorker(eventWorker)
+	notifications.dispatcher.DrainAlso(deliveryWorker)
+	activityRecorder := service.NewNotifyingRecorder(activityService, notifications.dispatcher, transactions)
 	taskService := service.NewTaskService(
 		taskRepo, spaceRepo, tagService, cursorCodec, activityRecorder, customFieldService, database.NewTransactionRunner(db),
 	)
@@ -187,7 +190,8 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 	contactService := service.NewContactService(contactRepo)
 	folderService := service.NewFolderService(folderRepo)
 
-	commentService := service.NewCommentService(repository.NewCommentRepository(db), permissionChecker, activityRecorder)
+	commentService := service.NewCommentService(repository.NewCommentRepository(db), permissionChecker, activityRecorder).
+		WithTransactions(transactions)
 
 	store, err := storage.New(context.Background(), cfg.Storage)
 	if err != nil {
@@ -201,7 +205,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 		cfg.Storage.PublicBaseURL,
 		activityRecorder,
 		service.RehostConfig{Fetcher: options.remoteFetcher, MaxBytes: cfg.Storage.RehostLimit()},
-	)
+	).WithTransactions(transactions)
 	authServ.WithAvatarRemover(fileService)
 	workspaceService := service.NewWorkspaceServiceWithAvatars(workspaceRepo, hub, permissionChecker, fileService)
 	formUploadService := service.NewFormUploadService(
@@ -219,10 +223,11 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, sender mail.Sender,
 		AccountEmailHandler: handler.NewAccountEmailHandler(accountEmail),
 		EmailChangeHandler:  handler.NewEmailChangeHandler(emailChange),
 		ActivityHandler:     handler.NewActivityHandler(activityService),
-		ChecklistHandler:    handler.NewChecklistHandler(service.NewChecklistService(repository.NewChecklistRepository(db), activityRecorder)),
+		ChecklistHandler:    handler.NewChecklistHandler(service.NewChecklistService(repository.NewChecklistRepository(db), activityRecorder).WithTransactions(transactions)),
 		FileHandler:         handler.NewFileHandler(fileService),
 		NotificationHandler: notifications.handler,
 		Notifications:       notifications.dispatcher,
+		Workers:             []*service.OutboxWorker{eventWorker, deliveryWorker},
 		CommentHandler:      handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
 		TaskHandler:         handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
 		UserHandler:         handler.NewUserHandler(userService).WithPendingEmail(emailChange),
@@ -258,6 +263,8 @@ type notificationParts struct {
 	handler    *handler.NotificationHandler
 }
 
+const deliveryWorkers = 4
+
 const (
 	webhookRequestTimeout = 5 * time.Second
 	webhookUserAgent      = "RabbitHole-Webhook/1.0"
@@ -266,11 +273,8 @@ const (
 func newNotifications(
 	db *gorm.DB, cfg *config.Config, sender mail.Sender, permissions service.PermissionChecker,
 	publisher service.NotificationPublisher, webhookClient service.WebhookClient,
+	secretBox *service.SecretBox, outbox domain.OutboxRepository, deliveryWorker *service.OutboxWorker,
 ) (notificationParts, error) {
-	secretBox, err := service.NewSecretBox(cfg.JWT.Secret)
-	if err != nil {
-		return notificationParts{}, fmt.Errorf("create webhook secret box: %w", err)
-	}
 	inbox := repository.NewNotificationRepository(db)
 	source := repository.NewNotificationSourceRepository(db)
 	settings := repository.NewNotificationSettingsRepository(db)
@@ -283,14 +287,20 @@ func newNotifications(
 		service.NewEmailChannel(source, channelRepo, sender, cfg.Mail.FrontendURL, throttle),
 		service.NewWebhookChannel(service.WebhookConfig{
 			Client: webhookClient, Repo: repository.NewWebhookChannelRepository(db), Channels: channelRepo, Box: secretBox,
+			Outbox:      outbox,
 			FrontendURL: cfg.Mail.FrontendURL, AllowHTTP: cfg.Environment == "development",
 			MaxFailures: cfg.Notifications.WebhookMaxFailures,
 		}),
 	)
 	dispatcher := service.NewNotificationDispatcher(service.NotificationDispatcherDeps{
 		Source: source, Watchers: watchers, Settings: settings, Comments: repository.NewCommentRepository(db),
-		Perms: permissions, Channels: registry, Logger: slog.Default(),
+		Perms: permissions, Channels: registry, Outbox: outbox, Logger: slog.Default(),
 	})
+	if webhook, ok := registry.Get(domain.ChannelKindWebhook); ok {
+		if attachable, ok := webhook.(interface{ AttachWorker(*service.OutboxWorker) }); ok {
+			attachable.AttachWorker(deliveryWorker)
+		}
+	}
 	return notificationParts{
 		dispatcher: dispatcher,
 		handler: handler.NewNotificationHandler(

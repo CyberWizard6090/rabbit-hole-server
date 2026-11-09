@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,6 +42,10 @@ type TestContext struct {
 	Notifications *service.NotificationDispatcher
 	FormUploads   service.FormUploadService
 	StorageDir    string
+
+	Raw     http.Handler
+	Workers []*service.OutboxWorker
+	Config  config.Config
 }
 
 func TestMain(m *testing.M) {
@@ -150,16 +156,60 @@ func newTestContextWith(t *testing.T, adjust func(cfg *config.Config), opts ...a
 		t.Fatalf("create integration app dependencies: %v", err)
 	}
 
-	t.Cleanup(container.Notifications.Close)
-
+	rawRouter := app.SetupRouter(container, &cfg)
 	return &TestContext{
 		DB:            integrationDB,
-		Router:        app.SetupRouter(container, &cfg),
+		Router:        drainingHandler{inner: rawRouter, workers: container.Workers},
+		Raw:           rawRouter,
+		Workers:       container.Workers,
+		Config:        cfg,
 		Mail:          outbox,
 		Notifications: container.Notifications,
 		FormUploads:   container.FormUploads,
 		StorageDir:    cfg.Storage.LocalDir,
 	}
+}
+
+type drainingHandler struct {
+	inner   http.Handler
+	workers []*service.OutboxWorker
+}
+
+func (h drainingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.inner.ServeHTTP(w, r)
+	if err := service.DrainOutbox(context.Background(), h.workers...); err != nil {
+		panic(err)
+	}
+}
+
+func waitForMail(t *testing.T, memory *mail.Memory, to string, count int) []mail.Message {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if messages := memory.To(to); len(messages) >= count {
+			return messages
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("expected %d mails to %s, got %d", count, to, len(memory.To(to)))
+	return nil
+}
+
+func startWorkers(t *testing.T, container *app.Container) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	var group sync.WaitGroup
+	for _, worker := range container.Workers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			worker.Run(ctx)
+		}()
+	}
+	t.Cleanup(func() {
+		cancel()
+		group.Wait()
+	})
 }
 
 func ensureSeparateDatabaseURLs(applicationURL, testURL string) error {

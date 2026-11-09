@@ -165,9 +165,9 @@ func (f routeFixture) expand(t *testing.T, path string) string {
 
 func apiRoutes(t *testing.T, tc *TestContext) []gin.RouteInfo {
 	t.Helper()
-	engine, ok := tc.Router.(*gin.Engine)
+	engine, ok := tc.Raw.(*gin.Engine)
 	if !ok {
-		t.Fatalf("router is %T, want *gin.Engine", tc.Router)
+		t.Fatalf("router is %T, want *gin.Engine", tc.Raw)
 	}
 	var routes []gin.RouteInfo
 	for _, r := range engine.Routes() {

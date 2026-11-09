@@ -71,6 +71,25 @@ type webhookHarness struct {
 	repo    *fakeWebhookRepo
 	box     *SecretBox
 	secret  string
+	outbox  *memOutbox
+	worker  *OutboxWorker
+	clock   time.Time
+}
+
+func (h *webhookHarness) drain() {
+	if err := DrainOutbox(context.Background(), h.worker); err != nil {
+		panic(err)
+	}
+}
+
+func (h *webhookHarness) settle() {
+	for i := 0; i <= webhookOutboxAttempts; i++ {
+		h.drain()
+		h.clock = h.clock.Add(7 * time.Hour)
+		h.outbox.now = func() time.Time { return h.clock }
+		h.worker.now = func() time.Time { return h.clock }
+	}
+	h.drain()
 }
 
 func newWebhookHarness(t *testing.T, client WebhookClient, allowHTTP bool) *webhookHarness {
@@ -85,13 +104,15 @@ func newWebhookHarness(t *testing.T, client WebhookClient, allowHTTP bool) *webh
 		t.Fatal(err)
 	}
 	repo := &fakeWebhookRepo{target: &domain.WebhookTarget{ChannelID: 7, SecretEnc: sealed}}
+	outbox := newMemOutbox()
 	ch := NewWebhookChannel(WebhookConfig{
-		Client: client, Repo: repo, Channels: newFakeChannelRepo(), Box: box,
+		Client: client, Repo: repo, Channels: newFakeChannelRepo(), Box: box, Outbox: outbox,
 		FrontendURL: "https://app.example.test/", AllowHTTP: allowHTTP, MaxFailures: 4,
 	}).(*webhookChannel)
 	ch.backoff = time.Millisecond
-	t.Cleanup(func() { _ = ch.Shutdown(context.Background()) })
-	return &webhookHarness{channel: ch, repo: repo, box: box, secret: secret}
+	worker := NewOutboxWorker(outbox, nil, 1, nil)
+	ch.AttachWorker(worker)
+	return &webhookHarness{channel: ch, repo: repo, box: box, secret: secret, outbox: outbox, worker: worker, clock: time.Now()}
 }
 
 func loopbackClient() *safehttp.Client {
@@ -171,7 +192,7 @@ func TestWebhookDeliverySignsAndDescribesTheEvent(t *testing.T) {
 	if err := h.channel.Deliver(context.Background(), sampleDelivery(rcv.server.URL+"/hook")); err != nil {
 		t.Fatal(err)
 	}
-	h.channel.Wait()
+	h.drain()
 
 	reqs := rcv.captured()
 	if len(reqs) != 1 {
@@ -219,7 +240,7 @@ func TestWebhookRetriesServerErrorsWithTheSameDeliveryID(t *testing.T) {
 	})
 	h := newWebhookHarness(t, loopbackClient(), true)
 	_ = h.channel.Deliver(context.Background(), sampleDelivery(rcv.server.URL))
-	h.channel.Wait()
+	h.drain()
 
 	reqs := rcv.captured()
 	if len(reqs) != 3 {
@@ -245,10 +266,10 @@ func TestWebhookGivesUpAfterBoundedRetriesAndSanitizesTheError(t *testing.T) {
 	})
 	h := newWebhookHarness(t, loopbackClient(), true)
 	_ = h.channel.Deliver(context.Background(), sampleDelivery(rcv.server.URL))
-	h.channel.Wait()
+	h.settle()
 
-	if got := rcv.hits.Load(); got != webhookMaxAttempts {
-		t.Fatalf("attempts = %d, want %d", got, webhookMaxAttempts)
+	if got := rcv.hits.Load(); got != webhookMaxAttempts*webhookOutboxAttempts {
+		t.Fatalf("attempts = %d, want %d", got, webhookMaxAttempts*webhookOutboxAttempts)
 	}
 	rec := h.repo.recorded()
 	if len(rec) != 1 || rec[0].failure != "the endpoint answered HTTP 500" {
@@ -263,7 +284,7 @@ func TestWebhookDoesNotRetryClientErrors(t *testing.T) {
 	rcv := newReceiver(t, func(_ int, w http.ResponseWriter) { w.WriteHeader(http.StatusGone) })
 	h := newWebhookHarness(t, loopbackClient(), true)
 	_ = h.channel.Deliver(context.Background(), sampleDelivery(rcv.server.URL))
-	h.channel.Wait()
+	h.drain()
 	if rcv.hits.Load() != 1 {
 		t.Fatalf("attempts = %d, want 1", rcv.hits.Load())
 	}
@@ -285,8 +306,8 @@ func TestWebhookTimeoutIsRetriedAndReported(t *testing.T) {
 	client := safehttp.New(safehttp.AllowLoopbackForTests(), safehttp.WithMaxRedirects(0), safehttp.WithTimeout(100*time.Millisecond))
 	h := newWebhookHarness(t, client, true)
 	_ = h.channel.Deliver(context.Background(), sampleDelivery(slow.URL))
-	h.channel.Wait()
-	if hits.Load() != webhookMaxAttempts {
+	h.settle()
+	if hits.Load() != webhookMaxAttempts*webhookOutboxAttempts {
 		t.Fatalf("attempts = %d", hits.Load())
 	}
 	if rec := h.repo.recorded(); len(rec) != 1 || rec[0].failure != "the request timed out" {
@@ -307,7 +328,7 @@ func TestWebhookNeverFollowsRedirects(t *testing.T) {
 	})
 	h := newWebhookHarness(t, loopbackClient(), true)
 	_ = h.channel.Deliver(context.Background(), sampleDelivery(rcv.server.URL))
-	h.channel.Wait()
+	h.drain()
 	if targetHits.Load() != 0 || rcv.hits.Load() != 1 {
 		t.Fatalf("redirect was followed or retried: target=%d source=%d", targetHits.Load(), rcv.hits.Load())
 	}
@@ -323,7 +344,7 @@ func TestWebhookRefusesPrivateTargets(t *testing.T) {
 	} {
 		h := newWebhookHarness(t, safehttp.New(safehttp.WithMaxRedirects(0)), false)
 		_ = h.channel.Deliver(context.Background(), sampleDelivery(target))
-		h.channel.Wait()
+		h.drain()
 		rec := h.repo.recorded()
 		if len(rec) != 1 || rec[0].failure != "the destination address is not allowed" {
 			t.Fatalf("%s: recorded = %+v", target, rec)
@@ -406,7 +427,7 @@ func TestWebhookSkipsChannelsThatAreNotActive(t *testing.T) {
 	h := newWebhookHarness(t, loopbackClient(), true)
 	h.repo.target = nil
 	_ = h.channel.Deliver(context.Background(), sampleDelivery(rcv.server.URL))
-	h.channel.Wait()
+	h.drain()
 	if rcv.hits.Load() != 0 || len(h.repo.recorded()) != 0 {
 		t.Fatal("an unconfirmed or disabled channel must receive nothing")
 	}
@@ -417,20 +438,54 @@ func TestWebhookUnreadableSecretIsAFailureNotACrash(t *testing.T) {
 	h := newWebhookHarness(t, loopbackClient(), true)
 	h.repo.target = &domain.WebhookTarget{ChannelID: 7, SecretEnc: "garbage"}
 	_ = h.channel.Deliver(context.Background(), sampleDelivery(rcv.server.URL))
-	h.channel.Wait()
+	h.drain()
 	rec := h.repo.recorded()
 	if rcv.hits.Load() != 0 || len(rec) != 1 || rec[0].failure != "the signing secret cannot be read" {
 		t.Fatalf("hits=%d recorded=%+v", rcv.hits.Load(), rec)
 	}
 }
 
-func TestWebhookDeliverAfterShutdownIsRefused(t *testing.T) {
+func TestWebhookDeliveryIsStoredBeforeAnythingIsSent(t *testing.T) {
+	rcv := newReceiver(t, func(_ int, w http.ResponseWriter) { w.WriteHeader(http.StatusOK) })
 	h := newWebhookHarness(t, loopbackClient(), true)
-	if err := h.channel.Shutdown(context.Background()); err != nil {
+	if err := h.channel.Deliver(context.Background(), sampleDelivery(rcv.server.URL)); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.channel.Deliver(context.Background(), sampleDelivery("https://hooks.example.test")); err == nil {
-		t.Fatal("deliver after shutdown must fail")
+	rows := h.outbox.rowsOfType(domain.OutboxDeliveryWebhook)
+	if len(rows) != 1 || rows[0].done || rcv.hits.Load() != 0 {
+		t.Fatalf("rows=%+v hits=%d", rows, rcv.hits.Load())
+	}
+	h.drain()
+	if rcv.hits.Load() != 1 || !h.outbox.rowsOfType(domain.OutboxDeliveryWebhook)[0].done {
+		t.Fatalf("hits=%d", rcv.hits.Load())
+	}
+}
+
+func TestWebhookFailureIsRetriedLaterAndOnlyTheFinalOutcomeCounts(t *testing.T) {
+	var failing atomic.Bool
+	failing.Store(true)
+	rcv := newReceiver(t, func(_ int, w http.ResponseWriter) {
+		if failing.Load() {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	h := newWebhookHarness(t, loopbackClient(), true)
+	_ = h.channel.Deliver(context.Background(), sampleDelivery(rcv.server.URL))
+	h.drain()
+	rows := h.outbox.rowsOfType(domain.OutboxDeliveryWebhook)
+	if len(rows) != 1 || rows[0].done || rows[0].dead || !rows[0].nextAttempt.After(time.Now()) || len(h.repo.recorded()) != 0 {
+		t.Fatalf("rows=%+v recorded=%+v", rows, h.repo.recorded())
+	}
+	failing.Store(false)
+	h.clock = time.Now().Add(2 * time.Hour)
+	h.outbox.now = func() time.Time { return h.clock }
+	h.worker.now = func() time.Time { return h.clock }
+	h.drain()
+	rec := h.repo.recorded()
+	if !h.outbox.rowsOfType(domain.OutboxDeliveryWebhook)[0].done || len(rec) != 1 || rec[0].failure != "" {
+		t.Fatalf("recorded=%+v", rec)
 	}
 }
 
@@ -491,7 +546,7 @@ func TestWebhookFormSubmissionEventDescribesTheFormNotATask(t *testing.T) {
 	if err := h.channel.Deliver(context.Background(), delivery); err != nil {
 		t.Fatal(err)
 	}
-	h.channel.Wait()
+	h.drain()
 	reqs := rcv.captured()
 	if len(reqs) != 1 {
 		t.Fatalf("requests = %d", len(reqs))
