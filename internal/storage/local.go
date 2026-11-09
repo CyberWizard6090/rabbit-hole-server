@@ -11,7 +11,7 @@ import (
 	"regexp"
 )
 
-var keyPattern = regexp.MustCompile(`^[a-z]+/[0-9a-f]{32}$`)
+var keyPattern = regexp.MustCompile(`^[a-z_]+/[0-9a-f]{32}$`)
 
 type Local struct {
 	root string

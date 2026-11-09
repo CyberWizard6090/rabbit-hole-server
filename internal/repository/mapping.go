@@ -79,11 +79,11 @@ func sessionFromDomain(s domain.UserSession) persistence.UserSession {
 }
 
 func workspaceToDomain(w persistence.Workspace) domain.Workspace {
-	return domain.Workspace{Model: modelToDomain(w.Model), Name: w.Name, OwnerID: w.OwnerID, Description: w.Description}
+	return domain.Workspace{Model: modelToDomain(w.Model), Name: w.Name, OwnerID: w.OwnerID, Description: w.Description, AvatarURL: w.AvatarURL}
 }
 
 func workspaceFromDomain(w domain.Workspace) persistence.Workspace {
-	return persistence.Workspace{Model: modelFromDomain(w.Model), Name: w.Name, OwnerID: w.OwnerID, Description: w.Description}
+	return persistence.Workspace{Model: modelFromDomain(w.Model), Name: w.Name, OwnerID: w.OwnerID, Description: w.Description, AvatarURL: w.AvatarURL}
 }
 
 func spaceToDomain(s persistence.Space) domain.Space {

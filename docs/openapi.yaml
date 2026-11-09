@@ -426,6 +426,7 @@ paths:
     get:
       tags: [workspaces]
       summary: "List workspaces"
+      description: "Every workspace object, here and in create, get and update responses, carries `avatar_url` (empty string when no avatar is set)."
       security:
         - bearerAuth: []
       responses:
@@ -565,6 +566,58 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/avatar:
+    post:
+      tags: [files]
+      summary: "Set the workspace avatar"
+      description: |
+        Same rules as `POST /profile/avatar`: `multipart/form-data` with a `file` field (PNG, JPEG, GIF or WebP, at
+        most `MAX_AVATAR_BYTES` and 16 megapixels; content is sniffed, SVG is refused), EXIF rotation applied,
+        centre square scaled to at most 256x256 and re-encoded, metadata dropped. Needs `workspace.update`, the
+        permission that renames the workspace, so members and guests get 403. 60 requests per minute per client.
+
+        The new object is stored first, then the database switches to it in one transaction and the previous
+        avatar is deleted afterwards, so a failure leaves the previous avatar intact. Returns `{"avatar_url": ...}`
+        (`PUBLIC_BASE_URL` + `/api/v1/images/{public_id}`), the same value that `avatar_url` shows in
+        `GET /workspaces`, `GET /workspaces/{workspace_id}` and the create and update responses. The image is
+        public like editor images and user avatars, but returns 404 as soon as the workspace is deleted.
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '413': {$ref: '#/components/responses/Error'}
+        '415': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [files]
+      summary: "Remove the workspace avatar"
+      description: "Idempotent: answers 200 with `{\"avatar_url\": \"\"}` whether or not an avatar was set, and deletes the stored object. Needs `workspace.update`."
+      x-permission: workspace.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
   /workspaces/{workspace_id}/images:
     post:
       tags: [files]

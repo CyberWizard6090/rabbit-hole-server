@@ -92,7 +92,7 @@ relies on:
   members only). Creating needs `task.update`, only the author edits, and the author or anyone
   with `task.delete` deletes. Comment changes are pushed over the realtime feed.
 - **Files**: task attachments (`/tasks/{id}/attachments`), editor images
-  (`POST /workspaces/{id}/images`, the upload hook for Inkbrick) and avatars (`POST /profile/avatar`).
+  (`POST /workspaces/{id}/images`, the upload hook for Inkbrick), avatars (`POST /profile/avatar`) and workspace avatars (`POST/DELETE /workspaces/{id}/avatar`, `workspace.update`, shown as `avatar_url` on every workspace).
   Uploads are `multipart/form-data` with a `file` field. Editor images and avatars are public and
   immutable at `/api/v1/images/{id}`, so their URLs can stay in documents; attachments are private and
   downloaded with the bearer token. Types are detected from the content, SVG is refused, avatars are

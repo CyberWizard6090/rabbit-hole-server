@@ -81,6 +81,7 @@ CREATE TABLE workspaces (
     name VARCHAR(255) NOT NULL,
     owner_id BIGINT NOT NULL,
     description TEXT,
+    avatar_url TEXT NOT NULL DEFAULT '',
     CONSTRAINT chk_workspaces_name_not_blank CHECK (btrim(name) <> ''),
     CONSTRAINT fk_workspaces_owner FOREIGN KEY (owner_id) REFERENCES users (id) ON DELETE RESTRICT
 );
@@ -377,9 +378,10 @@ CREATE TABLE files (
     name TEXT NOT NULL,
     content_type TEXT NOT NULL,
     size BIGINT NOT NULL,
-    CONSTRAINT chk_files_kind CHECK (kind IN ('attachment', 'image', 'avatar')),
+    CONSTRAINT chk_files_kind CHECK (kind IN ('attachment', 'image', 'avatar', 'workspace_avatar')),
     CONSTRAINT chk_files_size CHECK (size > 0),
     CONSTRAINT chk_files_attachment_task CHECK (kind <> 'attachment' OR task_id IS NOT NULL),
+    CONSTRAINT chk_files_workspace_avatar CHECK (kind <> 'workspace_avatar' OR (workspace_id IS NOT NULL AND task_id IS NULL)),
     CONSTRAINT fk_files_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT,
     CONSTRAINT fk_files_workspace FOREIGN KEY (workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE,
     CONSTRAINT fk_files_task FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
@@ -388,6 +390,7 @@ CREATE UNIQUE INDEX uq_files_public_id ON files (public_id);
 CREATE UNIQUE INDEX uq_files_storage_key ON files (storage_key);
 CREATE INDEX idx_files_task_id_id ON files (task_id, id) WHERE kind = 'attachment';
 CREATE INDEX idx_files_user_avatar ON files (user_id) WHERE kind = 'avatar';
+CREATE UNIQUE INDEX uq_files_workspace_avatar ON files (workspace_id) WHERE kind = 'workspace_avatar';
 
 CREATE TABLE task_checklists (
     id BIGSERIAL PRIMARY KEY,

@@ -68,6 +68,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		"POST /api/v1/tasks/:task_id/attachments":      cfg.Storage.MaxAttachmentBytes + multipartOverhead,
 		"POST /api/v1/workspaces/:workspace_id/images": cfg.Storage.MaxImageBytes + multipartOverhead,
 		"POST /api/v1/profile/avatar":                  cfg.Storage.MaxAvatarBytes + multipartOverhead,
+		"POST /api/v1/workspaces/:workspace_id/avatar": cfg.Storage.MaxAvatarBytes + multipartOverhead,
 		"POST /api/v1/public/forms/:slug/submissions":  publicFormBodyLimit,
 		"POST /api/v1/public/forms/:slug/uploads":      cfg.Forms.UploadMaxBytes + multipartOverhead,
 	}))
@@ -212,6 +213,13 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					workspaces.PATCH("/:workspace_id",
 						inWorkspace(domain.PermWorkspaceUpdate),
 						deps.WorkspaceHandler.Update)
+					workspaces.POST("/:workspace_id/avatar",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						uploadLimiter,
+						deps.FileHandler.SetWorkspaceAvatar)
+					workspaces.DELETE("/:workspace_id/avatar",
+						inWorkspace(domain.PermWorkspaceUpdate),
+						deps.FileHandler.RemoveWorkspaceAvatar)
 					workspaces.DELETE("/:workspace_id",
 						inWorkspace(domain.PermWorkspaceDelete),
 						deps.WorkspaceHandler.Delete)
