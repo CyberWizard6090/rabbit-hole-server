@@ -128,8 +128,8 @@ func TestEmailChange_Rejections(t *testing.T) {
 	signUp(t, tc, "bob@example.test")
 	tc.Mail.Reset()
 
-	if rec := requestChange(t, tc, acc.access, "new@example.test", "wrong-password"); rec.Code != http.StatusUnauthorized {
-		t.Fatalf("wrong password: %d", rec.Code)
+	if rec := requestChange(t, tc, acc.access, "new@example.test", "wrong-password"); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "INVALID_CURRENT_PASSWORD") {
+		t.Fatalf("wrong password: %d: %s", rec.Code, rec.Body.String())
 	}
 	if rec := requestChange(t, tc, acc.access, "ANN@example.test", mailTestPassword); rec.Code != http.StatusBadRequest {
 		t.Fatalf("same address: %d", rec.Code)

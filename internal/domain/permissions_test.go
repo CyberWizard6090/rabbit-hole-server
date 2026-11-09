@@ -104,8 +104,11 @@ func TestRoleMatrixPinsGuestAdminAndOwnerPrivileges(t *testing.T) {
 	if !has("Owner", PermAdminManage) || has("Admin", PermAdminManage) {
 		t.Error("only the Owner may hold member.manage_admins")
 	}
-	if has("Admin", PermWorkspaceUpdate) || has("Admin", PermWorkspaceDelete) {
-		t.Error("Admin must not update or delete the workspace itself")
+	if !has("Admin", PermWorkspaceUpdate) || has("Admin", PermWorkspaceDelete) {
+		t.Error("Admin may edit the workspace but must not delete it")
+	}
+	if has("Member", PermWorkspaceUpdate) || has("Guest", PermWorkspaceUpdate) {
+		t.Error("only Owner and Admin may edit the workspace")
 	}
 	if !has("Guest", PermWorkspaceRead) || !has("Guest", PermTaskRead) || has("Guest", PermTaskUpdate) {
 		t.Error("Guest keeps read access to the work structure and nothing else")

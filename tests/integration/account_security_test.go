@@ -162,8 +162,8 @@ func TestAccount_DeleteAccount(t *testing.T) {
 
 	t.Run("wrong password", func(t *testing.T) {
 		rec := request(t, tc.Router, http.MethodDelete, "/api/v1/profile", s.access, map[string]any{"password": "wrong-password"})
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "INVALID_CURRENT_PASSWORD") {
+			t.Fatalf("expected 400 INVALID_CURRENT_PASSWORD, got %d: %s", rec.Code, rec.Body.String())
 		}
 	})
 	t.Run("blocked while owning a workspace", func(t *testing.T) {

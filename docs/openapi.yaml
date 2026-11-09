@@ -54,7 +54,7 @@ info:
 
     Every workspace has the roles Owner, Admin, Member and Guest. The permission codes behind the table are
     seeded with the database (`db/migrations/000002_seed_permissions.up.sql`) and attached to the roles when a
-    workspace is created (`internal/domain/workspace_defaults.go`); routes show the code they need as `x-permission`.
+    workspace is created and re-synchronized on every server start (`internal/domain/workspace_defaults.go`); routes show the code they need as `x-permission`.
 
     | Capability | Owner | Admin | Member | Guest |
     |---|---|---|---|---|
@@ -65,7 +65,8 @@ info:
     | Create and delete spaces; create, edit and delete folders, lists, statuses and tags | yes | yes | no | no |
     | Invite contacts as Member or Guest, change their role, remove them | yes | yes | no | no |
     | Grant the Admin role, demote or remove an Admin | yes | no | no | no |
-    | Rename or delete the workspace, change its avatar | yes | no | no | no |
+    | Rename the workspace, edit its description, change its avatar | yes | yes | no | no |
+    | Delete the workspace | yes | no | no | no |
     | Leave the workspace (`DELETE /workspaces/{id}/members/me`) | no (403 `OWNER_IMMUTABLE`) | yes | yes | yes |
 
     The Owner can never be demoted, removed or replaced through the API. An Admin who tries to touch another
@@ -288,7 +289,7 @@ paths:
     post:
       tags: [profile]
       summary: "Start changing the login email"
-      description: "Needs the current password (401 INVALID_CREDENTIALS otherwise). 400 SAME_EMAIL for the current address, 409 EMAIL_TAKEN for an address that already has an account, 429 EMAIL_CHANGE_COOLDOWN when a mail went out less than a minute ago. A confirmation link FRONTEND_URL/confirm-email-change?token=... is mailed to the NEW address (24 h, single use, language from Accept-Language); a new request replaces the pending one. Nothing changes until the link is confirmed. While pending, GET /profile shows pending_email."
+      description: "Needs the current password (400 INVALID_CURRENT_PASSWORD with detail field `password` otherwise). 400 SAME_EMAIL for the current address, 409 EMAIL_TAKEN for an address that already has an account, 429 EMAIL_CHANGE_COOLDOWN when a mail went out less than a minute ago. A confirmation link FRONTEND_URL/confirm-email-change?token=... is mailed to the NEW address (24 h, single use, language from Accept-Language); a new request replaces the pending one. Nothing changes until the link is confirmed. While pending, GET /profile shows pending_email."
       security:
         - bearerAuth: []
       requestBody:
@@ -642,7 +643,7 @@ paths:
         Same rules as `POST /profile/avatar`: `multipart/form-data` with a `file` field (PNG, JPEG, GIF or WebP, at
         most `MAX_AVATAR_BYTES` and 16 megapixels; content is sniffed, SVG is refused), EXIF rotation applied,
         centre square scaled to at most 256x256 and re-encoded, metadata dropped. Needs `workspace.update`, the
-        permission that renames the workspace, so members and guests get 403. 60 requests per minute per client.
+        permission that renames the workspace (Owner and Admin), so members and guests get 403. 60 requests per minute per client.
 
         The new object is stored first, then the database switches to it in one transaction and the previous
         avatar is deleted afterwards, so a failure leaves the previous avatar intact. Returns `{"avatar_url": ...}`
@@ -1038,7 +1039,7 @@ paths:
           }
         }
         ```
-      x-permission: workspace.update
+      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1075,7 +1076,7 @@ paths:
       summary: "Replace form metadata"
       x-permission: form.manage
       description: "`name` and `slug` are always replaced. Changing the `slug` of a form that has been published keeps the old link working: the previous slug becomes an alias that resolves to the same form (`GET /public/forms/{old}` serves the form with the current `slug`, submissions to it are accepted). Aliases are case-insensitive, globally unique together with all form slugs (taking another form's slug or alias is 409 `FORM_SLUG_TAKEN`), at most 10 are kept per form (the oldest is dropped first), switching back to a previous slug removes it from the aliases, and they disappear when the form is archived or deleted. They are listed in `previous_slugs` (newest first) by `GET .../forms/{form_id}`. A form that was never published keeps no alias. `settings` replaces the whole settings object when present and leaves it untouched when omitted. Settings are validated (400 with FORM_SUBMIT_BUTTON_TEXT_INVALID, FORM_SUCCESS_MESSAGE_INVALID, FORM_REDIRECT_URL_INVALID, FORM_ACCENT_COLOR_INVALID, FORM_LOGO_INVALID, FORM_COVER_INVALID, FORM_NOTIFY_RECIPIENT_INVALID or FORM_MAX_SUBMISSIONS_INVALID) and take effect for visitors when the form is published again; every published version keeps its own copy."
-      x-permission: workspace.update
+      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1097,7 +1098,7 @@ paths:
       tags: [forms]
       summary: "Delete a form without submissions"
       x-permission: form.manage
-      x-permission: workspace.update
+      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1114,7 +1115,7 @@ paths:
       tags: [forms]
       summary: "Publish a new immutable form version"
       x-permission: form.manage
-      x-permission: workspace.update
+      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1131,7 +1132,7 @@ paths:
       tags: [forms]
       summary: "Archive a form and disable public submissions"
       x-permission: form.manage
-      x-permission: workspace.update
+      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1160,7 +1161,7 @@ paths:
         last one), so a conditional question can be added without `position`; errors are 400 `FORM_QUESTION_VISIBILITY_INVALID` /
         `FORM_QUESTION_VISIBILITY_CYCLE` with `settings.visible_if.question_id`, `.operator` or `.value` in `details[].field`.
         Allowed `settings` per question type are listed in the FormQuestionRequest schema.
-      x-permission: workspace.update
+      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1187,7 +1188,7 @@ paths:
         answers the change of `type` and the removal or renaming (change of `value`) of an option that appears in a
         stored answer are refused with 409 `FORM_QUESTION_IN_USE`; `details` has `type` / `HAS_ANSWERS` (`params.answers`)
         or `options` / `OPTION_IN_USE` (`params.value`) per used option. Adding options and removing unused ones is allowed.
-      x-permission: workspace.update
+      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1210,7 +1211,7 @@ paths:
       tags: [forms]
       summary: "Delete a question that has no submitted answers"
       x-permission: form.manage
-      x-permission: workspace.update
+      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1234,7 +1235,7 @@ paths:
         `ids[i]` / `UNKNOWN_QUESTION` or `DUPLICATE` (`params.question_id`) for every wrong entry. A new order in which a
         question would precede the question its `visible_if` rule depends on is 400 `FORM_QUESTION_VISIBILITY_INVALID`
         with `ids` / `RULE_NOT_EARLIER` (`params.question_id`, `params.depends_on`).
-      x-permission: workspace.update
+      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1356,7 +1357,7 @@ paths:
         **Mappings.** `question_id` must be an answerable question of this form (not a section, description or divider), each question and each target is used at most once. Targets: `task_field` with `field` in `title`, `description` (text, email, phone or url questions, no transform), `priority` (choice question + enum transform whose values are priority names, see TaskPriorityName), `status_id` and `assignee_id` (choice question + enum transform whose values are ids as strings), `due_date` (date question); or `custom_field` with `field_id` of a compatible type. An enum transform must contain an entry for every option value of the question. Errors name the failing key, for example `mappings[2].target`.
 
         **Priority names** are `low`, `normal`, `high`, `urgent`, `critical` (1..5, see TaskPriorityName); an unknown name is a 400.
-      x-permission: workspace.update
+      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1391,7 +1392,7 @@ paths:
       tags: [task-templates]
       summary: "Create a versioned task template"
       x-permission: template.manage
-      x-permission: workspace.update
+      x-permission: template.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1588,7 +1589,7 @@ paths:
       tags: [custom-fields]
       summary: "Create a custom field definition"
       x-permission: customfield.manage
-      x-permission: workspace.update
+      x-permission: customfield.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1631,7 +1632,7 @@ paths:
         integer `min` / `max` excludes a stored value (details `config.min`, `config.max`), or a text `min_length` /
         `max_length` does (details `config.min_length`, `config.max_length`; params `bound`, `count`). Fields without
         stored values (values of deleted tasks do not count) can be changed freely.
-      x-permission: workspace.update
+      x-permission: customfield.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1654,7 +1655,7 @@ paths:
       summary: "Delete a custom field definition"
       x-permission: customfield.manage
       description: "Fields with stored task values are retained and cannot be deleted."
-      x-permission: workspace.update
+      x-permission: customfield.manage
       security:
         - bearerAuth: []
       parameters:

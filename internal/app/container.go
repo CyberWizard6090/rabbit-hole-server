@@ -40,6 +40,7 @@ type Container struct {
 	RateLimiter         ratelimit.Limiter
 	PurgeRateLimits     func(context.Context) error
 	PurgeData           func(context.Context) (domain.RetentionResult, error)
+	SyncAccess          func(context.Context) (domain.AccessSyncResult, error)
 	RetentionInterval   time.Duration
 	UserHandler         *handler.UserHandler
 
@@ -246,6 +247,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		Workers:             []*service.OutboxWorker{eventWorker, deliveryWorker},
 		RateLimiter:         limiter,
 		PurgeRateLimits:     purgeLimits,
+		SyncAccess:          repository.NewAccessSyncRepository(db).SyncDefaultRoles,
 		PurgeData: func(ctx context.Context) (domain.RetentionResult, error) {
 			return repository.NewRetentionRepository(db).Purge(ctx, domain.RetentionPolicy{
 				OutboxDone: cfg.Retention.OutboxDone, OutboxDead: cfg.Retention.OutboxDead, ExpiredTokens: cfg.Retention.ExpiredTokens,
