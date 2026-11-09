@@ -78,7 +78,7 @@ func waitForLockWait(t *testing.T, db *gorm.DB) {
 	for time.Now().Before(deadline) {
 		var n int64
 		if err := db.Raw(
-			"SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%for update%'",
+			"SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND (query ILIKE '%for update%' OR query ILIKE '%for no key update%')",
 		).Scan(&n).Error; err != nil {
 			t.Fatalf("poll locks: %v", err)
 		}
@@ -310,5 +310,117 @@ func TestTaskSchema_RejectsStatusAndListMismatches(t *testing.T) {
 		e.owner.spaceID, otherList, e.statusA,
 	).Error; err == nil {
 		t.Fatal("a status whose space differs from its list space was accepted")
+	}
+}
+
+func TestTaskConcurrency_EditsOfDifferentTasksInOneListDoNotWaitForEachOther(t *testing.T) {
+	e := newCncEnv(t)
+	other := e.task(t, e.listID, e.statusA, "another task in the same list")
+
+	tx := e.tc.DB.Begin()
+	if tx.Error != nil {
+		t.Fatalf("begin: %v", tx.Error)
+	}
+	defer tx.Rollback()
+	if err := tx.Exec("SELECT id FROM lists WHERE id = ? FOR KEY SHARE", e.listID).Error; err != nil {
+		t.Fatalf("share the list as an edit in flight does: %v", err)
+	}
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- request(t, e.tc.Router, http.MethodPatch, "/api/v1/tasks/"+itoa(other), e.owner.token, map[string]any{"priority": 4})
+	}()
+	select {
+	case rec := <-done:
+		if rec.Code != http.StatusOK {
+			t.Fatalf("patch: %d: %s", rec.Code, rec.Body.String())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("an edit waited for another edit of the same list: the list lock is not shared")
+	}
+}
+
+func TestTaskConcurrency_EditWaitsForAnExclusiveListChange(t *testing.T) {
+	e := newCncEnv(t)
+
+	tx := e.tc.DB.Begin()
+	if tx.Error != nil {
+		t.Fatalf("begin: %v", tx.Error)
+	}
+	if err := tx.Exec("SELECT id FROM lists WHERE id = ? FOR UPDATE", e.listID).Error; err != nil {
+		tx.Rollback()
+		t.Fatalf("lock the list as a move, a delete or a create does: %v", err)
+	}
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- e.patch(t, map[string]any{"priority": 5}) }()
+	select {
+	case <-done:
+		tx.Rollback()
+		t.Fatal("an edit went through while the list was locked for a structural change")
+	case <-time.After(400 * time.Millisecond):
+	}
+	tx.Rollback()
+	select {
+	case rec := <-done:
+		if rec.Code != http.StatusOK {
+			t.Fatalf("patch after the release: %d: %s", rec.Code, rec.Body.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the edit never finished after the list was released")
+	}
+	if e.row(t).Priority != 5 {
+		t.Fatalf("priority = %d, want 5", e.row(t).Priority)
+	}
+}
+
+func TestTaskConcurrency_EditsDoNotWaitForTasksBeingAppended(t *testing.T) {
+	e := newCncEnv(t)
+
+	tx := e.tc.DB.Begin()
+	if tx.Error != nil {
+		t.Fatalf("begin: %v", tx.Error)
+	}
+	defer tx.Rollback()
+	if err := tx.Exec("SELECT id FROM lists WHERE id = ? FOR NO KEY UPDATE", e.listID).Error; err != nil {
+		t.Fatalf("lock the list as a task creation does: %v", err)
+	}
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- e.patch(t, map[string]any{"priority": 4}) }()
+	select {
+	case rec := <-done:
+		if rec.Code != http.StatusOK {
+			t.Fatalf("patch: %d: %s", rec.Code, rec.Body.String())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("an edit waited for a task creation in the same list")
+	}
+}
+
+func TestTaskConcurrency_CreationsOfOneListStayOrdered(t *testing.T) {
+	e := newCncEnv(t)
+	const creators = 12
+	var group sync.WaitGroup
+	ids := make(chan uint, creators)
+	for i := 0; i < creators; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			rec := request(t, e.tc.Router, http.MethodPost, "/api/v1/lists/"+itoa(e.listID)+"/tasks", e.owner.token,
+				map[string]any{"title": "parallel", "status_id": e.statusA})
+			if rec.Code != http.StatusCreated {
+				t.Errorf("create: %d: %s", rec.Code, rec.Body.String())
+				return
+			}
+			ids <- responseID(t, rec)
+		}()
+	}
+	group.Wait()
+	close(ids)
+	var duplicates int64
+	if err := e.tc.DB.Raw("SELECT count(*) - count(DISTINCT position) FROM tasks WHERE list_id = ?", e.listID).Scan(&duplicates).Error; err != nil {
+		t.Fatal(err)
+	}
+	if duplicates != 0 {
+		t.Fatalf("%d tasks share a position: parallel creations were not serialized", duplicates)
 	}
 }
