@@ -37,6 +37,7 @@ wrong, how to fix it); secret values are never printed. `go run ./cmd/migrate` c
 - [`docs/forms.md`](docs/forms.md): forms, public submissions, task creation, templates, custom fields
 - [`docs/notifications.md`](docs/notifications.md): events, channels, webhook signing, preferences
 - [`docs/operations.md`](docs/operations.md): runbook, migrations, limits, failures, release checklist
+- [`docs/performance.md`](docs/performance.md): load test results, findings and how to repeat the run (`make loadtest`)
 - [`docs/mail.md`](docs/mail.md), [`docs/realtime.md`](docs/realtime.md), [`docs/error-codes.md`](docs/error-codes.md), [`docs/openapi.yaml`](docs/openapi.yaml)
 
 ## API
