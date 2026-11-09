@@ -37,6 +37,8 @@ type Container struct {
 	NotificationHandler *handler.NotificationHandler
 	Notifications       *service.NotificationDispatcher
 	Workers             []*service.OutboxWorker
+	RateLimiter         ratelimit.Limiter
+	PurgeRateLimits     func(context.Context) error
 	UserHandler         *handler.UserHandler
 
 	WorkspaceHandler *handler.WorkspaceHandler
@@ -115,6 +117,21 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		return nil, fmt.Errorf("create secret box: %w", err)
 	}
 	outboxRepo := repository.NewOutboxRepository(db)
+	var limiter ratelimit.Limiter = ratelimit.NewMemory()
+	var lockout ratelimit.Lockout
+	lockoutConfig := ratelimit.BackoffConfig{
+		Threshold: cfg.Auth.LoginFailureLimit, Base: cfg.Auth.LoginLockBase, Max: cfg.Auth.LoginLockMax,
+	}
+	var purgeLimits func(context.Context) error
+	if cfg.RateLimit.Store == "memory" {
+		lockoutConfig.MaxKeys = ratelimit.DefaultMaxKeys
+		lockout = ratelimit.NewMemoryLockout(lockoutConfig)
+	} else {
+		store := repository.NewRateLimiter(db)
+		limiter = store
+		lockout = repository.NewLockoutStore(db, lockoutConfig)
+		purgeLimits = func(ctx context.Context) error { return store.PurgeExpired(ctx, time.Hour) }
+	}
 	transactions := database.NewTransactionRunner(db)
 	eventWorker := service.NewOutboxWorker(outboxRepo, transactions, 1, slog.Default())
 	deliveryWorker := service.NewOutboxWorker(outboxRepo, nil, deliveryWorkers, slog.Default())
@@ -137,10 +154,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		WithVerificationSender(accountEmail).
 		WithRequireVerifiedEmail(cfg.Mail.RequireVerifiedEmail).
 		WithConnectionRevoker(hub).
-		WithLoginBackoff(ratelimit.NewBackoff(ratelimit.BackoffConfig{
-			Threshold: cfg.Auth.LoginFailureLimit, Base: cfg.Auth.LoginLockBase, Max: cfg.Auth.LoginLockMax,
-			MaxKeys: cfg.Auth.LoginTrackedAccounts,
-		}))
+		WithLoginBackoff(lockout)
 	service.ConfigurePasswordHashing(cfg.Auth.HashSlots(), cfg.Auth.HashWait)
 	spaceServ := service.NewSpaceService(spaceRepo)
 	statusServ := service.NewStatusService(statusRepo, spaceRepo)
@@ -157,7 +171,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 	)
 	formUploadRepo := repository.NewFormUploadRepository(db)
 	formService := service.NewFormService(formRepo).
-		WithSubmissionLimit(cfg.Forms.SubmissionsPerHour, time.Hour).
+		WithSubmissionLimit(limiter, cfg.Forms.SubmissionsPerHour, time.Hour).
 		WithTransactions(database.NewTransactionRunner(db)).
 		WithSettingsPolicy(cfg.Environment == "development", cfg.Storage.PublicBaseURL).
 		WithUploads(formUploadRepo)
@@ -170,7 +184,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 	activityService := service.NewActivityService(repository.NewActivityRepository(db))
 	permissionChecker := repository.NewPermissionChecker(db)
 	tickets := realtime.NewTicketStore(realtime.DefaultTicketTTL)
-	notifications, err := newNotifications(db, cfg, sender, permissionChecker, hub, options.webhookClient, secretBox, outboxRepo, deliveryWorker)
+	notifications, err := newNotifications(db, cfg, sender, permissionChecker, hub, options.webhookClient, secretBox, outboxRepo, deliveryWorker, limiter)
 	if err != nil {
 		return nil, err
 	}
@@ -228,6 +242,8 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		NotificationHandler: notifications.handler,
 		Notifications:       notifications.dispatcher,
 		Workers:             []*service.OutboxWorker{eventWorker, deliveryWorker},
+		RateLimiter:         limiter,
+		PurgeRateLimits:     purgeLimits,
 		CommentHandler:      handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
 		TaskHandler:         handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
 		UserHandler:         handler.NewUserHandler(userService).WithPendingEmail(emailChange),
@@ -274,6 +290,7 @@ func newNotifications(
 	db *gorm.DB, cfg *config.Config, sender mail.Sender, permissions service.PermissionChecker,
 	publisher service.NotificationPublisher, webhookClient service.WebhookClient,
 	secretBox *service.SecretBox, outbox domain.OutboxRepository, deliveryWorker *service.OutboxWorker,
+	limiter ratelimit.Limiter,
 ) (notificationParts, error) {
 	inbox := repository.NewNotificationRepository(db)
 	source := repository.NewNotificationSourceRepository(db)
@@ -281,7 +298,7 @@ func newNotifications(
 	watchers := repository.NewWatcherRepository(db)
 	channelRepo := repository.NewNotificationChannelRepository(db)
 
-	throttle := service.NewEmailThrottle(cfg.Notifications.EmailPerHour, time.Hour)
+	throttle := service.NewEmailThrottle(limiter, cfg.Notifications.EmailPerHour, time.Hour)
 	registry := service.NewChannelRegistry(
 		service.NewInAppChannel(inbox, cfg.Notifications.MaxPerUser, publisher),
 		service.NewEmailChannel(source, channelRepo, sender, cfg.Mail.FrontendURL, throttle),

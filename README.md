@@ -191,8 +191,11 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
   in release mode.
 - `TRUSTED_PROXIES` is empty by default: `X-Forwarded-For` is ignored and the TCP peer is the client. Behind a
   reverse proxy set it to the proxy address(es), never to `0.0.0.0/0`; the startup log lists what is trusted.
-- Rate limits, the sign-in lock and the argon2 gate are per process (a restart resets them, N replicas allow N times
-  the budget). IPv6 clients are limited per /64.
+- Request rate limits, the sign-in lock, the per-user notification mail limit and the per-form submission limit are
+  counted in PostgreSQL (`RATE_LIMIT_STORE=postgres`, the default), so all replicas share one budget and a restart does
+  not reset it; `RATE_LIMIT_STORE=memory` keeps them per process (one replica only). If the store is unavailable the
+  request is let through and a warning is logged. Expired counters are purged every 10 minutes. The argon2 gate is
+  always per process. IPv6 clients are limited per /64.
 - Sign-in: at most `AUTH_HASH_CONCURRENCY` password hashes run at once (default: CPUs), extra requests get 503 with
   `Retry-After`; repeated failures for one e-mail address delay further attempts (`AUTH_LOGIN_*`).
 - On SIGTERM the server waits up to `SHUTDOWN_TIMEOUT` (30s); compose gives the container `stop_grace_period: 45s`.

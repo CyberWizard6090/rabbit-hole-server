@@ -10,9 +10,17 @@ import (
 	"rabbit-hole-server/internal/persistence"
 )
 
+func forgetAuthBudgets(t *testing.T, tc *TestContext) {
+	t.Helper()
+	if err := tc.DB.Exec("DELETE FROM rate_limit_windows WHERE bucket IN ('auth.register', 'auth.login')").Error; err != nil {
+		t.Fatalf("reset the sign-up budget: %v", err)
+	}
+}
+
 func newUser(t *testing.T, tc *TestContext, email string) (uint, string) {
 	t.Helper()
 	email = strings.ToLower(email)
+	forgetAuthBudgets(t, tc)
 
 	password := "password-123"
 	rec := request(t, tc.Router, http.MethodPost, "/api/v1/auth/register", "", map[string]any{

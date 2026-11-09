@@ -62,7 +62,7 @@ func TestOperationalSettingsAreValidated(t *testing.T) {
 		{"huge hash concurrency", map[string]string{"AUTH_HASH_CONCURRENCY": "100000"}, "AUTH_HASH_CONCURRENCY"},
 		{"lock without base", map[string]string{"AUTH_LOGIN_LOCK_BASE": "0s"}, "AUTH_LOGIN_LOCK_BASE"},
 		{"max below base", map[string]string{"AUTH_LOGIN_LOCK_BASE": "1m", "AUTH_LOGIN_LOCK_MAX": "10s"}, "AUTH_LOGIN_LOCK_MAX"},
-		{"no tracked accounts", map[string]string{"AUTH_LOGIN_TRACKED_ACCOUNTS": "0"}, "AUTH_LOGIN_TRACKED_ACCOUNTS"},
+		{"unknown rate limit store", map[string]string{"RATE_LIMIT_STORE": "redis"}, "RATE_LIMIT_STORE"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

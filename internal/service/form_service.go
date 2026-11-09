@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/ratelimit"
 )
 
 type FormService interface {
@@ -106,8 +107,8 @@ func NewFormService(repo domain.FormRepository) *formService {
 	return &formService{repo: repo}
 }
 
-func (s *formService) WithSubmissionLimit(max int, period time.Duration) *formService {
-	s.limiter = newSubmissionLimiter(max, period)
+func (s *formService) WithSubmissionLimit(limiter ratelimit.Limiter, max int, period time.Duration) *formService {
+	s.limiter = newSubmissionLimiter(limiter, max, period)
 	return s
 }
 
@@ -588,7 +589,7 @@ func (s *formService) Submit(
 	if form.CurrentVersion == nil {
 		return nil, false, domain.ErrFormNotPublished
 	}
-	if !s.limiter.allow(form.ID) {
+	if !s.limiter.allow(ctx, form.ID) {
 		return nil, false, domain.ErrFormSubmissionsLimited
 	}
 	var snapshot struct {

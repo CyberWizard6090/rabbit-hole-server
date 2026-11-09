@@ -1,3 +1,5 @@
+DROP TABLE login_lockouts;
+DROP TABLE rate_limit_windows;
 DROP TRIGGER trg_validate_form_task_config_workspace ON form_task_configs;
 DROP FUNCTION validate_form_task_config_workspace();
 DROP TABLE outbox_events;

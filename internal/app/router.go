@@ -108,13 +108,16 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		inList      = require(middleware.ResourceList)
 		inTask      = require(middleware.ResourceTask)
 	)
-	ticketLimiter := middleware.RateLimiter(60, time.Minute)
-	uploadLimiter := middleware.RateLimiter(60, time.Minute)
-	channelMailLimiter := middleware.RateLimiter(20, time.Minute)
-	contactRequestLimiter := middleware.RateLimiter(20, time.Minute)
-	userSearchLimiter := middleware.RateLimiter(30, time.Minute)
-	rehostLimiter := middleware.RateLimiter(30, time.Minute)
-	formUploadLimiter := middleware.RateLimiter(30, time.Minute)
+	limit := func(bucket string, max int, period time.Duration) gin.HandlerFunc {
+		return middleware.RateLimiter(deps.RateLimiter, bucket, max, period)
+	}
+	ticketLimiter := limit("realtime-tickets", 60, time.Minute)
+	uploadLimiter := limit("uploads", 60, time.Minute)
+	channelMailLimiter := limit("notification-channel-mail", 20, time.Minute)
+	contactRequestLimiter := limit("contact-requests", 20, time.Minute)
+	userSearchLimiter := limit("user-search", 30, time.Minute)
+	rehostLimiter := limit("image-rehost", 30, time.Minute)
+	formUploadLimiter := limit("form-uploads", 30, time.Minute)
 
 	api := r.Group("/api")
 	{
@@ -124,25 +127,25 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 			// token refreshes cannot exhaust the login or registration budget.
 			auth := v1.Group("/auth")
 			{
-				auth.POST("/register", middleware.RateLimiter(5, time.Minute), deps.AuthHandler.Register)
-				auth.POST("/login", middleware.RateLimiter(10, time.Minute), deps.AuthHandler.Login)
-				auth.POST("/refresh", middleware.RateLimiter(30, time.Minute), deps.AuthHandler.Refresh)
-				auth.POST("/verify-email", middleware.RateLimiter(20, time.Minute), deps.AccountEmailHandler.VerifyEmail)
-				auth.POST("/resend-verification", middleware.RateLimiter(5, time.Minute), deps.AccountEmailHandler.ResendVerification)
-				auth.POST("/forgot-password", middleware.RateLimiter(5, time.Minute), deps.AccountEmailHandler.ForgotPassword)
-				auth.POST("/reset-password", middleware.RateLimiter(10, time.Minute), deps.AccountEmailHandler.ResetPassword)
-				auth.POST("/confirm-email-change", middleware.RateLimiter(10, time.Minute), deps.EmailChangeHandler.Confirm)
+				auth.POST("/register", limit("auth.register", 5, time.Minute), deps.AuthHandler.Register)
+				auth.POST("/login", limit("auth.login", 10, time.Minute), deps.AuthHandler.Login)
+				auth.POST("/refresh", limit("auth.refresh", 30, time.Minute), deps.AuthHandler.Refresh)
+				auth.POST("/verify-email", limit("auth.verify-email", 20, time.Minute), deps.AccountEmailHandler.VerifyEmail)
+				auth.POST("/resend-verification", limit("auth.resend-verification", 5, time.Minute), deps.AccountEmailHandler.ResendVerification)
+				auth.POST("/forgot-password", limit("auth.forgot-password", 5, time.Minute), deps.AccountEmailHandler.ForgotPassword)
+				auth.POST("/reset-password", limit("auth.reset-password", 10, time.Minute), deps.AccountEmailHandler.ResetPassword)
+				auth.POST("/confirm-email-change", limit("auth.confirm-email-change", 10, time.Minute), deps.EmailChangeHandler.Confirm)
 				// Logout authenticates with the refresh cookie, not the access
 				// token, so it must work after the access token has expired.
-				auth.POST("/logout", middleware.RateLimiter(30, time.Minute), deps.AuthHandler.Logout)
+				auth.POST("/logout", limit("auth.logout", 30, time.Minute), deps.AuthHandler.Logout)
 			}
 
-			v1.POST("/notifications/channels/confirm", middleware.RateLimiter(20, time.Minute), deps.NotificationHandler.ConfirmChannel)
+			v1.POST("/notifications/channels/confirm", limit("notifications.channels.confirm", 20, time.Minute), deps.NotificationHandler.ConfirmChannel)
 
 			v1.GET("/images/:public_id", deps.FileHandler.ServeImage)
 			v1.GET("/public/forms/:slug", deps.FormHandler.GetPublic)
 			v1.POST("/public/forms/:slug/submissions",
-				middleware.RateLimiter(5, time.Minute),
+				limit("public-form-submissions", 5, time.Minute),
 				middleware.OptionalAuthMiddleware(deps.AuthService),
 				deps.FormHandler.Submit)
 			v1.POST("/public/forms/:slug/uploads", formUploadLimiter, deps.FormUploadHandler.Upload)
@@ -154,16 +157,16 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 			protected := v1.Group("/")
 			protected.Use(middleware.AuthMiddleware(deps.AuthService))
 			{
-				protected.POST("/auth/logout-all", middleware.RateLimiter(10, time.Minute), deps.AuthHandler.LogoutAll)
+				protected.POST("/auth/logout-all", limit("auth.logout-all", 10, time.Minute), deps.AuthHandler.LogoutAll)
 
 				profile := protected.Group("/profile")
 				{
 					profile.GET("", deps.UserHandler.GetCurrentUser)
 					profile.PATCH("", deps.UserHandler.UpdateProfile)
-					profile.POST("/password", middleware.RateLimiter(5, time.Minute), deps.AuthHandler.ChangePassword)
-					profile.POST("/email", middleware.RateLimiter(5, time.Minute), deps.EmailChangeHandler.Request)
-					profile.DELETE("/email-change", middleware.RateLimiter(10, time.Minute), deps.EmailChangeHandler.Cancel)
-					profile.DELETE("", middleware.RateLimiter(5, time.Minute), deps.AuthHandler.DeleteAccount)
+					profile.POST("/password", limit("profile.password", 5, time.Minute), deps.AuthHandler.ChangePassword)
+					profile.POST("/email", limit("profile.email", 5, time.Minute), deps.EmailChangeHandler.Request)
+					profile.DELETE("/email-change", limit("profile.email-change", 10, time.Minute), deps.EmailChangeHandler.Cancel)
+					profile.DELETE("", limit("profile.delete", 5, time.Minute), deps.AuthHandler.DeleteAccount)
 				}
 				profile.POST("/avatar", uploadLimiter, deps.FileHandler.SetAvatar)
 				profile.DELETE("/avatar", deps.FileHandler.RemoveAvatar)
