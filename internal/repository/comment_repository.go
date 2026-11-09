@@ -34,21 +34,33 @@ func validateMentions(tx *gorm.DB, taskID uint, mentionIDs []uint) error {
 	if len(mentionIDs) == 0 {
 		return nil
 	}
-	var count int64
+	var members []uint
 	err := tx.Raw(
-		"SELECT count(DISTINCT wm.user_id) FROM tasks t "+
+		"SELECT DISTINCT wm.user_id FROM tasks t "+
 			"JOIN spaces s ON s.id = t.space_id "+
 			"JOIN workspace_members wm ON wm.workspace_id = s.workspace_id AND wm.deleted_at IS NULL "+
 			"WHERE t.id = ? AND wm.user_id IN ?",
 		taskID, mentionIDs,
-	).Scan(&count).Error
+	).Scan(&members).Error
 	if err != nil {
 		return err
 	}
-	if count != int64(len(mentionIDs)) {
-		return domain.ErrInvalidMentionReference
+	if len(members) == len(mentionIDs) {
+		return nil
 	}
-	return nil
+	isMember := make(map[uint]struct{}, len(members))
+	for _, id := range members {
+		isMember[id] = struct{}{}
+	}
+	var problems []domain.FieldProblem
+	for _, id := range mentionIDs {
+		if _, ok := isMember[id]; !ok {
+			problems = append(problems, domain.FieldProblem{
+				Reason: "NOT_A_MEMBER", Params: map[string]any{"user_id": id},
+			})
+		}
+	}
+	return domain.InvalidFields(domain.ErrInvalidMentionReference, problems)
 }
 
 func replaceMentions(tx *gorm.DB, commentID uint, mentionIDs []uint) error {

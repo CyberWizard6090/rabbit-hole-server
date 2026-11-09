@@ -80,7 +80,11 @@ func (h *CommentHandler) handleError(c *gin.Context, code string, err error) {
 	case errors.Is(err, domain.ErrCommentForbidden):
 		response.HandleError(c, httperrors.Forbidden("COMMENT_FORBIDDEN", err.Error(), err))
 	case errors.Is(err, domain.ErrInvalidMentionReference):
-		response.HandleError(c, httperrors.BadRequest("INVALID_MENTION", err.Error(), err))
+		appErr := withFieldDetails(httperrors.BadRequest("INVALID_MENTION", err.Error(), err), err, "mention_user_ids")
+		if len(appErr.Details) > 0 {
+			appErr.Params = map[string]any{"user_id": appErr.Details[0].Params["user_id"]}
+		}
+		response.HandleError(c, appErr)
 	default:
 		response.HandleError(c, httperrors.Internal(code, "internal server error", err))
 	}

@@ -250,6 +250,13 @@ type webhookTask struct {
 	WorkspaceID uint   `json:"workspace_id"`
 }
 
+type webhookForm struct {
+	ID           uint   `json:"id"`
+	Name         string `json:"name"`
+	SubmissionID uint   `json:"submission_id"`
+	WorkspaceID  uint   `json:"workspace_id"`
+}
+
 type webhookActor struct {
 	DisplayName string `json:"display_name"`
 }
@@ -260,7 +267,8 @@ type webhookEvent struct {
 	CreatedAt  time.Time    `json:"created_at"`
 	Summary    string       `json:"summary"`
 	Detail     string       `json:"detail,omitempty"`
-	Task       webhookTask  `json:"task"`
+	Task       *webhookTask `json:"task,omitempty"`
+	Form       *webhookForm `json:"form,omitempty"`
 	Actor      webhookActor `json:"actor"`
 	Link       string       `json:"link"`
 }
@@ -273,15 +281,23 @@ func (c *webhookChannel) eventBody(d Delivery, deliveryID string) webhookEvent {
 	}
 	strs := notificationMailLocales[locale]
 	actor := actorDisplayName(content.Actor, strs.SomeoneName)
-	title := singleLine(content.TaskTitle)
-	return webhookEvent{
+	title := singleLine(content.Title())
+	event := webhookEvent{
 		Type: content.Type.Key, DeliveryID: deliveryID, CreatedAt: c.now().UTC(),
 		Summary: singleLine(fmt.Sprintf(content.Type.WordingFor(locale).Subject, actor, title)),
 		Detail:  notificationDetail(locale, content.Type.Key, content.Payload),
-		Task:    webhookTask{ID: content.TaskID, Title: title, WorkspaceID: content.WorkspaceID},
 		Actor:   webhookActor{DisplayName: actor},
 		Link:    notificationLink(c.cfg.FrontendURL, content),
 	}
+	if content.Type.Key == domain.NotificationFormSubmitted {
+		event.Form = &webhookForm{
+			ID: payloadID(content.Payload, "form_id"), Name: title,
+			SubmissionID: payloadID(content.Payload, "submission_id"), WorkspaceID: content.WorkspaceID,
+		}
+		return event
+	}
+	event.Task = &webhookTask{ID: content.TaskID, Title: title, WorkspaceID: content.WorkspaceID}
+	return event
 }
 
 type webhookConfirmationBody struct {

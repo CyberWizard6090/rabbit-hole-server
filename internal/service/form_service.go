@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,8 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/mail"
-	"net/url"
+	"net/http"
 	"regexp"
 	"sort"
 	"strings"
@@ -33,7 +31,7 @@ type FormService interface {
 	ReorderQuestions(ctx context.Context, workspaceID, formID uint, questionIDs []uint) error
 	Publish(ctx context.Context, workspaceID, formID uint) (*domain.Form, error)
 	GetPublic(ctx context.Context, slug string) (*PublicForm, error)
-	Submit(ctx context.Context, slug, idempotencyKey string, respondentID *uint, answers map[uint]json.RawMessage) (*domain.FormSubmission, bool, error)
+	Submit(ctx context.Context, slug, idempotencyKey string, respondentID *uint, answers map[uint]json.RawMessage) (*PublicSubmission, bool, error)
 	ListSubmissions(
 		ctx context.Context,
 		workspaceID, formID uint,
@@ -73,6 +71,15 @@ type PublicForm struct {
 	Full        bool                  `json:"full"`
 }
 
+type PublicSubmission struct {
+	ID                 uint                      `json:"id"`
+	Status             string                    `json:"status"`
+	CreatedAt          time.Time                 `json:"created_at"`
+	TaskCreationStatus domain.TaskCreationStatus `json:"task_creation_status"`
+	SuccessMessage     string                    `json:"success_message"`
+	RedirectURL        string                    `json:"redirect_url"`
+}
+
 type formService struct {
 	repo       domain.FormRepository
 	taskConfig FormTaskConfigurationService
@@ -85,6 +92,13 @@ type formService struct {
 	uploads               domain.FormUploadRepository
 	tx                    TransactionRunner
 }
+
+const (
+	reorderInvalidCode = "FORM_QUESTION_REORDER_INVALID"
+	questionInUseCode  = "FORM_QUESTION_IN_USE"
+
+	idempotencyKeyField = "Idempotency-Key"
+)
 
 var formSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,254}$`)
 
@@ -362,6 +376,9 @@ func (s *formService) UpdateQuestion(
 	if err := savedQuestionVisibilityError(form.Questions, *question); err != nil {
 		return nil, err
 	}
+	if err := s.checkAnsweredQuestionChange(ctx, form.Questions, *question); err != nil {
+		return nil, err
+	}
 	if err := s.repo.UpdateQuestion(ctx, question); err != nil {
 		return nil, fmt.Errorf("update form question: %w", err)
 	}
@@ -387,20 +404,102 @@ func (s *formService) ReorderQuestions(ctx context.Context, workspaceID, formID 
 	if err != nil {
 		return err
 	}
-	if form.Status == domain.FormArchived || len(questionIDs) == 0 || len(questionIDs) > 200 {
+	if form.Status == domain.FormArchived {
 		return domain.ErrInvalidForm
 	}
-	seen := make(map[uint]struct{}, len(questionIDs))
-	for _, id := range questionIDs {
-		if id == 0 {
-			return domain.ErrInvalidForm
-		}
-		if _, ok := seen[id]; ok {
-			return domain.ErrInvalidForm
-		}
-		seen[id] = struct{}{}
+	if err := reorderSetError(form.Questions, questionIDs); err != nil {
+		return err
+	}
+	if err := reorderVisibilityError(form.Questions, questionIDs); err != nil {
+		return err
 	}
 	return s.repo.ReorderQuestions(ctx, formID, questionIDs)
+}
+
+func reorderSetError(questions []domain.FormQuestion, ids []uint) error {
+	live := make(map[uint]struct{}, len(questions))
+	for _, question := range questions {
+		live[question.ID] = struct{}{}
+	}
+	var problems []domain.FieldProblem
+	seen := make(map[uint]struct{}, len(ids))
+	for i, id := range ids {
+		field := fmt.Sprintf("ids[%d]", i)
+		params := map[string]any{"question_id": id}
+		if _, duplicate := seen[id]; duplicate {
+			problems = append(problems, domain.FieldProblem{Field: field, Reason: "DUPLICATE", Params: params})
+			continue
+		}
+		seen[id] = struct{}{}
+		if _, ok := live[id]; !ok {
+			problems = append(problems, domain.FieldProblem{Field: field, Reason: "UNKNOWN_QUESTION", Params: params})
+		}
+	}
+	for _, question := range orderedQuestions(questions) {
+		if _, ok := seen[question.ID]; !ok {
+			problems = append(problems, domain.FieldProblem{
+				Field: "ids", Reason: "MISSING", Params: map[string]any{"question_id": question.ID},
+			})
+		}
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return domain.NewFormError(reorderInvalidCode, "ids must list every question of the form exactly once").
+		WithProblems(problems...)
+}
+
+func (s *formService) checkAnsweredQuestionChange(
+	ctx context.Context,
+	existing []domain.FormQuestion,
+	updated domain.FormQuestion,
+) error {
+	var current *domain.FormQuestion
+	for i := range existing {
+		if existing[i].ID == updated.ID {
+			current = &existing[i]
+		}
+	}
+	if current == nil {
+		return nil
+	}
+	typeChanged := current.Type != updated.Type
+	var removed []string
+	kept := make(map[string]struct{}, len(updated.Options))
+	for _, option := range updated.Options {
+		kept[option.Value] = struct{}{}
+	}
+	for _, option := range current.Options {
+		if _, ok := kept[option.Value]; !ok {
+			removed = append(removed, option.Value)
+		}
+	}
+	if !typeChanged && len(removed) == 0 {
+		return nil
+	}
+	answers, used, err := s.repo.QuestionAnswerUsage(ctx, updated.ID, removed)
+	if err != nil {
+		return err
+	}
+	if answers == 0 {
+		return nil
+	}
+	inUse := domain.NewFormError(questionInUseCode, "the question already has answers").WithStatus(http.StatusConflict)
+	if typeChanged {
+		return inUse.WithProblems(domain.FieldProblem{
+			Field: "type", Reason: "HAS_ANSWERS", Params: map[string]any{"answers": answers},
+		})
+	}
+	problems := make([]domain.FieldProblem, 0, len(used))
+	for _, value := range used {
+		problems = append(problems, domain.FieldProblem{
+			Field: "options", Reason: "OPTION_IN_USE", Params: map[string]any{"value": value},
+		})
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return inUse.WithProblems(problems...)
 }
 
 func (s *formService) Publish(ctx context.Context, workspaceID, formID uint) (*domain.Form, error) {
@@ -446,6 +545,13 @@ func (s *formService) GetPublic(ctx context.Context, slug string) (*PublicForm, 
 	if err := json.Unmarshal(form.CurrentVersion.SchemaSnapshot, &snapshot); err != nil {
 		return nil, fmt.Errorf("decode published form schema: %w", err)
 	}
+	for i := range snapshot.Questions {
+		options := append([]domain.QuestionOption(nil), snapshot.Questions[i].Options...)
+		for j := range options {
+			options[j].ID = 0
+		}
+		snapshot.Questions[i].Options = options
+	}
 	public := &PublicForm{
 		Name: snapshot.Name, Description: snapshot.Description, Slug: form.Slug,
 		Version: form.CurrentVersion.Version, Questions: snapshot.Questions,
@@ -466,13 +572,14 @@ func (s *formService) Submit(
 	slug, idempotencyKey string,
 	respondentID *uint,
 	input map[uint]json.RawMessage,
-) (*domain.FormSubmission, bool, error) {
-	if len(idempotencyKey) == 0 || len(idempotencyKey) > 255 {
-		return nil, false, domain.ErrInvalidSubmission
-	}
+) (*PublicSubmission, bool, error) {
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
-	if idempotencyKey == "" {
-		return nil, false, domain.ErrInvalidSubmission
+	switch {
+	case idempotencyKey == "":
+		return nil, false, domain.InvalidField(domain.ErrInvalidSubmission, idempotencyKeyField, "REQUIRED")
+	case len(idempotencyKey) > 255:
+		return nil, false, domain.InvalidField(domain.ErrInvalidSubmission, idempotencyKeyField, "TOO_LONG").
+			WithParams(map[string]any{"max": 255})
 	}
 	form, err := s.repo.GetPublishedBySlug(ctx, slug)
 	if err != nil {
@@ -529,8 +636,11 @@ func (s *formService) Submit(
 		}
 		submission = refreshed
 	}
-	submission.TaskCreationError = ""
-	return submission, replay, nil
+	return &PublicSubmission{
+		ID: submission.ID, Status: submission.Status, CreatedAt: submission.SubmittedAt,
+		TaskCreationStatus: submission.TaskCreationStatus,
+		SuccessMessage:     snapshot.Settings.SuccessMessage, RedirectURL: snapshot.Settings.RedirectURL,
+	}, replay, nil
 }
 
 func (s *formService) ListSubmissions(
@@ -688,139 +798,6 @@ func isStaticQuestion(questionType domain.QuestionType) bool {
 	return questionType == domain.QuestionSection ||
 		questionType == domain.QuestionDescription ||
 		questionType == domain.QuestionDivider
-}
-
-func validateSubmission(questions []domain.FormQuestion, input map[uint]json.RawMessage) ([]domain.SubmissionAnswer, error) {
-	ordered := orderedQuestions(questions)
-	known := make(map[uint]struct{}, len(ordered))
-	for _, question := range ordered {
-		known[question.ID] = struct{}{}
-	}
-	for id := range input {
-		if _, ok := known[id]; !ok {
-			return nil, domain.ErrInvalidSubmission
-		}
-	}
-	answers := make([]domain.SubmissionAnswer, 0, len(input))
-	effective := make(map[uint]any, len(input))
-	for _, question := range ordered {
-		raw, exists := input[question.ID]
-		if isStaticQuestion(question.Type) {
-			if exists {
-				return nil, domain.ErrInvalidSubmission
-			}
-			continue
-		}
-		if !questionVisible(question, effective) {
-			continue
-		}
-		if !exists {
-			if question.Required {
-				return nil, domain.ErrInvalidSubmission
-			}
-			continue
-		}
-		if len(raw) == 0 || len(raw) > 1<<18 || !json.Valid(raw) {
-			return nil, domain.ErrInvalidSubmission
-		}
-		var value any
-		decoder := json.NewDecoder(bytes.NewReader(raw))
-		decoder.UseNumber()
-		if err := decoder.Decode(&value); err != nil || isEmptySubmissionValue(value) ||
-			!validQuestionValue(question, value) {
-			return nil, domain.ErrInvalidSubmission
-		}
-		normalized, err := json.Marshal(value)
-		if err != nil {
-			return nil, domain.ErrInvalidSubmission
-		}
-		effective[question.ID] = value
-		answers = append(answers, domain.SubmissionAnswer{QuestionID: question.ID, Value: normalized})
-	}
-	return answers, nil
-}
-
-func validQuestionValue(question domain.FormQuestion, value any) bool {
-	switch question.Type {
-	case domain.QuestionShortText, domain.QuestionLongText:
-		text, ok := value.(string)
-		return ok && validTextLength(question, text)
-	case domain.QuestionPhone:
-		_, ok := value.(string)
-		return ok
-	case domain.QuestionEmail:
-		text, ok := value.(string)
-		if !ok {
-			return false
-		}
-		address, err := mail.ParseAddress(text)
-		return err == nil && address.Address == text
-	case domain.QuestionURL:
-		text, ok := value.(string)
-		if !ok {
-			return false
-		}
-		parsed, err := url.ParseRequestURI(text)
-		return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
-	case domain.QuestionDate:
-		text, ok := value.(string)
-		if !ok {
-			return false
-		}
-		_, err := time.Parse("2006-01-02", text)
-		return err == nil
-	case domain.QuestionDateTime:
-		text, ok := value.(string)
-		if !ok {
-			return false
-		}
-		_, err := time.Parse(time.RFC3339, text)
-		return err == nil
-	case domain.QuestionNumber, domain.QuestionRating, domain.QuestionScale:
-		return validNumericAnswer(question, value)
-	case domain.QuestionCheckbox:
-		_, ok := value.(bool)
-		return ok
-	case domain.QuestionSingleChoice, domain.QuestionDropdown:
-		text, ok := value.(string)
-		return ok && questionHasOption(question.Options, text)
-	case domain.QuestionMultipleChoice:
-		values, ok := value.([]any)
-		if !ok {
-			return false
-		}
-		seen := make(map[string]struct{}, len(values))
-		for _, raw := range values {
-			text, ok := raw.(string)
-			if !ok || !questionHasOption(question.Options, text) {
-				return false
-			}
-			if _, duplicate := seen[text]; duplicate {
-				return false
-			}
-			seen[text] = struct{}{}
-		}
-		return validSelectionCount(question, len(values))
-	case domain.QuestionFile:
-		values, ok := value.([]any)
-		if !ok || len(values) == 0 || len(values) > questionMaxFiles(question.Settings) {
-			return false
-		}
-		seen := make(map[string]struct{}, len(values))
-		for _, raw := range values {
-			text, ok := raw.(string)
-			if !ok || !publicIDPattern.MatchString(text) {
-				return false
-			}
-			if _, duplicate := seen[text]; duplicate {
-				return false
-			}
-			seen[text] = struct{}{}
-		}
-		return true
-	default:
-		return false
-	}
 }
 
 func questionNumber(value any) (float64, bool) {

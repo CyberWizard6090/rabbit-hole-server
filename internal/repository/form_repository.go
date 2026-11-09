@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -57,6 +58,13 @@ func (r *formRepository) GetByID(ctx context.Context, formID uint) (*domain.Form
 		return nil, err
 	}
 	form.Questions, form.CurrentVersion = questions, version
+	var aliases []string
+	if err := database.DBFromContext(ctx, r.db).Raw(
+		"SELECT slug FROM form_slug_aliases WHERE form_id = ? ORDER BY id DESC", row.ID,
+	).Scan(&aliases).Error; err != nil {
+		return nil, mapErr(err)
+	}
+	form.PreviousSlugs = aliases
 	return &form, nil
 }
 
@@ -87,22 +95,53 @@ func (r *formRepository) loadFormChildren(
 }
 
 func (r *formRepository) Update(ctx context.Context, form *domain.Form) error {
-	result := database.DBFromContext(ctx, r.db).Model(&persistence.Form{}).
-		Where("id = ? AND workspace_id = ?", form.ID, form.WorkspaceID).
-		Updates(map[string]any{
-			"name": form.Name, "description": form.Description, "slug": form.Slug,
-			"settings": encodeFormSettings(form.Settings),
-		})
-	if result.Error != nil {
-		if isUniqueViolation(result.Error) {
+	err := database.WithTransaction(ctx, r.db, func(txCtx context.Context) error {
+		tx := database.DBFromContext(txCtx, r.db)
+		var current persistence.Form
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&current, "id = ? AND workspace_id = ?", form.ID, form.WorkspaceID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return domain.ErrFormNotFound
+			}
+			return err
+		}
+		if err := tx.Model(&persistence.Form{}).Where("id = ?", form.ID).
+			Updates(map[string]any{
+				"name": form.Name, "description": form.Description, "slug": form.Slug,
+				"settings": encodeFormSettings(form.Settings),
+			}).Error; err != nil {
+			return err
+		}
+		if strings.EqualFold(current.Slug, form.Slug) {
+			return nil
+		}
+		return rotateSlugAlias(tx, current, form.Slug)
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
 			return domain.ErrFormSlugTaken
 		}
-		return mapErr(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return domain.ErrFormNotFound
+		return mapErr(err)
 	}
 	return nil
+}
+
+func rotateSlugAlias(tx *gorm.DB, current persistence.Form, newSlug string) error {
+	if err := tx.Exec("DELETE FROM form_slug_aliases WHERE form_id = ? AND lower(slug) = lower(?)",
+		current.ID, newSlug).Error; err != nil {
+		return err
+	}
+	if current.Status != string(domain.FormPublished) || current.CurrentVersionID == nil {
+		return nil
+	}
+	if err := tx.Exec("INSERT INTO form_slug_aliases (form_id, slug) VALUES (?, lower(?))",
+		current.ID, current.Slug).Error; err != nil {
+		return err
+	}
+	return tx.Exec(
+		"DELETE FROM form_slug_aliases WHERE form_id = ? AND id NOT IN ("+
+			"SELECT id FROM form_slug_aliases WHERE form_id = ? ORDER BY id DESC LIMIT ?)",
+		current.ID, current.ID, domain.MaxFormSlugAliases).Error
 }
 
 func (r *formRepository) Delete(ctx context.Context, workspaceID, formID uint) error {
@@ -121,16 +160,19 @@ func (r *formRepository) Delete(ctx context.Context, workspaceID, formID uint) e
 }
 
 func (r *formRepository) Archive(ctx context.Context, workspaceID, formID uint) error {
-	result := database.DBFromContext(ctx, r.db).Model(&persistence.Form{}).
-		Where("id = ? AND workspace_id = ?", formID, workspaceID).
-		Update("status", string(domain.FormArchived))
-	if result.Error != nil {
-		return mapErr(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return domain.ErrFormNotFound
-	}
-	return nil
+	return mapErr(database.WithTransaction(ctx, r.db, func(txCtx context.Context) error {
+		tx := database.DBFromContext(txCtx, r.db)
+		result := tx.Model(&persistence.Form{}).
+			Where("id = ? AND workspace_id = ?", formID, workspaceID).
+			Update("status", string(domain.FormArchived))
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return domain.ErrFormNotFound
+		}
+		return tx.Exec("DELETE FROM form_slug_aliases WHERE form_id = ?", formID).Error
+	}))
 }
 
 func (r *formRepository) CreateQuestion(ctx context.Context, question *domain.FormQuestion) error {
@@ -260,6 +302,36 @@ func (r *formRepository) DeleteQuestion(ctx context.Context, formID, questionID 
 	}))
 }
 
+func (r *formRepository) QuestionAnswerUsage(
+	ctx context.Context,
+	questionID uint,
+	optionValues []string,
+) (int64, []string, error) {
+	db := database.DBFromContext(ctx, r.db)
+	var total int64
+	if err := db.Raw("SELECT count(*) FROM submission_answers WHERE question_id = ?", questionID).
+		Scan(&total).Error; err != nil {
+		return 0, nil, mapErr(err)
+	}
+	used := make([]string, 0)
+	if total == 0 {
+		return 0, used, nil
+	}
+	for _, value := range optionValues {
+		var matches int64
+		if err := db.Raw(
+			"SELECT count(*) FROM submission_answers WHERE question_id = ? AND value @> to_jsonb(?::text)",
+			questionID, value,
+		).Scan(&matches).Error; err != nil {
+			return 0, nil, mapErr(err)
+		}
+		if matches > 0 {
+			used = append(used, value)
+		}
+	}
+	return total, used, nil
+}
+
 func (r *formRepository) ReorderQuestions(ctx context.Context, formID uint, questionIDs []uint) error {
 	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		var form persistence.Form
@@ -269,12 +341,15 @@ func (r *formRepository) ReorderQuestions(ctx context.Context, formID uint, ques
 		if form.Status == string(domain.FormArchived) {
 			return domain.ErrInvalidForm
 		}
-		var count int64
+		var count, total int64
 		if err := tx.Model(&persistence.FormQuestion{}).
 			Where("form_id = ? AND id IN ?", formID, questionIDs).Count(&count).Error; err != nil {
 			return err
 		}
-		if count != int64(len(questionIDs)) {
+		if err := tx.Model(&persistence.FormQuestion{}).Where("form_id = ?", formID).Count(&total).Error; err != nil {
+			return err
+		}
+		if count != int64(len(questionIDs)) || total != count {
 			return domain.ErrInvalidForm
 		}
 		for position, id := range questionIDs {
@@ -525,7 +600,8 @@ var liveFormScope = liveWorkspacePredicate("forms.workspace_id") +
 func (r *formRepository) GetPublishedBySlug(ctx context.Context, slug string) (*domain.Form, error) {
 	var form persistence.Form
 	err := database.DBFromContext(ctx, r.db).
-		Where("lower(slug) = lower(?) AND status = ?", slug, domain.FormPublished).
+		Where("(lower(slug) = lower(?) OR EXISTS (SELECT 1 FROM form_slug_aliases a "+
+			"WHERE a.form_id = forms.id AND lower(a.slug) = lower(?))) AND status = ?", slug, slug, domain.FormPublished).
 		Where(liveFormScope).
 		First(&form).Error
 	if err != nil {

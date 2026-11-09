@@ -13,7 +13,7 @@ import (
 
 const ChannelConfirmationTTL = 48 * time.Hour
 
-var ErrConfirmationMailFailed = errors.New("cannot send the confirmation message right now")
+var ErrConfirmationDeliveryFailed = errors.New("cannot send the confirmation message right now")
 
 type ChannelView struct {
 	ID          *uint      `json:"id"`
@@ -156,7 +156,7 @@ func (s *NotificationChannelService) challenge(
 		if errors.Is(err, domain.ErrInvalidDestination) {
 			return domain.ErrInvalidDestination
 		}
-		return fmt.Errorf("%w", ErrConfirmationMailFailed)
+		return fmt.Errorf("%w", ErrConfirmationDeliveryFailed)
 	}
 	return nil
 }

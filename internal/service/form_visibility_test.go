@@ -178,11 +178,19 @@ func TestVisibilityErrors(t *testing.T) {
 			t.Fatal("contains on a number must be rejected")
 		}
 	})
-	t.Run("new question sorts after existing ones at the same position", func(t *testing.T) {
+	t.Run("a new question is validated against its final position", func(t *testing.T) {
 		existing := []domain.FormQuestion{base}
-		newQuestion := textQuestion(0, 0, false, visibleIf(1, "any", nil))
-		if err := savedQuestionVisibilityError(existing, newQuestion); err != nil {
-			t.Fatal(err)
+		appended := textQuestion(0, domain.AppendQuestionPosition, false, visibleIf(1, "any", nil))
+		if err := savedQuestionVisibilityError(existing, appended); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+		after := textQuestion(0, 1, false, visibleIf(1, "any", nil))
+		if err := savedQuestionVisibilityError(existing, after); err != nil {
+			t.Fatalf("after the source: %v", err)
+		}
+		inserted := textQuestion(0, 0, false, visibleIf(1, "any", nil))
+		if err := savedQuestionVisibilityError(existing, inserted); err == nil {
+			t.Fatal("inserting before the source must be rejected: the source is shifted behind it")
 		}
 	})
 }

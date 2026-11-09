@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -47,8 +48,8 @@ func (s *formService) WithSubmissionNotifier(notifier FormSubmissionNotifier) *f
 	return s
 }
 
-func settingsError(code, message string) error {
-	return domain.NewFormError(code, message)
+func settingsError(code, message, field, reason string, params map[string]any) error {
+	return domain.NewFormFieldError(code, message, "settings."+field, reason, params)
 }
 
 func (s *formService) imageURL(publicID string) string {
@@ -83,11 +84,13 @@ func (s *formService) normalizeSettings(
 	out := domain.FormSettings{NotifyOnSubmit: []uint{}}
 	out.SubmitButtonText = strings.TrimSpace(in.SubmitButtonText)
 	if utf8.RuneCountInString(out.SubmitButtonText) > maxSubmitButtonRunes {
-		return out, settingsError("FORM_SUBMIT_BUTTON_TEXT_INVALID", "submit_button_text must be at most 80 characters")
+		return out, settingsError("FORM_SUBMIT_BUTTON_TEXT_INVALID", "submit_button_text must be at most 80 characters",
+			"submit_button_text", "TOO_LONG", map[string]any{"max": maxSubmitButtonRunes})
 	}
 	out.SuccessMessage = strings.TrimSpace(in.SuccessMessage)
 	if utf8.RuneCountInString(out.SuccessMessage) > maxSuccessMessageRune {
-		return out, settingsError("FORM_SUCCESS_MESSAGE_INVALID", "success_message must be at most 2000 characters")
+		return out, settingsError("FORM_SUCCESS_MESSAGE_INVALID", "success_message must be at most 2000 characters",
+			"success_message", "TOO_LONG", map[string]any{"max": maxSuccessMessageRune})
 	}
 	redirect, err := s.normalizeRedirectURL(in.RedirectURL)
 	if err != nil {
@@ -96,7 +99,8 @@ func (s *formService) normalizeSettings(
 	out.RedirectURL = redirect
 	if color := strings.TrimSpace(in.AccentColor); color != "" {
 		if !accentColorPattern.MatchString(color) {
-			return out, settingsError("FORM_ACCENT_COLOR_INVALID", "accent_color must look like #RRGGBB")
+			return out, settingsError("FORM_ACCENT_COLOR_INVALID", "accent_color must look like #RRGGBB",
+				"accent_color", "INVALID_COLOR", nil)
 		}
 		out.AccentColor = strings.ToLower(color)
 	}
@@ -115,7 +119,8 @@ func (s *formService) normalizeSettings(
 	}
 	if in.MaxSubmissions != nil {
 		if *in.MaxSubmissions < 1 || *in.MaxSubmissions > maxFormSubmissionsCap {
-			return out, settingsError("FORM_MAX_SUBMISSIONS_INVALID", "max_submissions must be between 1 and 1000000")
+			return out, settingsError("FORM_MAX_SUBMISSIONS_INVALID", "max_submissions must be between 1 and 1000000",
+				"max_submissions", "OUT_OF_RANGE", map[string]any{"min": 1, "max": maxFormSubmissionsCap})
 		}
 		limit := *in.MaxSubmissions
 		out.MaxSubmissions = &limit
@@ -128,25 +133,32 @@ func (s *formService) normalizeRedirectURL(raw string) (string, error) {
 	if raw == "" {
 		return "", nil
 	}
-	invalid := func(message string) error { return settingsError("FORM_REDIRECT_URL_INVALID", message) }
-	if len(raw) > maxRedirectURLLength || strings.ContainsAny(raw, " \t\r\n\\") {
-		return "", invalid("redirect_url must be a valid URL of at most 2048 characters")
+	invalid := func(message, reason string, params map[string]any) error {
+		return settingsError("FORM_REDIRECT_URL_INVALID", message, "redirect_url", reason, params)
+	}
+	if len(raw) > maxRedirectURLLength {
+		return "", invalid("redirect_url must be a valid URL of at most 2048 characters", "TOO_LONG",
+			map[string]any{"max": maxRedirectURLLength})
+	}
+	if strings.ContainsAny(raw, " \t\r\n\\") {
+		return "", invalid("redirect_url must be a valid URL of at most 2048 characters", "INVALID_FORMAT",
+			map[string]any{"format": "url"})
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Host == "" || parsed.Hostname() == "" {
-		return "", invalid("redirect_url must be an absolute https URL")
+		return "", invalid("redirect_url must be an absolute https URL", "INVALID_FORMAT", map[string]any{"format": "url"})
 	}
 	switch strings.ToLower(parsed.Scheme) {
 	case "https":
 	case "http":
 		if !s.allowInsecureRedirect {
-			return "", invalid("redirect_url must use https")
+			return "", invalid("redirect_url must use https", "INVALID_SCHEME", map[string]any{"allowed": []string{"https"}})
 		}
 	default:
-		return "", invalid("redirect_url must use https")
+		return "", invalid("redirect_url must use https", "INVALID_SCHEME", map[string]any{"allowed": []string{"https"}})
 	}
 	if parsed.User != nil {
-		return "", invalid("redirect_url must not contain credentials")
+		return "", invalid("redirect_url must not contain credentials", "NOT_ALLOWED", nil)
 	}
 	return parsed.String(), nil
 }
@@ -166,28 +178,31 @@ func (s *formService) normalizeImage(
 	}
 	publicID = strings.ToLower(publicID)
 	if !publicIDPattern.MatchString(publicID) {
-		return "", settingsError(code, field+" must be the id of an image uploaded to this workspace")
+		return "", settingsError(code, field+" must be the id of an image uploaded to this workspace", field, "INVALID_REFERENCE", nil)
 	}
 	exists, err := s.repo.WorkspaceImageExists(ctx, workspaceID, publicID)
 	if err != nil {
 		return "", err
 	}
 	if !exists {
-		return "", settingsError(code, field+" must be the id of an image uploaded to this workspace")
+		return "", settingsError(code, field+" must be the id of an image uploaded to this workspace", field, "NOT_FOUND", nil)
 	}
 	return publicID, nil
 }
 
 func (s *formService) normalizeRecipients(ctx context.Context, workspaceID uint, ids []uint) ([]uint, error) {
-	invalid := func(message string) error { return settingsError("FORM_NOTIFY_RECIPIENT_INVALID", message) }
+	invalid := func(message, field, reason string, params map[string]any) error {
+		return settingsError("FORM_NOTIFY_RECIPIENT_INVALID", message, field, reason, params)
+	}
+	const field = "notify_on_submit"
 	if len(ids) > maxNotifyRecipients {
-		return nil, invalid("notify_on_submit accepts at most 50 users")
+		return nil, invalid("notify_on_submit accepts at most 50 users", field, "TOO_MANY", map[string]any{"max": maxNotifyRecipients})
 	}
 	unique := make([]uint, 0, len(ids))
 	seen := make(map[uint]struct{}, len(ids))
-	for _, id := range ids {
+	for i, id := range ids {
 		if id == 0 {
-			return nil, invalid("notify_on_submit must contain user ids")
+			return nil, invalid("notify_on_submit must contain user ids", fmt.Sprintf("%s[%d]", field, i), "INVALID_VALUE", nil)
 		}
 		if _, duplicate := seen[id]; duplicate {
 			continue
@@ -200,7 +215,16 @@ func (s *formService) normalizeRecipients(ctx context.Context, workspaceID uint,
 		return nil, err
 	}
 	if len(members) != len(unique) {
-		return nil, invalid("notify_on_submit may only list members of this workspace")
+		isMember := make(map[uint]struct{}, len(members))
+		for _, id := range members {
+			isMember[id] = struct{}{}
+		}
+		for i, id := range ids {
+			if _, ok := isMember[id]; !ok {
+				return nil, invalid("notify_on_submit may only list members of this workspace",
+					fmt.Sprintf("%s[%d]", field, i), "NOT_A_MEMBER", map[string]any{"user_id": id})
+			}
+		}
 	}
 	return unique, nil
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
@@ -160,9 +161,14 @@ func validationDetails(err error) []httperrors.Detail {
 	if !errors.As(err, &validationErrs) {
 		return nil
 	}
+	var root reflect.Type
+	var rooted *rootedError
+	if errors.As(err, &rooted) {
+		root = rooted.root
+	}
 	details := make([]httperrors.Detail, 0, len(validationErrs))
 	for _, fe := range validationErrs {
-		details = append(details, fieldDetail(fe))
+		details = append(details, fieldDetail(fe, root))
 	}
 	return details
 }

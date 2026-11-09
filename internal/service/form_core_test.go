@@ -209,3 +209,49 @@ func TestFormPresetsAreValidAndLocalized(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeTaskTemplateConfigurationNamesThePath(t *testing.T) {
+	cases := map[string]struct {
+		raw    string
+		field  string
+		reason string
+	}{
+		"not an object": {`[]`, "configuration", "INVALID_TYPE"},
+		"not json":      {`{`, "configuration", "INVALID_VALUE"},
+		"priority":      {`{"task":{"priority":"blocker"}}`, "configuration.task.priority", "INVALID_CHOICE"},
+		"field id":      {`{"custom_fields":[{"field_id":0,"value":1}]}`, "configuration.custom_fields[0].field_id", "REQUIRED"},
+		"field value":   {`{"custom_fields":[{"field_id":1}]}`, "configuration.custom_fields[0].value", "REQUIRED"},
+		"tag":           {`{"tags":[3,0]}`, "configuration.tags[1]", "INVALID_VALUE"},
+		"status":        {`{"task":{"status_id":0}}`, "configuration.task.status_id", "INVALID_VALUE"},
+		"assignee":      {`{"task":{"assignee_id":0}}`, "configuration.task.assignee_id", "INVALID_VALUE"},
+	}
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := NormalizeTaskTemplateConfiguration(json.RawMessage(test.raw))
+			var fieldErr *domain.FieldError
+			if !errors.As(err, &fieldErr) || !errors.Is(err, domain.ErrInvalidTaskTemplate) ||
+				fieldErr.Problems[0].Field != test.field || fieldErr.Problems[0].Reason != test.reason {
+				t.Fatalf("err = %v, want %s %s", err, test.field, test.reason)
+			}
+		})
+	}
+}
+
+func TestTemplateNameIssue(t *testing.T) {
+	if err := templateNameIssue("ok", ""); err != nil {
+		t.Fatal(err)
+	}
+	for name, test := range map[string]struct{ name, description, field string }{
+		"empty":       {"", "", "name"},
+		"long":        {strings.Repeat("n", 256), "", "name"},
+		"description": {"ok", strings.Repeat("d", 10001), "description"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var fieldErr *domain.FieldError
+			err := templateNameIssue(test.name, test.description)
+			if !errors.As(err, &fieldErr) || fieldErr.Problems[0].Field != test.field {
+				t.Fatalf("err = %v", err)
+			}
+		})
+	}
+}

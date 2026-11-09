@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -28,8 +29,15 @@ type visibilityRule struct {
 	Value      json.RawMessage `json:"value,omitempty"`
 }
 
-func visibilityError(message string) error {
-	return domain.NewFormError(visibilityInvalidCode, message)
+const (
+	visibilityRuleField     = "settings.visible_if"
+	visibilityQuestionField = visibilityRuleField + ".question_id"
+	visibilityOperatorField = visibilityRuleField + ".operator"
+	visibilityValueField    = visibilityRuleField + ".value"
+)
+
+func visibilityError(field, reason, message string, params map[string]any) error {
+	return domain.NewFormFieldError(visibilityInvalidCode, message, field, reason, params)
 }
 
 func parseVisibility(settings json.RawMessage) (*visibilityRule, error) {
@@ -48,21 +56,24 @@ func parseVisibility(settings json.RawMessage) (*visibilityRule, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&rule); err != nil {
-		return nil, visibilityError("visible_if must be an object with question_id, operator and value")
+		return nil, visibilityError(visibilityRuleField, "INVALID_TYPE", "visible_if must be an object with question_id, operator and value",
+			map[string]any{"expected": "object"})
 	}
 	switch rule.Operator {
 	case visibilityEquals, visibilityNotEquals, visibilityContains:
 		var value any
 		if err := json.Unmarshal(rule.Value, &value); err != nil || !scalarVisibilityValue(value) {
-			return nil, visibilityError("visible_if.value must be a string, number or boolean")
+			return nil, visibilityError(visibilityValueField, "INVALID_TYPE", "visible_if.value must be a string, number or boolean",
+				map[string]any{"expected": "string, number or boolean"})
 		}
 	case visibilityAny:
 		rule.Value = nil
 	default:
-		return nil, visibilityError("visible_if.operator must be one of equals, not_equals, contains, any")
+		return nil, visibilityError(visibilityOperatorField, "INVALID_CHOICE", "visible_if.operator must be one of equals, not_equals, contains, any",
+			map[string]any{"allowed": []string{visibilityEquals, visibilityNotEquals, visibilityContains, visibilityAny}})
 	}
 	if rule.QuestionID == 0 {
-		return nil, visibilityError("visible_if.question_id is required")
+		return nil, visibilityError(visibilityQuestionField, "REQUIRED", "visible_if.question_id is required", nil)
 	}
 	return &rule, nil
 }
@@ -132,11 +143,14 @@ func visibilityErrors(questions []domain.FormQuestion) map[uint]error {
 		target, exists := byID[rule.QuestionID]
 		switch {
 		case !exists:
-			errs[id] = visibilityError(fmt.Sprintf("visible_if refers to unknown question %d", rule.QuestionID))
+			errs[id] = visibilityError(visibilityQuestionField, "NOT_FOUND", fmt.Sprintf("visible_if refers to unknown question %d", rule.QuestionID),
+				map[string]any{"depends_on": rule.QuestionID})
 		case isStaticQuestion(target.Type):
-			errs[id] = visibilityError("visible_if cannot depend on a section, description or divider")
+			errs[id] = visibilityError(visibilityQuestionField, "NOT_ALLOWED", "visible_if cannot depend on a section, description or divider",
+				map[string]any{"depends_on": rule.QuestionID, "question_type": string(target.Type)})
 		case !questionBefore(target, question):
-			errs[id] = visibilityError("visible_if must refer to a question placed earlier in the form")
+			errs[id] = visibilityError(visibilityQuestionField, "NOT_EARLIER", "visible_if must refer to a question placed earlier in the form",
+				map[string]any{"depends_on": rule.QuestionID})
 		default:
 			if err := checkVisibilityValue(*rule, target); err != nil {
 				errs[id] = err
@@ -157,9 +171,11 @@ func checkVisibilityChain(start uint, rules map[uint]*visibilityRule) error {
 		next := rule.QuestionID
 		if _, loop := seen[next]; loop {
 			if next == start && current == start {
-				return domain.NewFormError(visibilityCycleCode, "a question cannot depend on itself")
+				return domain.NewFormFieldError(visibilityCycleCode, "a question cannot depend on itself",
+					visibilityQuestionField, "SELF_REFERENCE", nil)
 			}
-			return domain.NewFormError(visibilityCycleCode, "visible_if rules form a cycle")
+			return domain.NewFormFieldError(visibilityCycleCode, "visible_if rules form a cycle",
+				visibilityQuestionField, "CYCLE", map[string]any{"depends_on": rule.QuestionID})
 		}
 		seen[next] = struct{}{}
 		current = next
@@ -176,27 +192,77 @@ func checkVisibilityValue(rule visibilityRule, target domain.FormQuestion) error
 	switch target.Type {
 	case domain.QuestionSingleChoice, domain.QuestionDropdown, domain.QuestionMultipleChoice:
 		if !isText || !questionHasOption(target.Options, text) {
-			return visibilityError("visible_if.value must be one of the options of the referenced question")
+			return visibilityError(visibilityValueField, "INVALID_CHOICE", "visible_if.value must be one of the options of the referenced question",
+				map[string]any{"allowed": optionValues(target.Options)})
 		}
 		if rule.Operator == visibilityContains && target.Type != domain.QuestionMultipleChoice {
-			return visibilityError("contains only applies to multiple choice and text questions")
+			return visibilityError(visibilityOperatorField, "NOT_SUPPORTED", "contains only applies to multiple choice and text questions",
+				map[string]any{"question_type": string(target.Type)})
 		}
 	case domain.QuestionCheckbox:
-		if _, isBool := value.(bool); !isBool || rule.Operator == visibilityContains {
-			return visibilityError("a checkbox condition needs a boolean value and equals or not_equals")
+		if _, isBool := value.(bool); !isBool {
+			return visibilityError(visibilityValueField, "INVALID_TYPE", "a checkbox condition needs a boolean value",
+				map[string]any{"expected": "boolean"})
+		}
+		if rule.Operator == visibilityContains {
+			return visibilityError(visibilityOperatorField, "NOT_SUPPORTED", "a checkbox condition needs equals or not_equals",
+				map[string]any{"question_type": string(target.Type)})
 		}
 	case domain.QuestionNumber, domain.QuestionRating, domain.QuestionScale:
-		if _, isNumber := value.(float64); !isNumber || rule.Operator == visibilityContains {
-			return visibilityError("a numeric condition needs a number value and equals or not_equals")
+		if _, isNumber := value.(float64); !isNumber {
+			return visibilityError(visibilityValueField, "INVALID_TYPE", "a numeric condition needs a number value",
+				map[string]any{"expected": "number"})
+		}
+		if rule.Operator == visibilityContains {
+			return visibilityError(visibilityOperatorField, "NOT_SUPPORTED", "a numeric condition needs equals or not_equals",
+				map[string]any{"question_type": string(target.Type)})
 		}
 	case domain.QuestionFile:
-		return visibilityError("a file question can only be used with the any operator")
+		return visibilityError(visibilityOperatorField, "NOT_SUPPORTED", "a file question can only be used with the any operator",
+			map[string]any{"question_type": string(target.Type)})
 	default:
 		if !isText {
-			return visibilityError("visible_if.value must be a string for this question")
+			return visibilityError(visibilityValueField, "INVALID_TYPE", "visible_if.value must be a string for this question",
+				map[string]any{"expected": "string"})
 		}
 	}
 	return nil
+}
+
+func optionValues(options []domain.QuestionOption) []string {
+	values := make([]string, len(options))
+	for i, option := range options {
+		values[i] = option.Value
+	}
+	return values
+}
+
+func placeNewQuestion(existing []domain.FormQuestion, saved domain.FormQuestion) ([]domain.FormQuestion, domain.FormQuestion) {
+	placed := append([]domain.FormQuestion(nil), existing...)
+	if saved.Position == domain.AppendQuestionPosition {
+		next := 0
+		for _, question := range placed {
+			if question.Position >= next {
+				next = question.Position + 1
+			}
+		}
+		saved.Position = next
+		return placed, saved
+	}
+	taken := false
+	for _, question := range placed {
+		if question.Position == saved.Position {
+			taken = true
+		}
+	}
+	if taken {
+		for i := range placed {
+			if placed[i].Position >= saved.Position {
+				placed[i].Position++
+			}
+		}
+	}
+	return placed, saved
 }
 
 func savedQuestionVisibilityError(existing []domain.FormQuestion, saved domain.FormQuestion) error {
@@ -204,7 +270,12 @@ func savedQuestionVisibilityError(existing []domain.FormQuestion, saved domain.F
 	for _, question := range existing {
 		if saved.ID == 0 || question.ID != saved.ID {
 			candidate = append(candidate, question)
+		} else if saved.Position == domain.AppendQuestionPosition {
+			saved.Position = question.Position
 		}
+	}
+	if saved.ID == 0 {
+		candidate, saved = placeNewQuestion(candidate, saved)
 	}
 	candidate = append(candidate, saved)
 	errs := visibilityErrors(candidate)
@@ -228,10 +299,52 @@ func savedQuestionVisibilityError(existing []domain.FormQuestion, saved domain.F
 
 func publishVisibilityError(questions []domain.FormQuestion) error {
 	errs := visibilityErrors(questions)
-	for _, question := range orderedQuestions(questions) {
-		if err := errs[question.ID]; err != nil {
-			return err
+	for index, question := range orderedQuestions(questions) {
+		err := errs[question.ID]
+		if err == nil {
+			continue
 		}
+		var formErr *domain.FormError
+		if errors.As(err, &formErr) {
+			prefixed := formErr.WithPrefix(fmt.Sprintf("questions[%d].", index))
+			for i := range prefixed.Problems {
+				params := map[string]any{"question_id": question.ID}
+				for key, value := range prefixed.Problems[i].Params {
+					params[key] = value
+				}
+				prefixed.Problems[i].Params = params
+			}
+			return prefixed
+		}
+		return err
+	}
+	return nil
+}
+
+func reorderVisibilityError(questions []domain.FormQuestion, ids []uint) error {
+	byID := make(map[uint]domain.FormQuestion, len(questions))
+	for _, question := range questions {
+		byID[question.ID] = question
+	}
+	candidate := make([]domain.FormQuestion, 0, len(ids))
+	for position, id := range ids {
+		question := byID[id]
+		question.Position = position
+		candidate = append(candidate, question)
+	}
+	errs := visibilityErrors(candidate)
+	for _, question := range candidate {
+		if errs[question.ID] == nil {
+			continue
+		}
+		rule, _ := parseVisibility(question.Settings)
+		params := map[string]any{"question_id": question.ID}
+		if rule != nil {
+			params["depends_on"] = rule.QuestionID
+		}
+		return domain.NewFormFieldError(visibilityInvalidCode,
+			"the new order would put a question before the question its visible_if rule depends on",
+			"ids", "RULE_NOT_EARLIER", params)
 	}
 	return nil
 }

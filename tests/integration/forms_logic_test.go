@@ -302,17 +302,16 @@ func TestFormLogic_ReferencedQuestionsCannotBeDeletedAndReorderCannotBreakTheOrd
 
 	rec = request(t, tc.Router, http.MethodPut, f.questionsURL()+"/reorder", f.owner.token,
 		map[string]any{"ids": []uint{f.detail, f.gate, f.questionID}})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("reorder: %d: %s", rec.Code, rec.Body.String())
-	}
-	rec = request(t, tc.Router, http.MethodPost, f.formURL+"/"+itoa(f.formID)+"/publish", f.owner.token, nil)
 	if rec.Code != http.StatusBadRequest || errorCode(t, rec) != "FORM_QUESTION_VISIBILITY_INVALID" {
-		t.Fatalf("publishing a form whose rules point forward: %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("a reorder that puts a rule before its source: %d: %s", rec.Code, rec.Body.String())
 	}
-	request(t, tc.Router, http.MethodPut, f.questionsURL()+"/reorder", f.owner.token,
+	rec = request(t, tc.Router, http.MethodPut, f.questionsURL()+"/reorder", f.owner.token,
 		map[string]any{"ids": []uint{f.questionID, f.gate, f.detail}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a reorder that keeps every rule valid: %d: %s", rec.Code, rec.Body.String())
+	}
 	if rec = request(t, tc.Router, http.MethodPost, f.formURL+"/"+itoa(f.formID)+"/publish", f.owner.token, nil); rec.Code != http.StatusOK {
-		t.Fatalf("publishing after restoring the order: %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("publishing after the reorder: %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

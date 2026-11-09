@@ -21,7 +21,10 @@ DROP TABLE IF EXISTS form_submissions;
 DROP TABLE IF EXISTS form_question_options;
 DROP TABLE IF EXISTS form_questions;
 DROP TABLE IF EXISTS form_versions;
+DROP TABLE IF EXISTS form_slug_aliases;
 DROP TABLE IF EXISTS forms;
+DROP FUNCTION IF EXISTS validate_form_slug_alias_available();
+DROP FUNCTION IF EXISTS validate_form_slug_available();
 
 DROP TABLE IF EXISTS task_custom_field_values;
 DROP TABLE IF EXISTS custom_field_options;

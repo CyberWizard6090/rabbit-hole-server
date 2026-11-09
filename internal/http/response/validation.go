@@ -18,6 +18,82 @@ func RegisterValidatorFieldNames() {
 		return
 	}
 	engine.RegisterTagNameFunc(wireName)
+	if _, wrapped := binding.Validator.(*rootedValidator); !wrapped {
+		binding.Validator = &rootedValidator{inner: binding.Validator}
+	}
+}
+
+type rootedValidator struct {
+	inner binding.StructValidator
+}
+
+func (v *rootedValidator) ValidateStruct(obj any) error {
+	err := v.inner.ValidateStruct(obj)
+	if err == nil {
+		return nil
+	}
+	return &rootedError{err: err, root: reflect.TypeOf(obj)}
+}
+
+func (v *rootedValidator) Engine() any { return v.inner.Engine() }
+
+type rootedError struct {
+	err  error
+	root reflect.Type
+}
+
+func (e *rootedError) Error() string { return e.err.Error() }
+
+func (e *rootedError) Unwrap() error { return e.err }
+
+func structType(t reflect.Type) reflect.Type {
+	for t != nil {
+		switch t.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+			t = t.Elem()
+		case reflect.Struct:
+			return t
+		default:
+			return nil
+		}
+	}
+	return nil
+}
+
+func parentStruct(root reflect.Type, fe validator.FieldError) reflect.Type {
+	current := structType(root)
+	segments := strings.Split(fe.StructNamespace(), ".")
+	if len(segments) < 2 {
+		return current
+	}
+	for _, segment := range segments[1 : len(segments)-1] {
+		if current == nil {
+			return nil
+		}
+		name, _, _ := strings.Cut(segment, "[")
+		field, ok := current.FieldByName(name)
+		if !ok {
+			return nil
+		}
+		current = structType(field.Type)
+	}
+	return current
+}
+
+func referencedWireNames(root reflect.Type, fe validator.FieldError) string {
+	names := strings.Fields(fe.Param())
+	parent := parentStruct(root, fe)
+	if parent == nil {
+		return strings.Join(names, " ")
+	}
+	for i, name := range names {
+		if field, ok := parent.FieldByName(name); ok {
+			if wire := wireName(field); wire != "" {
+				names[i] = wire
+			}
+		}
+	}
+	return strings.Join(names, " ")
 }
 
 func wireName(f reflect.StructField) string {
@@ -33,7 +109,7 @@ func wireName(f reflect.StructField) string {
 	return ""
 }
 
-func fieldDetail(fe validator.FieldError) httperrors.Detail {
+func fieldDetail(fe validator.FieldError, root reflect.Type) httperrors.Detail {
 	detail := httperrors.Detail{Field: fieldPath(fe)}
 	lengthLike := false
 	switch fe.Kind() {
@@ -74,7 +150,7 @@ func fieldDetail(fe validator.FieldError) httperrors.Detail {
 		detail.Code = "INVALID_TIMEZONE"
 	case "excluded_with":
 		detail.Code = "CONFLICTING_FIELD"
-		detail.Params = map[string]any{"with": strings.TrimSpace(fe.Param())}
+		detail.Params = map[string]any{"with": referencedWireNames(root, fe)}
 	case "hostname", "hostname|ip", "ip", "alpha":
 		detail.Code = "INVALID_FORMAT"
 	default:
