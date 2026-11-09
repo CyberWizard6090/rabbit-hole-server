@@ -49,14 +49,19 @@ func (h *SpaceHandler) Create(c *gin.Context) {
 		req.Currency = "USD"
 	}
 
-	space, err := h.service.CreateSpace(c.Request.Context(),
+	space, err := h.service.CreateSpace(service.WithLocale(c.Request.Context(), c.GetHeader("Accept-Language")),
 		uint(workspaceID),
 		req.Name,
 		req.Currency,
 		uid,
+		req.Template,
 	)
 
 	if err != nil {
+		if errors.Is(err, service.ErrUnknownListTemplate) {
+			unknownTemplate(c, err)
+			return
+		}
 		response.HandleError(c, httperrors.Internal("SPACE_CREATE_FAILED", "internal server error", err))
 		return
 	}

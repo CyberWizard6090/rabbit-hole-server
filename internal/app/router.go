@@ -203,6 +203,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 				}
 
 				protected.GET("/form-templates", deps.FormHandler.ListTemplates)
+				protected.GET("/list-templates", deps.ListHandler.Templates)
 				protected.GET("/task-templates/:template_id", deps.TaskTemplateHandler.Get)
 				protected.PATCH("/task-templates/:template_id", deps.TaskTemplateHandler.Update)
 				protected.DELETE("/task-templates/:template_id", deps.TaskTemplateHandler.Archive)

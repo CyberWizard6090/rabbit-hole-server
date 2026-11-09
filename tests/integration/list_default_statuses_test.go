@@ -25,9 +25,9 @@ func dsStatuses(t *testing.T, tc *TestContext, listID uint) []dsStatus {
 func dsExpectDefaults(t *testing.T, label string, got []dsStatus) {
 	t.Helper()
 	want := []dsStatus{
-		{"К выполнению", "#94A3B8", 1, "todo"},
-		{"В работе", "#3B82F6", 2, "in_progress"},
-		{"Готово", "#22C55E", 3, "done"},
+		{"To do", "#94A3B8", 1, "todo"},
+		{"In progress", "#3B82F6", 2, "in_progress"},
+		{"Done", "#22C55E", 3, "done"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("%s: statuses = %+v, want the %d defaults", label, got, len(want))

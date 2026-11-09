@@ -22,7 +22,7 @@ func TestSpaceServiceCreateSpaceBuildsDefaults(t *testing.T) {
 		return nil
 	}
 
-	got, err := NewSpaceService(repo).CreateSpace(context.Background(), 7, "Work", "USD", 9)
+	got, err := NewSpaceService(repo).CreateSpace(context.Background(), 7, "Work", "USD", 9, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestSpaceServiceCreateSpaceBuildsDefaults(t *testing.T) {
 	if len(statuses) != 3 {
 		t.Fatalf("statuses=%d", len(statuses))
 	}
-	wantNames := []string{"К выполнению", "В работе", "Готово"}
+	wantNames := []string{"To do", "In progress", "Done"}
 	wantTypes := []domain.StatusType{domain.StatusTodo, domain.StatusInProgress, domain.StatusDone}
 	for i, s := range statuses {
 		if s.SpaceID != 100 || s.ListID != 200 || s.Position != i+1 || s.Name != wantNames[i] || s.Type != wantTypes[i] {
@@ -49,7 +49,7 @@ func TestSpaceServiceCreateSpaceReturnsTransactionError(t *testing.T) {
 	repo := newMockSpaceRepository()
 	repo.createWithDefaultsFn = func(*domain.Space, *domain.List, []domain.TaskStatus) error { return want }
 
-	got, err := NewSpaceService(repo).CreateSpace(context.Background(), 1, "x", "USD", 2)
+	got, err := NewSpaceService(repo).CreateSpace(context.Background(), 1, "x", "USD", 2, "")
 	if !errors.Is(err, want) || got != nil {
 		t.Fatalf("got=%v err=%v, want nil space and the repository error", got, err)
 	}
@@ -88,10 +88,10 @@ func TestSpaceServiceSimpleOperations(t *testing.T) {
 	if got, err := svc.GetDashboard(context.Background(), 3, 50); err != nil || got.ID != 3 {
 		t.Fatalf("GetDashboard: %+v %v", got, err)
 	}
-	if got, err := svc.CreateList(context.Background(), 3, "L", nil); err != nil || got.ID != 4 {
+	if got, err := svc.CreateList(context.Background(), 3, "L", nil, ""); err != nil || got.ID != 4 {
 		t.Fatalf("CreateList: %+v %v", got, err)
 	}
-	got, err := svc.CreateListInFolder(context.Background(), 3, 8, "L")
+	got, err := svc.CreateListInFolder(context.Background(), 3, 8, "L", "")
 	if err != nil || got.FolderID == nil || *got.FolderID != 8 {
 		t.Fatalf("CreateListInFolder: %+v %v", got, err)
 	}
@@ -109,3 +109,24 @@ func TestSpaceServiceSimpleOperations(t *testing.T) {
 }
 
 func gormModel(id uint) domain.Model { return domain.Model{ID: id} }
+
+func TestSpaceServiceUsesTheRequestedTemplateAndLocale(t *testing.T) {
+	repo := newMockSpaceRepository()
+	var statuses []domain.TaskStatus
+	var list *domain.List
+	repo.createWithDefaultsFn = func(space *domain.Space, l *domain.List, st []domain.TaskStatus) error {
+		space.ID, l.ID = 1, 2
+		list, statuses = l, st
+		return nil
+	}
+	ctx := WithLocale(context.Background(), "ru-RU,ru;q=0.9")
+	if _, err := NewSpaceService(repo).CreateSpace(ctx, 1, "x", "USD", 2, domain.ListTemplateBugs); err != nil {
+		t.Fatal(err)
+	}
+	if list.Name != "Основной список" || len(statuses) != 6 || statuses[0].Name != "Новый" || statuses[5].Name != "Отклонён" {
+		t.Fatalf("list=%q statuses=%+v", list.Name, statuses)
+	}
+	if _, err := NewSpaceService(repo).CreateSpace(context.Background(), 1, "x", "USD", 2, "no-such"); !errors.Is(err, ErrUnknownListTemplate) {
+		t.Fatalf("unknown template: %v", err)
+	}
+}

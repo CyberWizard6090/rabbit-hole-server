@@ -849,6 +849,22 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+  /list-templates:
+    get:
+      tags: [lists]
+      summary: "List the built-in list (board) templates"
+      description: |
+        A static catalog of status sets for a new list: `simple` (default), `kanban`, `development` and `bugs`. Any
+        signed-in user may call it; it contains no workspace data. Names, descriptions and status names are localized from
+        `Accept-Language` (`ru`, `ru-RU`, ... give Russian, everything else English). Each item has `key` (stable),
+        `name`, `description` and `statuses` with `name`, `color` and `type` (1 todo, 2 in_progress, 3 done) in board order.
+        Pass `key` as `template` when creating a space (`POST /workspaces/{id}/spaces`) or a list; the statuses are then
+        created in the language of that request and are ordinary data you can rename.
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/Ok'}
+        '401': {$ref: '#/components/responses/Error'}
   /form-templates:
     get:
       tags: [forms]
@@ -1887,7 +1903,7 @@ paths:
     post:
       tags: [lists]
       summary: "Create a list in a space"
-      description: "Like the default list of a new space, every new list is created with the statuses `К выполнению` (todo), `В работе` (in_progress) and `Готово` (done) at positions 1 to 3, in the same transaction, so tasks can be created at once. Extra statuses are appended after them."
+      description: "Like the default list of a new space, every new list is created with the statuses of a list template (`template` in the body, default `simple`: To do, In progress, Done; see GET /list-templates) at positions 1 upward, in the same transaction, so tasks can be created at once. The names are written in the language of Accept-Language (ru or en, English otherwise) at creation and are ordinary, renamable data afterwards. 400 UNKNOWN_LIST_TEMPLATE for an unknown key. Extra statuses are appended after them."
       x-permission: space.update
       security:
         - bearerAuth: []

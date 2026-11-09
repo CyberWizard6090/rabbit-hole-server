@@ -156,6 +156,7 @@ func TestRoleMatrix_CoversEveryManagementRoute(t *testing.T) {
 		"PUT /api/v1/tasks/:task_id/custom-fields/:field_id":    "task value, guarded by task.update",
 		"DELETE /api/v1/tasks/:task_id/custom-fields/:field_id": "task value, guarded by task.update",
 		"GET /api/v1/form-templates":                            "static catalog of presets, no workspace data",
+		"GET /api/v1/list-templates":                            "static catalog of list templates, no workspace data",
 	}
 	for _, route := range apiRoutes(t, tc) {
 		path := route.Path

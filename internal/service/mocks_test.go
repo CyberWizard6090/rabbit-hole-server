@@ -216,7 +216,7 @@ func (m *spaceRepositoryMock) CreateTag(_ context.Context, tag *domain.Tag) erro
 	}
 	return m.createTagErr
 }
-func (m *spaceRepositoryMock) CreateList(_ context.Context, list *domain.List) error {
+func (m *spaceRepositoryMock) CreateList(_ context.Context, list *domain.List, _ []domain.TaskStatus) error {
 	m.createdList = list
 	if m.createListFn != nil {
 		return m.createListFn(list)

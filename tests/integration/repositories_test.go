@@ -260,7 +260,7 @@ func TestSpaceRepository_DashboardLoadsListsStatusesInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	list := &domain.List{SpaceID: space.ID, Name: "L"}
-	if err := spaces.CreateList(context.Background(), list); err != nil {
+	if err := spaces.CreateList(context.Background(), list, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := tc.DB.Exec("DELETE FROM task_statuses WHERE list_id = ?", list.ID).Error; err != nil {
@@ -356,7 +356,7 @@ func TestStatusRepository_PositionsStayContiguous(t *testing.T) {
 		t.Fatal(err)
 	}
 	list := &domain.List{SpaceID: space.ID, Name: "L"}
-	if err := spaces.CreateList(context.Background(), list); err != nil {
+	if err := spaces.CreateList(context.Background(), list, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := tc.DB.Exec("DELETE FROM task_statuses WHERE list_id = ?", list.ID).Error; err != nil {
