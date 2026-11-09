@@ -147,7 +147,7 @@ func (r *spaceRepository) CreateTag(ctx context.Context, tag *domain.Tag) error 
 	return nil
 }
 
-func (r *spaceRepository) CreateList(ctx context.Context, list *domain.List) error {
+func (r *spaceRepository) CreateList(ctx context.Context, list *domain.List, defaults []domain.TaskStatus) error {
 	db := database.DBFromContext(ctx, r.db)
 	if list.ParentStatusID != nil {
 		var count int64
@@ -165,15 +165,16 @@ func (r *spaceRepository) CreateList(ctx context.Context, list *domain.List) err
 		if err := tx.Create(&m).Error; err != nil {
 			return err
 		}
-		defaults := domain.DefaultTaskStatuses()
 		rows := make([]persistence.TaskStatus, len(defaults))
 		for i := range defaults {
 			rows[i] = statusFromDomain(defaults[i])
 			rows[i].SpaceID = m.SpaceID
 			rows[i].ListID = m.ID
 		}
-		if err := tx.Create(&rows).Error; err != nil {
-			return err
+		if len(rows) > 0 {
+			if err := tx.Create(&rows).Error; err != nil {
+				return err
+			}
 		}
 		m.Statuses = rows
 		return nil

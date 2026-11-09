@@ -58,9 +58,9 @@ func TestSpace_CreateCreatesDefaultListAndStatuses(t *testing.T) {
 		pos  int
 		typ  persistence.StatusType
 	}{
-		{"К выполнению", 1, persistence.StatusTodo},
-		{"В работе", 2, persistence.StatusInProgress},
-		{"Готово", 3, persistence.StatusDone},
+		{"To do", 1, persistence.StatusTodo},
+		{"In progress", 2, persistence.StatusInProgress},
+		{"Done", 3, persistence.StatusDone},
 	}
 	for i, w := range want {
 		if statuses[i].Name != w.name || statuses[i].Position != w.pos || statuses[i].Type != w.typ {
