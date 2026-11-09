@@ -4,7 +4,7 @@ import "strings"
 
 type ChangeEmailRequest struct {
 	NewEmail string `json:"new_email" binding:"required,email,max=254"`
-	Password string `json:"password" binding:"required"`
+	Password string `json:"password" binding:"required,max=128"`
 }
 
 type ConfirmEmailChangeRequest struct {

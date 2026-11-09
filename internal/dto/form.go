@@ -7,32 +7,32 @@ import (
 )
 
 type FormRequest struct {
-	Name        string `json:"name" binding:"required"`
-	Description string `json:"description"`
-	Slug        string `json:"slug" binding:"required"`
+	Name        string `json:"name" binding:"required,max=255"`
+	Description string `json:"description" binding:"max=5000"`
+	Slug        string `json:"slug" binding:"required,max=255"`
 
 	Settings *domain.FormSettings `json:"settings"`
 }
 
 type CreateFormRequest struct {
 	FormRequest
-	Questions  []FormQuestionRequest         `json:"questions"`
+	Questions  []FormQuestionRequest         `json:"questions" binding:"dive"`
 	TaskConfig *FormTaskConfigurationRequest `json:"task_config"`
 }
 
 type FormQuestionOptionRequest struct {
-	Label string `json:"label" binding:"required"`
-	Value string `json:"value" binding:"required"`
+	Label string `json:"label" binding:"required,max=255"`
+	Value string `json:"value" binding:"required,max=255"`
 }
 
 type FormQuestionRequest struct {
 	Type        domain.QuestionType         `json:"type" binding:"required"`
-	Title       string                      `json:"title" binding:"required"`
-	Description string                      `json:"description"`
+	Title       string                      `json:"title" binding:"required,max=500"`
+	Description string                      `json:"description" binding:"max=5000"`
 	Required    bool                        `json:"required"`
-	Position    *int                        `json:"position"`
+	Position    *int                        `json:"position" binding:"omitempty,lte=100000"`
 	Settings    json.RawMessage             `json:"settings"`
-	Options     []FormQuestionOptionRequest `json:"options"`
+	Options     []FormQuestionOptionRequest `json:"options" binding:"max=200,dive"`
 }
 
 type ReorderFormQuestionsRequest struct {

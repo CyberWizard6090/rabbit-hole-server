@@ -81,7 +81,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	}
 	var spaceID *uint
 	if raw := strings.TrimSpace(c.Query("space_id")); raw != "" {
-		id, err := strconv.ParseUint(raw, 10, 64)
+		id, err := strconv.ParseUint(raw, 10, 63)
 		if err != nil || id == 0 {
 			response.HandleError(c, httperrors.BadRequest("INVALID_SPACE_ID", "invalid space_id", err))
 			return

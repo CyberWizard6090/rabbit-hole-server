@@ -5,6 +5,8 @@ import (
 	"errors"
 )
 
+var ErrParentStatusNotFound = errors.New("parent status not found in this space")
+
 type Space struct {
 	Model
 	Name        string `json:"name"`

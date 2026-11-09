@@ -109,6 +109,14 @@ func (h *TagHandler) Update(c *gin.Context) {
 
 	tag, err := h.service.UpdateTag(c.Request.Context(), uint(spaceID), uint(tagID), service.UpdateTagParams{Name: req.Name, Color: req.Color})
 	if err != nil {
+		if errors.Is(err, domain.ErrTagNameTaken) {
+			response.HandleError(c, httperrors.Conflict("TAG_NAME_TAKEN", "tag with this name already exists", err))
+			return
+		}
+		if errors.Is(err, service.ErrTagNotFound) || errors.Is(err, service.ErrTagSpaceMismatch) {
+			response.HandleError(c, httperrors.NotFound("TAG_NOT_FOUND", "tag not found", err))
+			return
+		}
 		response.HandleError(c, httperrors.Internal("TAG_UPDATE_FAILED", "internal server error", err))
 		return
 	}

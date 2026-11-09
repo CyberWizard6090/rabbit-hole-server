@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"rabbit-hole-server/internal/domain"
 )
@@ -192,7 +193,7 @@ func (s *customFieldService) DeleteTaskValue(
 
 func customFieldFromInput(workspaceID, fieldID uint, input CustomFieldInput) (*domain.CustomField, error) {
 	name := strings.TrimSpace(input.Name)
-	if workspaceID == 0 || name == "" || len(name) > 255 {
+	if workspaceID == 0 || name == "" || utf8.RuneCountInString(name) > 255 {
 		return nil, domain.ErrInvalidCustomField
 	}
 	field := &domain.CustomField{
@@ -221,7 +222,7 @@ func customFieldFromInput(workspaceID, fieldID uint, input CustomFieldInput) (*d
 			option := &field.Options[i]
 			option.Label = strings.TrimSpace(option.Label)
 			option.Value = strings.TrimSpace(option.Value)
-			if option.Label == "" || option.Value == "" || len(option.Label) > 255 || len(option.Value) > 255 {
+			if option.Label == "" || option.Value == "" || utf8.RuneCountInString(option.Label) > 255 || utf8.RuneCountInString(option.Value) > 255 {
 				return nil, domain.ErrInvalidCustomField
 			}
 			if _, exists := seen[option.Value]; exists {

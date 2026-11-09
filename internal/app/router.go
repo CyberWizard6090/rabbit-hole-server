@@ -24,6 +24,30 @@ const (
 	readyPath  = "/readyz"  // readiness: dependencies answer too
 )
 
+const (
+	multipartOverhead   int64 = 1 << 20
+	publicFormBodyLimit int64 = 128 << 10
+)
+
+var multipartRoutes = map[string]bool{
+	"POST /api/v1/tasks/:task_id/attachments":      true,
+	"POST /api/v1/workspaces/:workspace_id/images": true,
+	"POST /api/v1/profile/avatar":                  true,
+	"POST /api/v1/workspaces/:workspace_id/avatar": true,
+	"POST /api/v1/public/forms/:slug/uploads":      true,
+}
+
+func BodyLimitOverrides(cfg *config.Config) map[string]int64 {
+	return map[string]int64{
+		"POST /api/v1/tasks/:task_id/attachments":      cfg.Storage.MaxAttachmentBytes + multipartOverhead,
+		"POST /api/v1/workspaces/:workspace_id/images": cfg.Storage.MaxImageBytes + multipartOverhead,
+		"POST /api/v1/profile/avatar":                  cfg.Storage.MaxAvatarBytes + multipartOverhead,
+		"POST /api/v1/workspaces/:workspace_id/avatar": cfg.Storage.MaxAvatarBytes + multipartOverhead,
+		"POST /api/v1/public/forms/:slug/submissions":  publicFormBodyLimit,
+		"POST /api/v1/public/forms/:slug/uploads":      cfg.Forms.UploadMaxBytes + multipartOverhead,
+	}
+}
+
 func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	r := gin.New()
 	response.RegisterValidatorFieldNames()
@@ -61,17 +85,16 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	const multipartOverhead int64 = 1 << 20
-	const publicFormBodyLimit int64 = 128 << 10
 	r.MaxMultipartMemory = 8 << 20
-	r.Use(middleware.BodyLimitByRoute(middleware.DefaultMaxBodyBytes, map[string]int64{
-		"POST /api/v1/tasks/:task_id/attachments":      cfg.Storage.MaxAttachmentBytes + multipartOverhead,
-		"POST /api/v1/workspaces/:workspace_id/images": cfg.Storage.MaxImageBytes + multipartOverhead,
-		"POST /api/v1/profile/avatar":                  cfg.Storage.MaxAvatarBytes + multipartOverhead,
-		"POST /api/v1/workspaces/:workspace_id/avatar": cfg.Storage.MaxAvatarBytes + multipartOverhead,
-		"POST /api/v1/public/forms/:slug/submissions":  publicFormBodyLimit,
-		"POST /api/v1/public/forms/:slug/uploads":      cfg.Forms.UploadMaxBytes + multipartOverhead,
-	}))
+	r.HandleMethodNotAllowed = true
+	r.NoRoute(func(c *gin.Context) {
+		response.Fail(c, http.StatusNotFound, "ROUTE_NOT_FOUND", nil)
+	})
+	r.NoMethod(func(c *gin.Context) {
+		response.Fail(c, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", nil)
+	})
+	r.Use(middleware.BodyLimitByRoute(middleware.DefaultMaxBodyBytes, BodyLimitOverrides(cfg)))
+	r.Use(middleware.PathIDs(), middleware.JSONBody(multipartRoutes))
 
 	require := func(resource middleware.Resource) func(code string) gin.HandlerFunc {
 		return func(code string) gin.HandlerFunc {

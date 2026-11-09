@@ -59,6 +59,10 @@ func Fail(c *gin.Context, status int, code string, params map[string]any) {
 	write(c, status, code, params, nil)
 }
 
+func FailWithDetails(c *gin.Context, status int, code string, params map[string]any, details []httperrors.Detail) {
+	write(c, status, code, params, details)
+}
+
 func HandleError(c *gin.Context, err error) {
 	status, code, params, details := classify(err)
 	logHandled(c, status, code, err)

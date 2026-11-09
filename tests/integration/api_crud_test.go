@@ -31,7 +31,7 @@ func TestAPI_ProfileSearchAndContactsLifecycle(t *testing.T) {
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	otherEmail := "api-contact-" + suffix + "@example.test"
-	otherUsername := "api-contact-" + suffix
+	otherUsername := "ac-" + suffix
 	rec := request(t, tc.Router, http.MethodPost, "/api/v1/auth/register", "", map[string]any{
 		"email":    otherEmail,
 		"password": "test-password-123",

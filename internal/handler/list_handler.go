@@ -44,6 +44,11 @@ func (h *ListHandler) CreateInSpace(c *gin.Context) {
 
 	list, err := h.service.CreateList(c.Request.Context(), uint(spaceID), req.Name, req.ParentStatusID)
 	if err != nil {
+		if errors.Is(err, domain.ErrParentStatusNotFound) {
+			response.HandleError(c, httperrors.BadRequest("VALIDATION_FAILED", err.Error(), err).
+				WithDetails(httperrors.Detail{Field: "parent_status_id", Code: "NOT_FOUND"}))
+			return
+		}
 		response.HandleError(c, httperrors.Internal("LIST_CREATE_FAILED", "internal server error", err))
 		return
 	}

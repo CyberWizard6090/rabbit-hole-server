@@ -156,7 +156,7 @@ func parseReplacementStatusID(c *gin.Context) (*uint, bool) {
 	if raw == "" {
 		return nil, true
 	}
-	parsed, err := strconv.ParseUint(raw, 10, 64)
+	parsed, err := strconv.ParseUint(raw, 10, 63)
 	if err != nil || parsed == 0 {
 		response.HandleError(c, httperrors.BadRequest("INVALID_REPLACEMENT_ID", "invalid replacement_status_id", err))
 		return nil, false

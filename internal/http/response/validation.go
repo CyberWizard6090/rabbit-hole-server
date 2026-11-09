@@ -110,6 +110,15 @@ func fieldPath(fe validator.FieldError) string {
 	if i := strings.Index(ns, "."); i >= 0 {
 		ns = ns[i+1:]
 	}
+	segments := strings.Split(ns, ".")
+	kept := segments[:0]
+	for _, segment := range segments {
+		if segment != "" && segment[0] >= 'A' && segment[0] <= 'Z' {
+			continue
+		}
+		kept = append(kept, segment)
+	}
+	ns = strings.Join(kept, ".")
 	if ns == "" {
 		return "request"
 	}

@@ -148,6 +148,18 @@ func (r *spaceRepository) CreateTag(ctx context.Context, tag *domain.Tag) error 
 }
 
 func (r *spaceRepository) CreateList(ctx context.Context, list *domain.List) error {
+	db := database.DBFromContext(ctx, r.db)
+	if list.ParentStatusID != nil {
+		var count int64
+		if err := db.Model(&persistence.TaskStatus{}).
+			Where("id = ? AND space_id = ?", *list.ParentStatusID, list.SpaceID).
+			Count(&count).Error; err != nil {
+			return mapErr(err)
+		}
+		if count == 0 {
+			return domain.ErrParentStatusNotFound
+		}
+	}
 	m := listFromDomain(*list)
 	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&m).Error; err != nil {
