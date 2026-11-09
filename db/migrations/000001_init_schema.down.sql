@@ -1,4 +1,5 @@
 DROP TABLE task_time_entries;
+DROP TABLE saved_views;
 DROP TABLE workspace_audit_log;
 DROP TABLE login_lockouts;
 DROP TABLE rate_limit_windows;

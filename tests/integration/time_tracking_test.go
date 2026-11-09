@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -223,13 +222,4 @@ func TestTimeTracking_EntriesGoWithTheirTask(t *testing.T) {
 	if report := e.call(t, http.MethodGet, path, e.owner.token, nil, http.StatusOK); report["total_seconds"] != float64(0) {
 		t.Fatalf("the time of a deleted task is still reported: %v", report)
 	}
-}
-
-func mustJSON(t *testing.T, v any) string {
-	t.Helper()
-	raw, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(raw)
 }
