@@ -38,6 +38,7 @@ wrong, how to fix it); secret values are never printed. `go run ./cmd/migrate` c
 - [`docs/notifications.md`](docs/notifications.md): events, channels, webhook signing, preferences
 - [`docs/operations.md`](docs/operations.md): runbook, migrations, limits, failures, release checklist
 - [`docs/performance.md`](docs/performance.md): load test results, findings and how to repeat the run (`make loadtest`)
+- [`docs/backlog.md`](docs/backlog.md): parked tasks and decisions with the trigger for taking each one
 - [`docs/mail.md`](docs/mail.md), [`docs/realtime.md`](docs/realtime.md), [`docs/error-codes.md`](docs/error-codes.md), [`docs/openapi.yaml`](docs/openapi.yaml)
 
 ## API
