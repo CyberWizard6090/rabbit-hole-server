@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"rabbit-hole-server/internal/domain"
 )
@@ -107,7 +108,7 @@ func (s *taskTemplateService) Create(
 	config json.RawMessage,
 ) (*domain.TaskTemplate, error) {
 	name = strings.TrimSpace(name)
-	if workspaceID == 0 || userID == 0 || name == "" || len(name) > 255 || len(description) > 10000 {
+	if workspaceID == 0 || userID == 0 || name == "" || utf8.RuneCountInString(name) > 255 || utf8.RuneCountInString(description) > 10000 {
 		return nil, domain.ErrInvalidTaskTemplate
 	}
 	normalized, err := NormalizeTaskTemplateConfiguration(config)
@@ -147,7 +148,7 @@ func (s *taskTemplateService) Update(
 		return nil, err
 	}
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 255 || len(description) > 10000 {
+	if name == "" || utf8.RuneCountInString(name) > 255 || utf8.RuneCountInString(description) > 10000 {
 		return nil, domain.ErrInvalidTaskTemplate
 	}
 	template.Name, template.Description = name, strings.TrimSpace(description)

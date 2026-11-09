@@ -119,7 +119,7 @@ func (h *StatusHandler) Delete(c *gin.Context) {
 
 	var replacementID *uint
 	if raw := c.Query("replacement_id"); raw != "" {
-		parsed, err := strconv.ParseUint(raw, 10, 64)
+		parsed, err := strconv.ParseUint(raw, 10, 63)
 		if err != nil || parsed == 0 {
 			response.HandleError(c, httperrors.BadRequest("INVALID_REPLACEMENT_ID", "invalid replacement_id", err))
 			return

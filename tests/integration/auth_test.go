@@ -154,7 +154,7 @@ func TestAuth_DuplicateUsernameIsRejectedAsConflict(t *testing.T) {
 	tc := newTestContext(t)
 
 	suffix := fmt.Sprintf("%s-%d", t.Name(), time.Now().UnixNano())
-	username := "user-" + suffix
+	username := "u-" + fmt.Sprint(time.Now().UnixNano())
 	first := map[string]any{
 		"email":    "first-" + suffix + "@example.test",
 		"password": "password-123",

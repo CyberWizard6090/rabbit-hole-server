@@ -116,7 +116,13 @@ func (r *tagRepository) Merge(ctx context.Context, spaceID, sourceTagID, targetT
 
 func (r *tagRepository) Update(ctx context.Context, tag *domain.Tag) error {
 	m := tagFromDomain(*tag)
-	return mapErr(database.DBFromContext(ctx, r.db).Save(&m).Error)
+	if err := database.DBFromContext(ctx, r.db).Save(&m).Error; err != nil {
+		if isUniqueViolation(err) {
+			return domain.ErrTagNameTaken
+		}
+		return mapErr(err)
+	}
+	return nil
 }
 
 func isUniqueViolation(err error) bool {

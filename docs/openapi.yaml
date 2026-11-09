@@ -12,7 +12,26 @@ info:
     Resource routes additionally require a workspace permission (shown as `x-permission`); callers
     without it, or who do not belong to the workspace, get 403/404.
     Task lists use keyset pagination (`cursor`, `limit`); contact and space lists use `page`/`limit`.
-    Request bodies are capped at 1 MiB (413 `PAYLOAD_TOO_LARGE`).
+    Request bodies are capped at 1 MiB (413 `PAYLOAD_TOO_LARGE`); the public form submission route is capped
+    at 128 KiB and the upload routes at their configured file size plus 1 MiB.
+    Bodies of POST, PUT and PATCH must be sent as `application/json` (415 `UNSUPPORTED_MEDIA_TYPE`, `params.expected`);
+    file upload routes take `multipart/form-data`. Unknown JSON fields are ignored.
+    Every string is validated: a NUL character (`\u0000`) is rejected with 400 `VALIDATION_FAILED` and the detail
+    code `INVALID_VALUE`; invalid UTF-8 and unpaired surrogate escapes are rejected with the detail code
+    `INVALID_ENCODING`; integers outside the signed 64-bit range give `TOO_LARGE`. Length limits count characters
+    (runes, not bytes) and answer `TOO_LONG` with `params.max`: names and slugs 255 (tags and statuses 50, usernames 30),
+    task titles and form question titles 500, task descriptions 50 000, every other description 5 000
+    (profile bio 2 000), comments 20 000, passwords 8..128, e-mail addresses 254, colors `#RRGGBB`,
+    currency a three-letter ISO 4217 code. Arrays are capped (`TOO_MANY`, `params.max`): 100 tag and assignee ids,
+    50 new tag names (each up to 50 characters), 200 ids in reorder and mark-read lists, 200 options, 100 form
+    questions. Integers stored in 32-bit columns (`time_estimate`, `position`, ...) answer `TOO_LARGE` with `params.max`.
+    Unknown routes answer 404 `ROUTE_NOT_FOUND` and a known path with the wrong method 405 `METHOD_NOT_ALLOWED`
+    with an `Allow` header, both in the standard envelope. A path identifier above the signed 64-bit range is 400 `INVALID_ID`.
+    A PATCH that changes nothing (`{}`) answers 200 with the unchanged object and does not touch `updated_at`.
+    Timestamps have microsecond precision, identical in create and read responses.
+    Every list with `page`/`limit` validates them the same way (400 `INVALID_PAGINATION` for a non-integer,
+    `limit` outside 1..100 or `page` outside 1..10000); a page beyond the last returns an empty list with the true
+    `total` and `pages`.
     Task changes can be followed over WebSocket: request a single-use ticket, then connect with it
     (see `docs/realtime.md`).
     Access tokens carry the user's token version: a password change, `logout-all` or account
@@ -2901,22 +2920,22 @@ components:
       type: object
       required: [email, password]
       properties:
-        email: {type: string, format: email}
+        email: {type: string, format: email, maxLength: 254}
         password: {type: string, minLength: 8, maxLength: 128}
-        username: {type: string, minLength: 3}
+        username: {type: string, minLength: 3, maxLength: 30}
     LoginRequest:
       type: object
       required: [email, password]
       properties:
-        email: {type: string, format: email}
-        password: {type: string}
+        email: {type: string, format: email, maxLength: 254}
+        password: {type: string, maxLength: 128}
     UpdateProfileRequest:
       type: object
       properties:
-        username: {type: string, minLength: 1}
-        first_name: {type: string}
-        last_name: {type: string}
-        bio: {type: string}
+        username: {type: string, minLength: 3, maxLength: 30}
+        first_name: {type: string, maxLength: 100}
+        last_name: {type: string, maxLength: 100}
+        bio: {type: string, maxLength: 2000}
         time_zone: {type: string}
     AddContactRequest:
       type: object
@@ -2928,24 +2947,24 @@ components:
       required: [name]
       properties:
         name: {type: string, minLength: 1, maxLength: 255}
-        description: {type: string}
+        description: {type: string, maxLength: 5000}
     CreateSpaceRequest:
       type: object
       required: [name]
       properties:
-        name: {type: string, minLength: 1}
-        currency: {type: string}
+        name: {type: string, minLength: 1, maxLength: 255}
+        currency: {type: string, minLength: 3, maxLength: 3, pattern: '^[A-Za-z]{3}$', example: EUR, description: Three-letter ISO 4217 code.}
     CreateTagRequest:
       type: object
       required: [name, color]
       properties:
-        name: {type: string}
-        color: {type: string, example: '#123456', description: 7-char hex color}
+        name: {type: string, minLength: 1, maxLength: 50}
+        color: {type: string, minLength: 7, maxLength: 7, pattern: '^#[0-9A-Fa-f]{6}$', example: '#123456', description: 7-char hex color}
     UpdateTagRequest:
       type: object
       properties:
-        name: {type: string}
-        color: {type: string}
+        name: {type: string, minLength: 1, maxLength: 50, description: "A name already used by another tag of the space (case-insensitive) is 409 TAG_NAME_TAKEN."}
+        color: {type: string, minLength: 7, maxLength: 7, pattern: '^#[0-9A-Fa-f]{6}$'}
     MergeTagsRequest:
       type: object
       required: [source_tag_id, target_tag_id]
@@ -2956,32 +2975,32 @@ components:
       type: object
       required: [name]
       properties:
-        name: {type: string, minLength: 1}
+        name: {type: string, minLength: 1, maxLength: 255}
     UpdateFolderRequest:
       type: object
       properties:
-        name: {type: string, minLength: 1}
+        name: {type: string, minLength: 1, maxLength: 255}
     CreateListRequest:
       type: object
       required: [name]
       properties:
-        name: {type: string, minLength: 1}
-        parent_status_id: {type: integer, nullable: true}
+        name: {type: string, minLength: 1, maxLength: 255}
+        parent_status_id: {type: integer, nullable: true, description: "Must be a status of the same space; otherwise 400 VALIDATION_FAILED with details[].field parent_status_id and code NOT_FOUND."}
     CreateStatusRequest:
       type: object
       required: [name, color, type, list_id]
       properties:
         name: {type: string, minLength: 1, maxLength: 50}
-        color: {type: string, description: 7-char hex color}
-        position: {type: integer, minimum: 1}
+        color: {type: string, minLength: 7, maxLength: 7, pattern: '^#[0-9A-Fa-f]{6}$', description: 7-char hex color}
+        position: {type: integer, minimum: 1, maximum: 100000}
         type: {type: integer, minimum: 1, maximum: 3}
         list_id: {type: integer, description: Must match the list in the path.}
     UpdateStatusRequest:
       type: object
       properties:
         name: {type: string, maxLength: 50}
-        color: {type: string}
-        position: {type: integer, minimum: 1}
+        color: {type: string, minLength: 7, maxLength: 7, pattern: '^#[0-9A-Fa-f]{6}$'}
+        position: {type: integer, minimum: 1, maximum: 100000}
         type: {type: integer, minimum: 1, maximum: 3}
     Task:
       type: object
@@ -3027,17 +3046,17 @@ components:
       type: object
       required: [title, status_id]
       properties:
-        title: {type: string, minLength: 1}
-        description: {type: string}
+        title: {type: string, minLength: 1, maxLength: 500}
+        description: {type: string, maxLength: 50000}
         status_id: {type: integer, description: Must be a status of the list in the path.}
         parent_id: {type: integer, nullable: true, description: Must be a task of the same list.}
         priority: {type: integer, minimum: 0, maximum: 5, description: "1 low, 2 normal, 3 high, 4 urgent, 5 critical; higher is more urgent. 0 or omitted means 2 (normal). See TaskPriority."}
-        assignee_ids: {type: array, items: {type: integer}, description: Must be workspace members.}
-        tag_ids: {type: array, items: {type: integer}, description: Must be tags of the same space.}
-        new_tag_names: {type: array, items: {type: string}}
+        assignee_ids: {type: array, maxItems: 100, items: {type: integer}, description: Must be workspace members.}
+        tag_ids: {type: array, maxItems: 100, items: {type: integer}, description: Must be tags of the same space.}
+        new_tag_names: {type: array, maxItems: 50, items: {type: string, maxLength: 50}}
         start_date: {type: string, format: date-time, nullable: true}
         due_date: {type: string, format: date-time, nullable: true, description: Must not be before start_date (400 INVALID_DATE_RANGE).}
-        time_estimate: {type: integer, minimum: 0, description: Seconds.}
+        time_estimate: {type: integer, minimum: 0, maximum: 2147483647, description: Seconds.}
     TaskPriority:
       type: integer
       enum: [1, 2, 3, 4, 5]
@@ -3104,7 +3123,7 @@ components:
       required: [name, slug]
       properties:
         name: {type: string, minLength: 1, maxLength: 255}
-        description: {type: string}
+        description: {type: string, maxLength: 5000}
         slug: {type: string, minLength: 1, maxLength: 255, description: "Globally unique public URL slug: lower-case letters, digits and hyphens, starting with a letter or digit."}
         settings: {$ref: '#/components/schemas/FormSettings'}
     FormSettings:
@@ -3306,13 +3325,14 @@ components:
       required: [name, configuration]
       properties:
         name: {type: string, minLength: 1, maxLength: 255}
-        description: {type: string}
+        description: {type: string, maxLength: 5000}
         configuration: {$ref: '#/components/schemas/TaskTemplateConfiguration'}
     UpdateTaskTemplateRequest:
       type: object
       required: [name]
       properties:
         name: {type: string, minLength: 1, maxLength: 255}
+        description: {type: string, maxLength: 5000}
         description: {type: string}
     TaskTemplateVersionRequest:
       type: object
@@ -3347,19 +3367,20 @@ components:
       properties:
         list_id: {type: integer}
         status_id: {type: integer}
-        title: {type: string}
-        description: {type: string}
+        title: {type: string, maxLength: 500}
+        description: {type: string, maxLength: 50000}
     CustomFieldRequest:
       type: object
       required: [name, type]
       properties:
         name: {type: string, minLength: 1, maxLength: 255}
-        description: {type: string}
+        description: {type: string, maxLength: 5000}
         type: {type: string, enum: [text, number, integer, boolean, datetime, date, url, email, phone, dropdown, multi_select, checkbox, people, files]}
         required: {type: boolean}
         config: {type: object, description: "Numeric fields support min/max; text fields support min_length/max_length."}
         options:
           type: array
+          maxItems: 200
           items:
             type: object
             required: [label, value]
@@ -3436,33 +3457,33 @@ components:
     UpdateTaskRequest:
       type: object
       properties:
-        title: {type: string, minLength: 1}
-        description: {type: string}
+        title: {type: string, minLength: 1, maxLength: 500}
+        description: {type: string, maxLength: 50000}
         status_id: {type: integer}
         parent_id: {type: integer, nullable: true, description: "Another task of the same list; null makes the task top-level. A cycle is rejected."}
         priority: {type: integer, minimum: 1, maximum: 5, description: "1 low, 2 normal, 3 high, 4 urgent, 5 critical. See TaskPriority."}
         start_date: {type: string, format: date-time, nullable: true, description: "null clears the date."}
         due_date: {type: string, format: date-time, nullable: true, description: "null clears the date. Must not be before start_date (400 INVALID_DATE_RANGE)."}
-        time_estimate: {type: integer, minimum: 0, description: Seconds.}
-        assignee_ids: {type: array, items: {type: integer}, description: "Replaces the whole set of assignees; [] removes all. Must be workspace members. Responses list assignees as public profiles (id, username, first_name, last_name, avatar_url), never with e-mail, bio or time zone."}
-        add_tag_ids: {type: array, items: {type: integer}}
-        add_tag_names: {type: array, items: {type: string}}
+        time_estimate: {type: integer, minimum: 0, maximum: 2147483647, description: Seconds.}
+        assignee_ids: {type: array, maxItems: 100, items: {type: integer}, description: "Replaces the whole set of assignees; [] removes all. Must be workspace members. Responses list assignees as public profiles (id, username, first_name, last_name, avatar_url), never with e-mail, bio or time zone."}
+        add_tag_ids: {type: array, maxItems: 100, items: {type: integer}}
+        add_tag_names: {type: array, maxItems: 50, items: {type: string, maxLength: 50}}
     ChangePasswordRequest:
       type: object
       required: [current_password, new_password]
       properties:
-        current_password: {type: string}
+        current_password: {type: string, maxLength: 128}
         new_password: {type: string, minLength: 8, maxLength: 128}
     DeleteAccountRequest:
       type: object
       required: [password]
       properties:
-        password: {type: string}
+        password: {type: string, maxLength: 128}
     UpdateWorkspaceRequest:
       type: object
       properties:
         name: {type: string, minLength: 1, maxLength: 255}
-        description: {type: string}
+        description: {type: string, maxLength: 5000}
     UpdateSpaceRequest:
       type: object
       properties:

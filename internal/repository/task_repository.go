@@ -539,11 +539,13 @@ func (r *taskRepository) Update(
 		}
 
 		changes := changedTaskColumns(current, &next)
-		if len(changes) == 0 {
+		if len(changes) == 0 && (len(addTagIDs) > 0 || replaceAssigneeIDs != nil) {
 			changes["updated_at"] = gorm.Expr("now()")
 		}
-		if err := tx.Model(&persistence.Task{}).Where("id = ?", id).Updates(changes).Error; err != nil {
-			return err
+		if len(changes) > 0 {
+			if err := tx.Model(&persistence.Task{}).Where("id = ?", id).Updates(changes).Error; err != nil {
+				return err
+			}
 		}
 		if replaceAssigneeIDs != nil {
 			if err := replaceTaskAssignees(tx, id, assigneeIDs); err != nil {

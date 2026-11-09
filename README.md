@@ -124,7 +124,11 @@ relies on:
 - **Task order**: every task has an integer `position` within its list; new tasks go to the end and
   `POST /tasks/{id}/move` reorders them, changes the status or moves them to another list of the
   same workspace. Read the order with `sort=position`.
-- **Limits**: request body max 1 MiB (413). Auth rate limits per IP: register 5/min, login 10/min,
+- **Input hygiene**: JSON bodies must be `application/json` (415); NUL characters, invalid UTF-8 and
+  integers beyond 64 bits are rejected with 400; every text field and array has a maximum size (400
+  `TOO_LONG` / `TOO_MANY`, see `docs/openapi.yaml`); unknown routes and methods answer 404 / 405 in the
+  standard envelope.
+- **Limits**: request body max 1 MiB (public form submissions 128 KiB; 413). Auth rate limits per IP: register 5/min, login 10/min,
   refresh 30/min, logout 30/min, verify-email 20/min, resend-verification and forgot-password 5/min,
   reset-password 10/min (429).
 - **Real-time**: task changes can be followed over WebSocket. Request a single-use ticket
