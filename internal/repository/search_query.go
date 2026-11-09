@@ -28,12 +28,66 @@ type searchColumn struct {
 	name string
 }
 
-func (c searchColumn) match(fuzzy bool, b *searchSQL, contains string, query string) {
+func (c searchColumn) arms(fuzzy bool, contains, query string) []searchArm {
+	arms := []searchArm{{sql: c.name + ` ILIKE ? ESCAPE '\'`, args: []any{contains}}}
 	if fuzzy {
-		b.write("("+c.name+` ILIKE ? ESCAPE '\' OR ? <% `+c.name+")", contains, query)
-		return
+		arms = append(arms, searchArm{sql: "? <% " + c.name, args: []any{query}})
 	}
-	b.write(c.name+` ILIKE ? ESCAPE '\'`, contains)
+	return arms
+}
+
+type searchArm struct {
+	sql  string
+	args []any
+}
+
+type candidateSource struct {
+	cte     string
+	from    string
+	idExpr  string
+	live    string
+	columns []searchColumn
+}
+
+var (
+	taskCandidates = candidateSource{
+		cte: "task_candidates", from: "tasks t", idExpr: "t.id", live: "t.deleted_at IS NULL",
+		columns: []searchColumn{{"t.title"}, {"t.description"}},
+	}
+	commentCandidates = candidateSource{
+		cte: "comment_candidates", from: "task_comments c", idExpr: "c.id", live: "c.deleted_at IS NULL",
+		columns: []searchColumn{{"c.body"}},
+	}
+	checklistCandidates = candidateSource{
+		cte: "checklist_candidates", from: "task_checklist_items i", idExpr: "i.id", live: "TRUE",
+		columns: []searchColumn{{"i.text"}},
+	}
+)
+
+func candidatesFor(kind domain.SearchType) candidateSource {
+	switch kind {
+	case domain.SearchTypeComment:
+		return commentCandidates
+	case domain.SearchTypeChecklistItem:
+		return checklistCandidates
+	default:
+		return taskCandidates
+	}
+}
+
+func writeCandidates(b *searchSQL, src candidateSource, terms searchTerms) {
+	b.write(", " + src.cte + " AS MATERIALIZED (")
+	first := true
+	for _, col := range src.columns {
+		for _, arm := range col.arms(terms.fuzzy, terms.contains, terms.query) {
+			if !first {
+				b.write(" UNION ")
+			}
+			first = false
+			b.write("SELECT "+src.idExpr+" AS id FROM "+src.from+" WHERE "+src.live+" AND "+arm.sql, arm.args...)
+		}
+	}
+	b.write(")")
 }
 
 func (c searchColumn) score(fuzzy bool, b *searchSQL, prefix, contains, query string) {
@@ -98,12 +152,8 @@ func writeBranch(b *searchSQL, kind domain.SearchType, params domain.SearchParam
 			description.score(terms.fuzzy, b, terms.prefix, terms.contains, terms.query)
 			b.write(") AS score, t.updated_at AS updated_at")
 		}
-		b.write(" FROM tasks t"+liveTaskJoins, params.WorkspaceID)
-		b.write(" WHERE (")
-		title.match(terms.fuzzy, b, terms.contains, terms.query)
-		b.write(" OR ")
-		description.match(terms.fuzzy, b, terms.contains, terms.query)
-		b.write(")")
+		b.write(" FROM task_candidates cd JOIN tasks t ON t.id = cd.id"+liveTaskJoins, params.WorkspaceID)
+		b.write(" WHERE TRUE")
 		scopeWhere(b, params)
 	case domain.SearchTypeComment:
 		body := searchColumn{"c.body"}
@@ -112,10 +162,9 @@ func writeBranch(b *searchSQL, kind domain.SearchType, params domain.SearchParam
 			body.score(terms.fuzzy, b, terms.prefix, terms.contains, terms.query)
 			b.write(" AS score, c.updated_at AS updated_at")
 		}
-		b.write(" FROM task_comments c JOIN tasks t ON t.id = c.task_id" + liveTaskJoins)
+		b.write(" FROM comment_candidates cd JOIN task_comments c ON c.id = cd.id JOIN tasks t ON t.id = c.task_id" + liveTaskJoins)
 		b.args = append(b.args, params.WorkspaceID)
-		b.write(" WHERE c.deleted_at IS NULL AND ")
-		body.match(terms.fuzzy, b, terms.contains, terms.query)
+		b.write(" WHERE c.deleted_at IS NULL")
 		scopeWhere(b, params)
 	case domain.SearchTypeChecklistItem:
 		text := searchColumn{"i.text"}
@@ -124,10 +173,9 @@ func writeBranch(b *searchSQL, kind domain.SearchType, params domain.SearchParam
 			text.score(terms.fuzzy, b, terms.prefix, terms.contains, terms.query)
 			b.write(" AS score, i.updated_at AS updated_at")
 		}
-		b.write(" FROM task_checklist_items i JOIN task_checklists k ON k.id = i.checklist_id JOIN tasks t ON t.id = k.task_id" + liveTaskJoins)
+		b.write(" FROM checklist_candidates cd JOIN task_checklist_items i ON i.id = cd.id JOIN task_checklists k ON k.id = i.checklist_id JOIN tasks t ON t.id = k.task_id" + liveTaskJoins)
 		b.args = append(b.args, params.WorkspaceID)
-		b.write(" WHERE ")
-		text.match(terms.fuzzy, b, terms.contains, terms.query)
+		b.write(" WHERE TRUE")
 		scopeWhere(b, params)
 	}
 }
@@ -137,7 +185,14 @@ func writeDeadFolders(b *searchSQL, workspaceID uint) {
 		"SELECT f.id FROM folders f JOIN spaces fs ON fs.id = f.space_id "+
 		"WHERE fs.workspace_id = ? AND f.deleted_at IS NOT NULL "+
 		"UNION "+
-		"SELECT c.id FROM folders c JOIN dead_folders d ON c.parent_id = d.id) ", workspaceID)
+		"SELECT c.id FROM folders c JOIN dead_folders d ON c.parent_id = d.id)", workspaceID)
+}
+
+func writeCandidateCTEs(b *searchSQL, types []domain.SearchType, terms searchTerms) {
+	for _, kind := range searchTypesOrDefault(types) {
+		writeCandidates(b, candidatesFor(kind), terms)
+	}
+	b.write(" ")
 }
 
 func searchTypesOrDefault(types []domain.SearchType) []domain.SearchType {
@@ -151,6 +206,7 @@ func buildSearchQuery(params domain.SearchParams) (string, []any) {
 	terms := newSearchTerms(params.Query)
 	b := &searchSQL{}
 	writeDeadFolders(b, params.WorkspaceID)
+	writeCandidateCTEs(b, params.Types, terms)
 	b.write("SELECT type, id, task_id, list_id, space_id, task_title, text, description, score, updated_at FROM (")
 	for i, kind := range searchTypesOrDefault(params.Types) {
 		if i > 0 {
@@ -166,6 +222,7 @@ func buildSearchCountQuery(params domain.SearchParams) (string, []any) {
 	terms := newSearchTerms(params.Query)
 	b := &searchSQL{}
 	writeDeadFolders(b, params.WorkspaceID)
+	writeCandidateCTEs(b, params.Types, terms)
 	b.write("SELECT count(*) FROM (")
 	for i, kind := range searchTypesOrDefault(params.Types) {
 		if i > 0 {
