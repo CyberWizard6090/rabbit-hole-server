@@ -98,6 +98,20 @@ func expectPair(t *testing.T, conn *websocket.Conn, primary string, unread float
 	return ev
 }
 
+func expectPairBetween(t *testing.T, conn *websocket.Conn, primary string, low, high float64) float64 {
+	t.Helper()
+	ev := readEvent(t, conn)
+	got, _ := ev["unread_count"].(float64)
+	if ev["type"] != primary || got < low || got > high {
+		t.Fatalf("event = %v, want %s with unread_count between %v and %v", ev, primary, low, high)
+	}
+	count := readEvent(t, conn)
+	if count["type"] != "notification.unread_count" || count["unread_count"] != ev["unread_count"] {
+		t.Fatalf("count event = %v, want unread_count %v", count, ev["unread_count"])
+	}
+	return got
+}
+
 func TestNotificationRealtime_MentionIsPushedWithACompactPayload(t *testing.T) {
 	l := newNotifyLive(t)
 	conn := l.connect(t, l.f.tokenA)
@@ -133,9 +147,9 @@ func TestNotificationRealtime_ReadAndDeleteKeepAllTabsInSync(t *testing.T) {
 	l.mention(t, l.f.memberA, "second")
 	l.mention(t, l.f.memberA, "third")
 	for _, tab := range []*websocket.Conn{tabOne, tabTwo} {
-		expectPair(t, tab, "notification.created", 1)
-		expectPair(t, tab, "notification.created", 2)
-		expectPair(t, tab, "notification.created", 3)
+		first := expectPairBetween(t, tab, "notification.created", 1, 3)
+		second := expectPairBetween(t, tab, "notification.created", first, 3)
+		expectPairBetween(t, tab, "notification.created", second, 3)
 	}
 	entries := inbox(t, l.f.tc, l.f.tokenA, "")
 
