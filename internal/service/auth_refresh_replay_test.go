@@ -16,6 +16,8 @@ type replayStore struct {
 
 func (s *replayStore) GetTokenVersion(context.Context, uint) (int, error) { return 0, nil }
 
+func (s *replayStore) FindSessionFamily(context.Context, string) (string, error) { return "fam", nil }
+
 func (s *replayStore) RotateSession(context.Context, string, *domain.UserSession) error {
 	return s.rotateErr
 }
@@ -40,7 +42,7 @@ func TestRefreshReplayRevokesTheFamilyOnlyAfterTheGrace(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &replayStore{rotateErr: tt.rotateErr}
 			svc := NewAuthService(store, "12345678901234567890123456789012", time.Hour, 24*time.Hour)
-			pair, _, err := svc.generateTokenPair(7, 0)
+			pair, _, err := svc.generateTokenPair(7, 0, "fam")
 			if err != nil {
 				t.Fatal(err)
 			}

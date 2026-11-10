@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -95,6 +96,9 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 
 func (r *UserRepository) CreateSession(ctx context.Context, session *domain.UserSession) error {
 	m := sessionFromDomain(*session)
+	if m.LoginAt.IsZero() {
+		m.LoginAt = time.Now()
+	}
 	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("user_id = ? AND expires_at < NOW()", session.UserID).
 			Delete(&persistence.UserSession{}).Error; err != nil {
@@ -142,12 +146,15 @@ func (r *UserRepository) RotateSession(ctx context.Context, tokenHash string, re
 			return err
 		}
 		var rows []struct {
-			ID       uint
-			FamilyID string
-			Rotated  bool
-			AgeSecs  float64
+			ID        uint
+			FamilyID  string
+			UserAgent string
+			IP        string
+			LoginAt   time.Time
+			Rotated   bool
+			AgeSecs   float64
 		}
-		if err := tx.Raw(`SELECT id, family_id, rotated_at IS NOT NULL AS rotated,
+		if err := tx.Raw(`SELECT id, family_id, user_agent, ip, login_at, rotated_at IS NOT NULL AS rotated,
 				COALESCE(EXTRACT(EPOCH FROM (NOW() - rotated_at)), 0) AS age_secs
 			FROM user_sessions WHERE token_hash = ? AND expires_at > NOW() FOR UPDATE`, tokenHash).Scan(&rows).Error; err != nil {
 			return err
@@ -164,6 +171,10 @@ func (r *UserRepository) RotateSession(ctx context.Context, tokenHash string, re
 			return err
 		}
 		m.FamilyID = row.FamilyID
+		m.UserAgent, m.LoginAt = row.UserAgent, row.LoginAt
+		if m.IP == "" {
+			m.IP = row.IP
+		}
 		return tx.Create(&m).Error
 	})
 	var replay *domain.SessionReplay
@@ -294,4 +305,108 @@ func (r *UserRepository) AnonymizeIfNoOwnedWorkspaces(ctx context.Context, userI
 		}
 		return tx.Where("user_id = ?", userID).Delete(&persistence.Member{}).Error
 	}))
+}
+
+// maxLoginDevices bounds the remembered devices of one user; the least recently seen is forgotten first.
+const maxLoginDevices = 20
+
+// ListSessions returns the signed-in devices of a user: one entry per refresh token family that still
+// has an unexpired token, most recently used first.
+func (r *UserRepository) ListSessions(ctx context.Context, userID uint) ([]domain.SessionInfo, error) {
+	var rows []struct {
+		FamilyID   string
+		UserAgent  string
+		IP         string
+		LoginAt    time.Time
+		LastUsedAt time.Time
+	}
+	err := database.DBFromContext(ctx, r.db).Raw(`
+		SELECT DISTINCT ON (family_id) family_id, user_agent, ip, login_at, created_at AS last_used_at
+		FROM user_sessions
+		WHERE user_id = ? AND family_id <> '' AND expires_at > NOW() AND rotated_at IS NULL
+		ORDER BY family_id, created_at DESC`, userID).Scan(&rows).Error
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	out := make([]domain.SessionInfo, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.SessionInfo{
+			ID: row.FamilyID, UserAgent: row.UserAgent, IP: row.IP, CreatedAt: row.LoginAt, LastUsedAt: row.LastUsedAt,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].LastUsedAt.After(out[j].LastUsedAt) })
+	return out, nil
+}
+
+// SessionAlive reports whether the refresh token family of an access token still exists.
+func (r *UserRepository) SessionAlive(ctx context.Context, userID uint, familyID string) (bool, error) {
+	var alive bool
+	err := database.DBFromContext(ctx, r.db).Raw(
+		"SELECT EXISTS (SELECT 1 FROM user_sessions WHERE family_id = ? AND user_id = ? AND expires_at > NOW())",
+		familyID, userID).Scan(&alive).Error
+	return alive, mapErr(err)
+}
+
+// FindSessionFamily returns the family of a refresh token, whatever its rotation state.
+func (r *UserRepository) FindSessionFamily(ctx context.Context, tokenHash string) (string, error) {
+	var family string
+	res := database.DBFromContext(ctx, r.db).Raw(
+		"SELECT family_id FROM user_sessions WHERE token_hash = ? AND expires_at > NOW()", tokenHash).Scan(&family)
+	if res.Error != nil {
+		return "", mapErr(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return "", domain.ErrNotFound
+	}
+	return family, nil
+}
+
+// RevokeUserSession ends one device of the user. It reports false when the user has no such session.
+func (r *UserRepository) RevokeUserSession(ctx context.Context, userID uint, familyID string) (bool, error) {
+	if familyID == "" {
+		return false, nil
+	}
+	res := database.DBFromContext(ctx, r.db).Where("user_id = ? AND family_id = ?", userID, familyID).Delete(&persistence.UserSession{})
+	return res.RowsAffected > 0, mapErr(res.Error)
+}
+
+// RevokeOtherSessions ends every device of the user except keepFamily and returns how many were ended.
+func (r *UserRepository) RevokeOtherSessions(ctx context.Context, userID uint, keepFamily string) (int, error) {
+	var ended []string
+	err := database.DBFromContext(ctx, r.db).Raw(
+		"DELETE FROM user_sessions WHERE user_id = ? AND family_id <> ? RETURNING family_id", userID, keepFamily).Scan(&ended).Error
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	families := map[string]struct{}{}
+	for _, f := range ended {
+		families[f] = struct{}{}
+	}
+	return len(families), nil
+}
+
+// TouchLoginDevice records a sign-in from a device. It reports whether the device is new and whether
+// the user had signed in from any other device before.
+func (r *UserRepository) TouchLoginDevice(ctx context.Context, userID uint, fingerprint, label string) (isNew, hadOthers bool, err error) {
+	err = database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		var total int64
+		if err := tx.Raw("SELECT count(*) FROM login_devices WHERE user_id = ?", userID).Scan(&total).Error; err != nil {
+			return err
+		}
+		var inserted []int
+		if err := tx.Raw(`INSERT INTO login_devices (user_id, fingerprint, label) VALUES (?, ?, ?)
+			ON CONFLICT (user_id, fingerprint) DO UPDATE SET last_seen_at = now(), label = EXCLUDED.label
+			RETURNING CASE WHEN xmax = 0 THEN 1 ELSE 0 END`, userID, fingerprint, label).Scan(&inserted).Error; err != nil {
+			return err
+		}
+		isNew = len(inserted) == 1 && inserted[0] == 1
+		hadOthers = isNew && total > 0
+		if isNew {
+			return tx.Exec(`DELETE FROM login_devices WHERE user_id = ? AND fingerprint IN (
+				SELECT fingerprint FROM login_devices WHERE user_id = ? ORDER BY last_seen_at DESC OFFSET ?)`,
+				userID, userID, maxLoginDevices).Error
+		}
+		return nil
+	})
+	return isNew, hadOthers, mapErr(err)
 }

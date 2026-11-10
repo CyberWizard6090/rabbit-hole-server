@@ -26,6 +26,13 @@ func GetRequestID(c *gin.Context) string {
 	return c.GetString(RequestIDKey)
 }
 
+// SessionIDKey holds the session (refresh token family) the access token of the request belongs to.
+const SessionIDKey = "sessionID"
+
+func GetSessionID(c *gin.Context) string {
+	return c.GetString(SessionIDKey)
+}
+
 const TokenVersionKey = "tokenVersion"
 
 func GetTokenVersion(c *gin.Context) int {

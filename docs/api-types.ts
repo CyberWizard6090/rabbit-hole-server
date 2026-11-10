@@ -263,6 +263,10 @@ export interface EmailRequest {
   email: string;
 }
 
+export interface EndedSessions {
+  ended: number;
+}
+
 export interface Envelope {
   data?: unknown;
   error?: {
@@ -708,6 +712,20 @@ export interface SecretResult {
   secret: string;
 }
 
+export interface Session {
+  /** When the user signed in. */
+  created_at: string;
+  current: boolean;
+  device: string;
+  /** Opaque; pass it to DELETE /profile/sessions/{session}. */
+  id: string;
+  /** Address of the last refresh; empty when unknown. */
+  ip: string;
+  /** When the access token was last renewed. */
+  last_used_at: string;
+  user_agent: string;
+}
+
 /** `lists`, `tasks` and `tags` are filled only by the endpoints that say so, otherwise null. */
 export interface Space {
   created_at: string;
@@ -1087,6 +1105,15 @@ export interface Endpoints {
     status: 200;
     data: Message;
   };
+  "DELETE /profile/sessions": {
+    status: 200;
+    data: EndedSessions;
+  };
+  "DELETE /profile/sessions/{session}": {
+    params: { session: string };
+    status: 200;
+    data: Message;
+  };
   "DELETE /spaces/{space_id}": {
     params: { space_id: number };
     status: 200;
@@ -1264,6 +1291,10 @@ export interface Endpoints {
   "GET /profile": {
     status: 200;
     data: UserProfile;
+  };
+  "GET /profile/sessions": {
+    status: 200;
+    data: Session[];
   };
   "GET /public/forms/{slug}": {
     params: { slug: string };
