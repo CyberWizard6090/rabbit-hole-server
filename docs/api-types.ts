@@ -637,6 +637,14 @@ export interface RegisterRequest {
   username?: string;
 }
 
+export interface RelatedTask {
+  done: boolean;
+  id: number;
+  list_id: number;
+  status_id: number;
+  title: string;
+}
+
 export interface ReorderFormQuestionsRequest {
   /** Must contain every question ID exactly once. */
   ids: number[];
@@ -781,6 +789,14 @@ export type TaskPriority = 1 | 2 | 3 | 4 | 5;
 
 /** Name of a TaskPriority, accepted wherever a priority is given as a string (task templates, form `task_defaults.priority` */
 export type TaskPriorityName = "low" | "normal" | "high" | "urgent" | "critical";
+
+export interface TaskRelations {
+  /** True while at least one blocker is not done. */
+  blocked: boolean;
+  blocked_by: RelatedTask[];
+  blocks: RelatedTask[];
+  related: RelatedTask[];
+}
 
 /** Who asked for the task. If the respondent of the form was signed in (a valid Bearer token on the public */
 export interface TaskRequester {
@@ -1116,6 +1132,12 @@ export interface Endpoints {
     status: 200;
     data: Message;
   };
+  "DELETE /tasks/{task_id}/relations/{other_id}": {
+    params: { other_id: number; task_id: number };
+    query?: { kind: "blocks" | "blocked_by" | "related" };
+    status: 200;
+    data: Message;
+  };
   "DELETE /tasks/{task_id}/time/{entry_id}": {
     params: { entry_id: number; task_id: number };
     status: 200;
@@ -1338,6 +1360,11 @@ export interface Endpoints {
     params: { task_id: number };
     status: 200;
     data: CustomFieldValues;
+  };
+  "GET /tasks/{task_id}/relations": {
+    params: { task_id: number };
+    status: 200;
+    data: TaskRelations;
   };
   "GET /tasks/{task_id}/time": {
     params: { task_id: number };
@@ -1761,6 +1788,11 @@ export interface Endpoints {
     body: MoveTaskRequest;
     status: 200;
     data: Task;
+  };
+  "POST /tasks/{task_id}/relations": {
+    params: { task_id: number };
+    status: 201;
+    data: TaskRelations;
   };
   "POST /tasks/{task_id}/time": {
     params: { task_id: number };
