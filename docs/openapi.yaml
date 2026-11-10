@@ -108,7 +108,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/RegisterRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Message'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
   /auth/login:
@@ -123,7 +123,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/LoginRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/AccessToken'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '503': {$ref: '#/components/responses/Error'}
@@ -139,7 +139,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/VerifyEmailRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '400': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
   /auth/resend-verification:
@@ -154,7 +154,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/EmailRequest'}
       responses:
-        '202': {$ref: '#/components/responses/Ok'}
+        '202': {$ref: '#/components/responses/Message'}
         '400': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
   /auth/forgot-password:
@@ -169,7 +169,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/EmailRequest'}
       responses:
-        '202': {$ref: '#/components/responses/Ok'}
+        '202': {$ref: '#/components/responses/Message'}
         '400': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
   /auth/confirm-email-change:
@@ -184,7 +184,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/VerifyEmailRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '400': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
@@ -200,7 +200,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/ResetPasswordRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '400': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
   /auth/refresh:
@@ -216,7 +216,7 @@ paths:
         Logout ends the family of the presented cookie.
       security: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/AccessToken'}
         '404': {$ref: '#/components/responses/Error'}
   /auth/logout:
     post:
@@ -224,7 +224,7 @@ paths:
       summary: "Revoke the refresh session (cookie auth, no access token needed)"
       security: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '404': {$ref: '#/components/responses/Error'}
   /auth/logout-all:
     post:
@@ -233,7 +233,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
   /profile/avatar:
     post:
@@ -257,7 +257,7 @@ paths:
               properties:
                 file: {type: string, format: binary}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/AvatarUrl'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '413': {$ref: '#/components/responses/Error'}
@@ -268,7 +268,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/AvatarUrl'}
         '401': {$ref: '#/components/responses/Error'}
   /profile/password:
     post:
@@ -283,7 +283,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/ChangePasswordRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/AccessToken'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
   /profile/email:
@@ -299,7 +299,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/ChangeEmailRequest'}
       responses:
-        '202': {$ref: '#/components/responses/Ok'}
+        '202': {$ref: '#/components/responses/Message'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -312,7 +312,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
   /profile:
     get:
@@ -322,7 +322,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/UserProfile'}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
     patch:
@@ -336,7 +336,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/UpdateProfileRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/UserProfile'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -351,7 +351,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/DeleteAccountRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -365,7 +365,7 @@ paths:
       parameters:
         - {name: q, in: query, required: false, schema: {type: string}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/CommentUserArray'}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
   /contacts:
@@ -376,7 +376,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/CommentUserList'}
         '401': {$ref: '#/components/responses/Error'}
     post:
       tags: [contacts]
@@ -391,7 +391,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/AddContactRequest'}
       responses:
-        '202': {$ref: '#/components/responses/Ok'}
+        '202': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
@@ -403,7 +403,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/ContactEntryList'}
         '401': {$ref: '#/components/responses/Error'}
   /contacts/requests/outgoing:
     get:
@@ -413,7 +413,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/ContactEntryList'}
         '401': {$ref: '#/components/responses/Error'}
   /contacts/requests/{user_id}/accept:
     post:
@@ -424,7 +424,7 @@ paths:
       parameters:
         - {name: user_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -438,7 +438,7 @@ paths:
       parameters:
         - {name: user_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -451,7 +451,7 @@ paths:
       parameters:
         - {name: user_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -465,7 +465,7 @@ paths:
       parameters:
         - {name: contact_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -481,7 +481,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateWorkspaceRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Workspace'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -513,7 +513,7 @@ paths:
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Workspace'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -532,7 +532,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/UpdateWorkspaceRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Workspace'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -546,7 +546,7 @@ paths:
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -568,7 +568,7 @@ paths:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: list_id, in: query, required: false, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/SavedViewArray'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -588,7 +588,7 @@ paths:
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/SavedView'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -605,7 +605,7 @@ paths:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: view_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/SavedView'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -620,7 +620,7 @@ paths:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: view_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -644,7 +644,7 @@ paths:
         - {name: page, in: query, required: false, schema: {type: integer}}
         - {name: limit, in: query, required: false, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/AuditEntryList'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -658,7 +658,7 @@ paths:
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/MemberArray'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -677,7 +677,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/AddMemberRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -692,7 +692,7 @@ paths:
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -713,7 +713,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/UpdateMemberRoleRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -728,7 +728,7 @@ paths:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: user_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -763,7 +763,7 @@ paths:
               properties:
                 file: {type: string, format: binary}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/AvatarUrl'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -781,7 +781,7 @@ paths:
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/AvatarUrl'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -813,7 +813,7 @@ paths:
               properties:
                 file: {type: string, format: binary}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/ImageUpload'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -855,7 +855,7 @@ paths:
               properties:
                 url: {type: string, maxLength: 2048}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/ImageUpload'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -888,7 +888,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateSpaceRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Space'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -904,7 +904,7 @@ paths:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Limit'
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/SpaceList'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -961,7 +961,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/ListTemplateArray'}
         '401': {$ref: '#/components/responses/Error'}
   /form-templates:
     get:
@@ -1005,7 +1005,7 @@ paths:
       parameters:
         - {name: slug, in: path, required: true, schema: {type: string}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/PublicForm'}
         '404': {$ref: '#/components/responses/Error'}
   /public/forms/{slug}/uploads:
     post:
@@ -1088,8 +1088,8 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/FormSubmissionRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
-        '200': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/PublicFormSubmission'}
+        '200': {$ref: '#/components/responses/PublicFormSubmission'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -1100,13 +1100,12 @@ paths:
       tags: [forms]
       summary: "List forms in a workspace"
       x-permission: form.read
-      x-permission: workspace.read
       security:
         - bearerAuth: []
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/FormArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
     post:
@@ -1153,7 +1152,6 @@ paths:
           }
         }
         ```
-      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1164,7 +1162,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/FormCreateRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Form'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1174,14 +1172,13 @@ paths:
       tags: [forms]
       summary: "Get a form and its editable questions"
       x-permission: form.read
-      x-permission: workspace.read
       security:
         - bearerAuth: []
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: form_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Form'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1190,7 +1187,6 @@ paths:
       summary: "Replace form metadata"
       x-permission: form.manage
       description: "`name` and `slug` are always replaced. Changing the `slug` of a form that has been published keeps the old link working: the previous slug becomes an alias that resolves to the same form (`GET /public/forms/{old}` serves the form with the current `slug`, submissions to it are accepted). Aliases are case-insensitive, globally unique together with all form slugs (taking another form's slug or alias is 409 `FORM_SLUG_TAKEN`), at most 10 are kept per form (the oldest is dropped first), switching back to a previous slug removes it from the aliases, and they disappear when the form is archived or deleted. They are listed in `previous_slugs` (newest first) by `GET .../forms/{form_id}`. A form that was never published keeps no alias. `settings` replaces the whole settings object when present and leaves it untouched when omitted. Settings are validated (400 with FORM_SUBMIT_BUTTON_TEXT_INVALID, FORM_SUCCESS_MESSAGE_INVALID, FORM_REDIRECT_URL_INVALID, FORM_ACCENT_COLOR_INVALID, FORM_LOGO_INVALID, FORM_COVER_INVALID, FORM_NOTIFY_RECIPIENT_INVALID or FORM_MAX_SUBMISSIONS_INVALID) and take effect for visitors when the form is published again; every published version keeps its own copy."
-      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1202,7 +1198,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/FormRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Form'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1212,14 +1208,13 @@ paths:
       tags: [forms]
       summary: "Delete a form without submissions"
       x-permission: form.manage
-      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: form_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1229,14 +1224,13 @@ paths:
       tags: [forms]
       summary: "Publish a new immutable form version"
       x-permission: form.manage
-      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: form_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Form'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1246,14 +1240,13 @@ paths:
       tags: [forms]
       summary: "Archive a form and disable public submissions"
       x-permission: form.manage
-      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: form_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1275,7 +1268,6 @@ paths:
         last one), so a conditional question can be added without `position`; errors are 400 `FORM_QUESTION_VISIBILITY_INVALID` /
         `FORM_QUESTION_VISIBILITY_CYCLE` with `settings.visible_if.question_id`, `.operator` or `.value` in `details[].field`.
         Allowed `settings` per question type are listed in the FormQuestionRequest schema.
-      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1287,7 +1279,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/FormQuestionRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/FormQuestion'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1302,7 +1294,6 @@ paths:
         answers the change of `type` and the removal or renaming (change of `value`) of an option that appears in a
         stored answer are refused with 409 `FORM_QUESTION_IN_USE`; `details` has `type` / `HAS_ANSWERS` (`params.answers`)
         or `options` / `OPTION_IN_USE` (`params.value`) per used option. Adding options and removing unused ones is allowed.
-      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1315,7 +1306,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/FormQuestionRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/FormQuestion'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1325,7 +1316,6 @@ paths:
       tags: [forms]
       summary: "Delete a question that has no submitted answers"
       x-permission: form.manage
-      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1333,7 +1323,7 @@ paths:
         - {name: form_id, in: path, required: true, schema: {type: integer}}
         - {name: question_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1349,7 +1339,6 @@ paths:
         `ids[i]` / `UNKNOWN_QUESTION` or `DUPLICATE` (`params.question_id`) for every wrong entry. A new order in which a
         question would precede the question its `visible_if` rule depends on is 400 `FORM_QUESTION_VISIBILITY_INVALID`
         with `ids` / `RULE_NOT_EARLIER` (`params.question_id`, `params.depends_on`).
-      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1361,7 +1350,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/ReorderFormQuestionsRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1378,7 +1367,6 @@ paths:
         A page past the end returns an empty array. Invalid `page`, `limit`, `status` or `task_creation_status` return 400
         (`INVALID_PAGINATION` for page and limit, `INVALID_FORM` with the parameter name in `details[].field` for the filters).
         Filters combine with AND.
-      x-permission: workspace.read
       security:
         - bearerAuth: []
       parameters:
@@ -1389,7 +1377,7 @@ paths:
         - {name: status, in: query, required: false, description: "Submission lifecycle status.", schema: {type: string, enum: [submitted, processing, processed, failed]}}
         - {name: task_creation_status, in: query, required: false, description: "Outcome of the automatic task creation, see TaskCreationStatus.", schema: {$ref: '#/components/schemas/TaskCreationStatus'}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/FormSubmissionList'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1400,7 +1388,6 @@ paths:
       summary: "Download a file uploaded with a form submission"
       x-permission: form.read
       description: "Streams the file as an attachment (`Content-Disposition: attachment`, `Content-Security-Policy: default-src 'none'; sandbox`; types outside the safe list are served as `application/octet-stream`). `file_id` is the `id` of an entry of the submission's `files`. 404 when the file does not belong to the submission or the workspace. When the submission created a task the same file is also an ordinary task attachment (`task_attachment_id`); deleting that attachment removes the stored object."
-      x-permission: workspace.read
       security:
         - bearerAuth: []
       parameters:
@@ -1422,14 +1409,13 @@ paths:
       summary: "Get a submission"
       x-permission: form.read
       description: "`files` lists the files uploaded for `file` questions (`id`, `question_id`, `name`, `content_type`, `size`, `task_attachment_id` when attached to the created task); the answer value of a `file` question is the array of upload ids."
-      x-permission: workspace.read
       security:
         - bearerAuth: []
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: submission_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/FormSubmission'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1439,14 +1425,13 @@ paths:
       summary: "Get the draft task-creation configuration for a form"
       x-permission: form.read
       description: "Published versions keep an immutable copy. Updating this configuration does not change submissions to an already published version."
-      x-permission: workspace.read
       security:
         - bearerAuth: []
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: form_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/FormTaskConfig'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1471,7 +1456,6 @@ paths:
         **Mappings.** `question_id` must be an answerable question of this form (not a section, description or divider), each question and each target is used at most once. Targets: `task_field` with `field` in `title`, `description` (text, email, phone or url questions, no transform), `priority` (choice question + enum transform whose values are priority names, see TaskPriorityName), `status_id` and `assignee_id` (choice question + enum transform whose values are ids as strings), `due_date` (date question); or `custom_field` with `field_id` of a compatible type. An enum transform must contain an entry for every option value of the question. Errors name the failing key, for example `mappings[2].target`.
 
         **Priority names** are `low`, `normal`, `high`, `urgent`, `critical` (1..5, see TaskPriorityName); an unknown name is a 400.
-      x-permission: form.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1483,7 +1467,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/FormTaskConfigurationRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/FormTaskConfig'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1493,19 +1477,17 @@ paths:
       tags: [task-templates]
       summary: "List task templates in a workspace"
       x-permission: template.read
-      x-permission: workspace.read
       security:
         - bearerAuth: []
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TaskTemplateArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
     post:
       tags: [task-templates]
       summary: "Create a versioned task template"
-      x-permission: template.manage
       x-permission: template.manage
       security:
         - bearerAuth: []
@@ -1517,7 +1499,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/TaskTemplateRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/TaskTemplate'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1531,7 +1513,7 @@ paths:
       parameters:
         - {name: template_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TaskTemplate'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1550,7 +1532,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/UpdateTaskTemplateRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TaskTemplate'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1565,7 +1547,7 @@ paths:
       parameters:
         - {name: template_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1579,7 +1561,7 @@ paths:
       parameters:
         - {name: template_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TaskTemplateVersionArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1597,7 +1579,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/TaskTemplateVersionRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/TaskTemplateVersion'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1623,7 +1605,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/ApplyTaskTemplateRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Task'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1638,7 +1620,7 @@ paths:
       parameters:
         - {name: submission_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TaskArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1666,7 +1648,7 @@ paths:
       parameters:
         - {name: submission_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TaskCreationState'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1682,7 +1664,7 @@ paths:
       parameters:
         - {name: submission_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TaskCreationState'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1696,13 +1678,12 @@ paths:
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/CustomFieldArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
     post:
       tags: [custom-fields]
       summary: "Create a custom field definition"
-      x-permission: customfield.manage
       x-permission: customfield.manage
       security:
         - bearerAuth: []
@@ -1714,7 +1695,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CustomFieldRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/CustomField'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1730,7 +1711,7 @@ paths:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: field_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/CustomField'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1746,7 +1727,6 @@ paths:
         integer `min` / `max` excludes a stored value (details `config.min`, `config.max`), or a text `min_length` /
         `max_length` does (details `config.min_length`, `config.max_length`; params `bound`, `count`). Fields without
         stored values (values of deleted tasks do not count) can be changed freely.
-      x-permission: customfield.manage
       security:
         - bearerAuth: []
       parameters:
@@ -1758,7 +1738,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CustomFieldRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/CustomField'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -1769,14 +1749,13 @@ paths:
       summary: "Delete a custom field definition"
       x-permission: customfield.manage
       description: "Fields with stored task values are retained and cannot be deleted."
-      x-permission: customfield.manage
       security:
         - bearerAuth: []
       parameters:
         - {name: workspace_id, in: path, required: true, schema: {type: integer}}
         - {name: field_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1791,7 +1770,7 @@ paths:
       parameters:
         - {name: space_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Space'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1810,7 +1789,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/UpdateSpaceRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Space'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1824,7 +1803,7 @@ paths:
       parameters:
         - {name: space_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -1839,7 +1818,7 @@ paths:
       parameters:
         - {name: space_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Space'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1854,7 +1833,7 @@ paths:
       parameters:
         - {name: space_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TagArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1873,7 +1852,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateTagRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Tag'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1889,7 +1868,7 @@ paths:
         - {name: space_id, in: path, required: true, schema: {type: integer}}
         - {name: tag_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Tag'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1909,7 +1888,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/UpdateTagRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Tag'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1924,7 +1903,7 @@ paths:
         - {name: space_id, in: path, required: true, schema: {type: integer}}
         - {name: tag_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1944,7 +1923,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/MergeTagsRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1959,7 +1938,7 @@ paths:
       parameters:
         - {name: space_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/FolderArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1978,7 +1957,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateFolderRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Folder'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -1993,7 +1972,7 @@ paths:
       parameters:
         - {name: space_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/ListArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2013,7 +1992,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateListRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/List'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2028,7 +2007,7 @@ paths:
       parameters:
         - {name: folder_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/ListArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2048,7 +2027,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateListRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/List'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2068,7 +2047,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/UpdateFolderRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Folder'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2082,7 +2061,7 @@ paths:
       parameters:
         - {name: folder_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2102,7 +2081,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/UpdateListRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/List'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2116,7 +2095,7 @@ paths:
       parameters:
         - {name: list_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2131,7 +2110,7 @@ paths:
       parameters:
         - {name: list_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TaskStatusArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2150,7 +2129,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateStatusRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/TaskStatus'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2171,7 +2150,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/UpdateStatusRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TaskStatus'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2195,7 +2174,7 @@ paths:
         - {name: replacement_status_id, in: query, required: false, description: "Status of the same list that receives the tasks. `replacement_id` is accepted as an alias.", schema: {type: integer}}
       responses:
         '409': {$ref: '#/components/responses/Error'}
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2253,7 +2232,7 @@ paths:
         - {name: has_parent, in: query, required: false, description: "`false`: only top-level tasks, `true`: only subtasks. `false` together with `parent_id` is 400 `INVALID_FILTER`.", schema: {type: boolean}}
         - {name: with_total, in: query, required: false, description: "`true`: include `total_count` (number of tasks matching the filters, ignoring cursor and limit).", schema: {type: boolean}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TaskPage'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2272,7 +2251,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateTaskRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Task'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2287,7 +2266,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/CustomFieldValues'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -2308,7 +2287,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CustomFieldValueRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -2323,7 +2302,7 @@ paths:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
         - {name: field_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -2341,7 +2320,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TaskRelations'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
     post:
@@ -2360,7 +2339,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/TaskRelations'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -2379,7 +2358,7 @@ paths:
         - {name: other_id, in: path, required: true, schema: {type: integer}}
         - {name: kind, in: query, required: true, schema: {type: string, enum: [blocks, blocked_by, related]}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '400': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -2394,7 +2373,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TaskTime'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
     post:
@@ -2407,7 +2386,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/TimeEntry'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -2422,7 +2401,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/TimeEntry'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -2437,7 +2416,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TimeEntry'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -2453,7 +2432,7 @@ paths:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
         - {name: entry_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TimeEntry'}
         '400': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -2467,7 +2446,7 @@ paths:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
         - {name: entry_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
   /time/running:
@@ -2478,7 +2457,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/RunningTimer'}
         '401': {$ref: '#/components/responses/Error'}
   /workspaces/{workspace_id}/time-report:
     get:
@@ -2494,7 +2473,7 @@ paths:
         - {name: to, in: query, required: false, schema: {type: string, format: date}}
         - {name: user_id, in: query, required: false, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/TimeReport'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -2518,7 +2497,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/BulkTaskResult'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
@@ -2532,7 +2511,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Task'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2551,7 +2530,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/UpdateTaskRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Task'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2565,7 +2544,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2604,7 +2583,7 @@ paths:
         - {name: page, in: query, required: false, schema: {type: integer, minimum: 1}}
         - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/ActivityArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2619,7 +2598,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/ChecklistArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
     post:
@@ -2637,7 +2616,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/ChecklistNameRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Checklist'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -2658,7 +2637,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/ReorderRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/ChecklistArray'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -2678,7 +2657,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/ChecklistNameRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Checklist'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -2693,7 +2672,7 @@ paths:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
         - {name: checklist_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -2714,7 +2693,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateChecklistItemRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/ChecklistItem'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -2737,7 +2716,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/ReorderRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/ChecklistArray'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -2760,7 +2739,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/UpdateChecklistItemRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/ChecklistItem'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -2776,7 +2755,7 @@ paths:
         - {name: checklist_id, in: path, required: true, schema: {type: integer}}
         - {name: item_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -2793,7 +2772,7 @@ paths:
         - {name: page, in: query, required: false, schema: {type: integer, minimum: 1}}
         - {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 100}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/CommentList'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2812,7 +2791,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateCommentRequest'}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Comment'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2833,7 +2812,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/UpdateCommentRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Comment'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2848,7 +2827,7 @@ paths:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
         - {name: comment_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2863,7 +2842,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/AttachmentArray'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
     post:
@@ -2888,7 +2867,7 @@ paths:
               properties:
                 file: {type: string, format: binary}
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/Attachment'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -2924,7 +2903,7 @@ paths:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
         - {name: attachment_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -2952,7 +2931,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/MoveTaskRequest'}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Task'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2969,7 +2948,7 @@ paths:
       parameters:
         - {name: list_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/EventTicket'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -2999,7 +2978,7 @@ paths:
       parameters:
         - {name: space_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/EventTicket'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '400': {$ref: '#/components/responses/Error'}
@@ -3029,7 +3008,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Watchers'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
   /tasks/{task_id}/watch:
@@ -3043,7 +3022,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/WatchState'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
     delete:
@@ -3056,7 +3035,7 @@ paths:
       parameters:
         - {name: task_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/WatchState'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
   /notifications:
@@ -3079,7 +3058,7 @@ paths:
         - {name: unread, in: query, schema: {type: boolean}}
         - {name: type, in: query, schema: {type: string}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/NotificationList'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
   /notifications/unread-count:
@@ -3089,7 +3068,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/UnreadCount'}
         '401': {$ref: '#/components/responses/Error'}
   /notifications/events/ticket:
     post:
@@ -3099,7 +3078,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/EventTicket'}
         '401': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
   /notifications/events:
@@ -3140,7 +3119,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/ReadResult'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
   /notifications/{notification_id}:
@@ -3153,7 +3132,7 @@ paths:
       parameters:
         - {name: notification_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
   /notifications/preferences:
@@ -3167,7 +3146,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/NotificationPreferenceArray'}
         '401': {$ref: '#/components/responses/Error'}
     put:
       tags: [notifications]
@@ -3176,7 +3155,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/NotificationPreferenceArray'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
   /notifications/settings:
@@ -3187,7 +3166,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/NotificationSettings'}
         '401': {$ref: '#/components/responses/Error'}
     put:
       tags: [notifications]
@@ -3196,7 +3175,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/NotificationSettings'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
   /notifications/channels:
@@ -3207,7 +3186,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/NotificationChannelArray'}
         '401': {$ref: '#/components/responses/Error'}
     post:
       tags: [notifications]
@@ -3238,7 +3217,7 @@ paths:
       security:
         - bearerAuth: []
       responses:
-        '201': {$ref: '#/components/responses/Ok'}
+        '201': {$ref: '#/components/responses/NotificationChannel'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -3252,7 +3231,7 @@ paths:
       description: 'Public, authenticated by the emailed token: `{"token": "..."}`. The token works once. Rate limited to 20 requests per minute per client IP.'
       security: []
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '400': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
   /notifications/channels/{channel_id}/resend:
@@ -3265,7 +3244,7 @@ paths:
       parameters:
         - {name: channel_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '202': {$ref: '#/components/responses/Ok'}
+        '202': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
@@ -3280,7 +3259,7 @@ paths:
       parameters:
         - {name: channel_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/SecretResult'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -3295,7 +3274,7 @@ paths:
       parameters:
         - {name: channel_id, in: path, required: true, schema: {type: integer}}
       responses:
-        '200': {$ref: '#/components/responses/Ok'}
+        '200': {$ref: '#/components/responses/Message'}
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
 components:
@@ -3306,11 +3285,635 @@ components:
     Cursor: {name: cursor, in: query, description: Opaque keyset cursor from next_cursor/prev_cursor of a previous response. Bound to the list and sort order; tampered or foreign cursors are rejected with 400., schema: {type: string}}
     Limit: {name: limit, in: query, description: Must be 1-100; invalid values are rejected with 400 INVALID_PAGINATION., schema: {type: integer, minimum: 1, maximum: 100, default: 10}}
   responses:
-    Ok:
+    UserProfile:
       description: Success envelope
       content:
         application/json:
-          schema: {$ref: '#/components/schemas/Envelope'}
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/UserProfile'}
+    Workspace:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Workspace'}
+    WorkspaceSummaryList:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, pagination]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/WorkspaceSummary'}}
+              pagination: {$ref: '#/components/schemas/Pagination'}
+    SavedView:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/SavedView'}
+    SavedViewArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/SavedView'}}
+    AuditEntryList:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, pagination]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/AuditEntry'}}
+              pagination: {$ref: '#/components/schemas/Pagination'}
+    MemberArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Member'}}
+    Space:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Space'}
+    SpaceList:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, pagination]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Space'}}
+              pagination: {$ref: '#/components/schemas/Pagination'}
+    Folder:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Folder'}
+    FolderArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Folder'}}
+    List:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/List'}
+    ListArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/List'}}
+    TaskStatus:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/TaskStatus'}
+    TaskStatusArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/TaskStatus'}}
+    Tag:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Tag'}
+    TagArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Tag'}}
+    Task:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Task'}
+    TaskPage:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/TaskPage'}
+    Comment:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Comment'}
+    CommentList:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, pagination]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Comment'}}
+              pagination: {$ref: '#/components/schemas/Pagination'}
+    Checklist:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Checklist'}
+    ChecklistArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Checklist'}}
+    ChecklistItem:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/ChecklistItem'}
+    Attachment:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Attachment'}
+    AttachmentArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Attachment'}}
+    ActivityArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Activity'}}
+    TimeEntry:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/TimeEntry'}
+    TaskTime:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/TaskTime'}
+    RunningTimer:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/RunningTimer'}
+    TimeReport:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/TimeReport'}
+    CustomField:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/CustomField'}
+    CustomFieldArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/CustomField'}}
+    NotificationList:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, pagination]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Notification'}}
+              pagination: {$ref: '#/components/schemas/Pagination'}
+    UnreadCount:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/UnreadCount'}
+    NotificationSettings:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/NotificationSettings'}
+    Watchers:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Watchers'}
+    Message:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Message'}
+    AccessToken:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/AccessToken'}
+    AvatarUrl:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/AvatarUrl'}
+    ImageUpload:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/ImageUpload'}
+    EventTicket:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/EventTicket'}
+    BulkTaskResult:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/BulkTaskResult'}
+    ContactEntryList:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, pagination]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/ContactEntry'}}
+              pagination: {$ref: '#/components/schemas/Pagination'}
+    CommentUserArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/CommentUser'}}
+    NotificationChannel:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/NotificationChannel'}
+    NotificationChannelArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/NotificationChannel'}}
+    NotificationPreferenceArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/NotificationPreference'}}
+    SecretResult:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/SecretResult'}
+    ReadResult:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/ReadResult'}
+    WatchState:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/WatchState'}
+    TaskCreationState:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/TaskCreationState'}
+    TaskArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Task'}}
+    FormSubmission:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/FormSubmission'}
+    FormSubmissionList:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, pagination]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/FormSubmission'}}
+              pagination: {$ref: '#/components/schemas/Pagination'}
+    PublicFormSubmission:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/PublicFormSubmission'}
+    CommentUserList:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, pagination]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/CommentUser'}}
+              pagination: {$ref: '#/components/schemas/Pagination'}
+    ListTemplateArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/ListTemplate'}}
+    PublicForm:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/PublicForm'}
+    FormArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Form'}}
+    Form:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Form'}
+    FormQuestion:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/FormQuestion'}
+    FormTaskConfig:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/FormTaskConfigView'}
+    TaskTemplateArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/TaskTemplate'}}
+    TaskTemplate:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/TaskTemplate'}
+    TaskTemplateVersionArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/TaskTemplateVersion'}}
+    TaskTemplateVersion:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/TaskTemplateVersion'}
+    CustomFieldValues:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/CustomFieldValues'}
+    TaskRelations:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/TaskRelations'}
     Error:
       description: "Error envelope. For 403 FORBIDDEN the object may be missing or deleted as well as inaccessible; that is deliberate (anti-enumeration), see Access policy in the API description."
       content:
@@ -3374,7 +3977,7 @@ components:
         snippet:
           type: object
           properties:
-            text: {type: string, description: Plain text, never HTML}
+            text: {type: string, description: "Plain text, never HTML"}
             matches:
               type: array
               description: Offsets in Unicode code points (runes) into snippet.text; end is exclusive.
@@ -3471,8 +4074,24 @@ components:
         type: {type: integer, minimum: 1, maximum: 3}
     Task:
       type: object
-      description: Task as returned by every task endpoint, the dashboard and realtime events (only the progress and origin fields are described here).
+      description: Task as returned by every task endpoint, the dashboard and realtime events.
+      required: [id, created_at, updated_at, list_id, status_id, parent_id, title, description, priority, user_id, assignees, tags, start_date, due_date, time_estimate, time_spent, position, source, created_by, subtask_count, checklist_items_total, checklist_items_resolved]
       properties:
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        list_id: {type: integer}
+        status_id: {type: integer}
+        parent_id: {type: integer, nullable: true}
+        title: {type: string}
+        description: {type: string}
+        assignees: {type: array, items: {$ref: '#/components/schemas/CommentUser'}}
+        tags: {type: array, items: {$ref: '#/components/schemas/Tag'}}
+        start_date: {type: string, format: date-time, nullable: true}
+        due_date: {type: string, format: date-time, nullable: true}
+        time_estimate: {type: integer, description: Seconds.}
+        time_spent: {type: integer, description: "Seconds, summed from the time entries."}
+        source: {type: string, enum: [manual, form, template, automation, api]}
+        source_reference_id: {type: integer}
         id: {type: integer}
         user_id: {type: integer, description: "The technical owner. Permission rules such as 'the author can edit own task' point at it. For a task created from a form it is `owner_id` of the task configuration when that user is still a workspace member, otherwise the form creator; for every other task it is the creating user."}
         created_by: {$ref: '#/components/schemas/ActorView'}
@@ -3811,7 +4430,6 @@ components:
       properties:
         name: {type: string, minLength: 1, maxLength: 255}
         description: {type: string, maxLength: 5000}
-        description: {type: string}
     TaskTemplateVersionRequest:
       type: object
       required: [configuration]
@@ -3986,3 +4604,531 @@ components:
       required: [role]
       properties:
         role: {type: string, enum: [Admin, Member, Guest]}
+    Pagination:
+      type: object
+      required: [total, page, limit, pages]
+      properties:
+        total: {type: integer}
+        page: {type: integer}
+        limit: {type: integer}
+        pages: {type: integer}
+
+    CommentUser:
+      type: object
+      description: "Public projection of a user: never an e-mail address."
+      required: [id, username, first_name, last_name, avatar_url]
+      properties:
+        id: {type: integer}
+        username: {type: string}
+        first_name: {type: string}
+        last_name: {type: string}
+        avatar_url: {type: string}
+    UserProfile:
+      type: object
+      description: "The caller's own account."
+      required: [id, email, username, first_name, last_name, avatar_url, bio, time_zone, email_verified_at, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        email: {type: string}
+        username: {type: string}
+        first_name: {type: string}
+        last_name: {type: string}
+        avatar_url: {type: string}
+        bio: {type: string}
+        time_zone: {type: string}
+        email_verified_at: {type: string, format: date-time, nullable: true}
+        pending_email: {type: string, description: "Present while an e-mail change waits for confirmation."}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    Workspace:
+      type: object
+      required: [id, created_at, updated_at, name, owner_id, description, avatar_url]
+      properties:
+        id: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        name: {type: string}
+        owner_id: {type: integer}
+        description: {type: string}
+        avatar_url: {type: string}
+    Space:
+      type: object
+      description: "`lists`, `tasks` and `tags` are filled only by the endpoints that say so, otherwise null."
+      required: [id, created_at, updated_at, name, workspace_id, currency, owner_id]
+      properties:
+        id: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        name: {type: string}
+        workspace_id: {type: integer}
+        currency: {type: string}
+        owner_id: {type: integer}
+        lists: {type: array, nullable: true, items: {$ref: '#/components/schemas/List'}}
+        tasks: {type: array, nullable: true, items: {$ref: '#/components/schemas/Task'}}
+        tags: {type: array, nullable: true, items: {$ref: '#/components/schemas/Tag'}}
+    Folder:
+      type: object
+      required: [id, created_at, updated_at, name, space_id, parent_id]
+      properties:
+        id: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        name: {type: string}
+        space_id: {type: integer}
+        parent_id: {type: integer, nullable: true}
+    List:
+      type: object
+      description: "`statuses` and `tasks` are filled only by the dashboard, otherwise null."
+      required: [id, created_at, updated_at, name, space_id, folder_id, task_count]
+      properties:
+        id: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        name: {type: string}
+        space_id: {type: integer}
+        folder_id: {type: integer, nullable: true}
+        statuses: {type: array, nullable: true, items: {$ref: '#/components/schemas/TaskStatus'}}
+        tasks: {type: array, nullable: true, items: {$ref: '#/components/schemas/Task'}}
+        task_count: {type: integer}
+        parent_status_id: {type: integer}
+    TaskStatus:
+      type: object
+      required: [id, created_at, updated_at, list_id, name, color, position, type]
+      properties:
+        id: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        list_id: {type: integer}
+        name: {type: string}
+        color: {type: string}
+        position: {type: integer}
+        type: {type: integer, enum: [1, 2, 3], description: "1 open, 2 in progress, 3 done."}
+    Tag:
+      type: object
+      required: [id, name, color]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        color: {type: string}
+        usage_count: {type: integer, description: "Only on the tag endpoints, not inside tasks."}
+    TaskPage:
+      type: object
+      description: "One page of a keyset-paginated task list."
+      required: [items, has_next, has_prev]
+      properties:
+        items: {type: array, items: {$ref: '#/components/schemas/Task'}}
+        has_next: {type: boolean}
+        has_prev: {type: boolean}
+        next_cursor: {type: string}
+        prev_cursor: {type: string}
+        total: {type: integer, description: "Only with `with_total=true`."}
+    Comment:
+      type: object
+      required: [id, task_id, author, body, mentions, edited, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        task_id: {type: integer}
+        author: {$ref: '#/components/schemas/CommentUser'}
+        body: {type: string}
+        mentions: {type: array, items: {$ref: '#/components/schemas/CommentUser'}}
+        edited: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    ChecklistItem:
+      type: object
+      required: [id, checklist_id, text, resolved, resolved_at, resolved_by, assignee, position, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        checklist_id: {type: integer}
+        text: {type: string}
+        resolved: {type: boolean}
+        resolved_at: {type: string, format: date-time, nullable: true}
+        resolved_by: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+        assignee: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+        position: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    Checklist:
+      type: object
+      required: [id, task_id, name, position, items, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        task_id: {type: integer}
+        name: {type: string}
+        position: {type: integer}
+        items: {type: array, items: {$ref: '#/components/schemas/ChecklistItem'}}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    Attachment:
+      type: object
+      required: [id, task_id, uploader, name, content_type, size, created_at]
+      properties:
+        id: {type: integer}
+        task_id: {type: integer}
+        uploader: {$ref: '#/components/schemas/CommentUser'}
+        name: {type: string}
+        content_type: {type: string}
+        size: {type: integer}
+        created_at: {type: string, format: date-time}
+    Activity:
+      type: object
+      description: "One entry of the task history. `old_value` and `new_value` depend on `action`."
+      required: [id, task_id, actor, action, created_at]
+      properties:
+        id: {type: integer}
+        task_id: {type: integer}
+        actor: {$ref: '#/components/schemas/ActorView'}
+        action: {type: string, example: status.changed}
+        field: {type: string}
+        old_value: {nullable: true}
+        new_value: {nullable: true}
+        created_at: {type: string, format: date-time}
+    TimeEntry:
+      type: object
+      required: [id, task_id, user, started_at, ended_at, seconds, running, note, created_at]
+      properties:
+        id: {type: integer}
+        task_id: {type: integer}
+        user: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+        started_at: {type: string, format: date-time}
+        ended_at: {type: string, format: date-time, nullable: true}
+        seconds: {type: integer}
+        running: {type: boolean}
+        note: {type: string}
+        created_at: {type: string, format: date-time}
+    TaskTime:
+      type: object
+      required: [entries, total_seconds]
+      properties:
+        entries: {type: array, items: {$ref: '#/components/schemas/TimeEntry'}}
+        total_seconds: {type: integer}
+    RunningTimer:
+      type: object
+      required: [timer]
+      properties:
+        timer:
+          nullable: true
+          allOf:
+            - type: object
+              required: [entry_id, task_id, task_title, started_at, seconds]
+              properties:
+                entry_id: {type: integer}
+                task_id: {type: integer}
+                task_title: {type: string}
+                started_at: {type: string, format: date-time}
+                seconds: {type: integer}
+    TimeReport:
+      type: object
+      required: [from, to, total_seconds, users]
+      properties:
+        from: {type: string, format: date-time}
+        to: {type: string, format: date-time}
+        total_seconds: {type: integer}
+        users:
+          type: array
+          items:
+            type: object
+            required: [user, seconds, entries]
+            properties:
+              user: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+              seconds: {type: integer}
+              entries: {type: integer}
+    SavedView:
+      type: object
+      required: [id, workspace_id, list_id, owner, is_owner, name, shared, filters, sort, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        workspace_id: {type: integer}
+        list_id: {type: integer, nullable: true}
+        owner: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+        is_owner: {type: boolean}
+        name: {type: string}
+        shared: {type: boolean}
+        filters: {type: object, additionalProperties: {type: string}}
+        sort: {type: string}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    AuditEntry:
+      type: object
+      required: [id, action, actor, target, changes, created_at]
+      properties:
+        id: {type: integer}
+        action: {type: string}
+        actor: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+        target: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+        changes: {nullable: true}
+        created_at: {type: string, format: date-time}
+    Member:
+      type: object
+      required: [user_id, username, first_name, last_name, avatar_url, role]
+      properties:
+        user_id: {type: integer}
+        username: {type: string}
+        first_name: {type: string}
+        last_name: {type: string}
+        avatar_url: {type: string}
+        role: {type: string, enum: [Owner, Admin, Member, Guest]}
+    CustomField:
+      type: object
+      required: [id, created_at, updated_at, workspace_id, name, description, type, required, config, options]
+      properties:
+        id: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        workspace_id: {type: integer}
+        name: {type: string}
+        description: {type: string}
+        type: {type: string}
+        required: {type: boolean}
+        config: {type: object, additionalProperties: true}
+        options: {type: array, items: {type: object, additionalProperties: true}}
+    Notification:
+      type: object
+      required: [id, type, workspace_id, actor, payload, created_at, read_at]
+      properties:
+        id: {type: integer}
+        type: {type: string, enum: [mention, assigned, comment, status_changed, due_date_changed, form_submission]}
+        task_id: {type: integer}
+        workspace_id: {type: integer}
+        actor: {$ref: '#/components/schemas/CommentUser'}
+        payload: {type: object, additionalProperties: true}
+        created_at: {type: string, format: date-time}
+        read_at: {type: string, format: date-time, nullable: true}
+    UnreadCount:
+      type: object
+      required: [total, by_type]
+      properties:
+        total: {type: integer}
+        by_type: {type: object, additionalProperties: {type: integer}}
+    NotificationSettings:
+      type: object
+      required: [locale]
+      properties:
+        locale: {type: string, enum: [en, ru]}
+    Watchers:
+      type: object
+      required: [watching, watchers]
+      properties:
+        watching: {type: boolean}
+        watchers: {type: array, items: {$ref: '#/components/schemas/CommentUser'}}
+    Message:
+      type: object
+      description: "Confirmation without data. The text is for logs only: the client shows its own wording."
+      required: [message]
+      properties:
+        message: {type: string}
+    AccessToken:
+      type: object
+      required: [access_token]
+      properties:
+        access_token: {type: string, description: "JWT for the Authorization header; the refresh token travels in an HttpOnly cookie."}
+    AvatarUrl:
+      type: object
+      required: [avatar_url]
+      properties:
+        avatar_url: {type: string, description: "Empty when there is no avatar."}
+    ImageUpload:
+      type: object
+      required: [content_type, size, url]
+      properties:
+        content_type: {type: string}
+        size: {type: integer}
+        url: {type: string}
+    EventTicket:
+      type: object
+      required: [ticket, expires_in, topic]
+      properties:
+        ticket: {type: string, description: "One-time, valid for `expires_in` seconds."}
+        expires_in: {type: integer}
+        topic: {type: string, example: "list:2"}
+    BulkTaskResult:
+      type: object
+      required: [results, succeeded, failed]
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            required: [task_id, ok]
+            properties:
+              task_id: {type: integer}
+              ok: {type: boolean}
+              code: {type: string}
+              params: {type: object, additionalProperties: true}
+        succeeded: {type: integer}
+        failed: {type: integer}
+    ContactEntry:
+      type: object
+      required: [user, created_at]
+      properties:
+        user: {$ref: '#/components/schemas/CommentUser'}
+        created_at: {type: string, format: date-time}
+    NotificationChannel:
+      type: object
+      description: "`id` is null for the implicit in-app channel and the account address."
+      required: [id, kind, implicit, verified, verified_at, created_at]
+      properties:
+        id: {type: integer, nullable: true}
+        kind: {type: string, enum: [in_app, email, webhook]}
+        destination: {type: string}
+        implicit: {type: boolean}
+        verified: {type: boolean}
+        verified_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time, nullable: true}
+        secret: {type: string, description: "Webhook signing secret, shown once on creation."}
+    NotificationPreference:
+      type: object
+      required: [type, channel, enabled, default, usable]
+      properties:
+        type: {type: string}
+        channel: {type: string, enum: [in_app, email, webhook]}
+        enabled: {type: boolean}
+        default: {type: boolean}
+        usable: {type: boolean, description: "False while the channel has no verified destination."}
+    SecretResult:
+      type: object
+      required: [secret]
+      properties:
+        secret: {type: string}
+    ReadResult:
+      type: object
+      required: [updated]
+      properties:
+        updated: {type: integer}
+    WatchState:
+      type: object
+      required: [watching]
+      properties:
+        watching: {type: boolean}
+    TaskCreationState:
+      type: object
+      required: [status, error]
+      properties:
+        status: {$ref: '#/components/schemas/TaskCreationStatus'}
+        error: {type: string}
+    ListTemplate:
+      type: object
+      description: "Built-in list template; `name`, `description` and the status names are localized from Accept-Language."
+      required: [key, name, description, statuses]
+      properties:
+        key: {type: string}
+        name: {type: string}
+        description: {type: string}
+        statuses:
+          type: array
+          items:
+            type: object
+            required: [name, color, type]
+            properties:
+              name: {type: string}
+              color: {type: string}
+              type: {type: integer, enum: [1, 2, 3]}
+    FormQuestion:
+      type: object
+      required: [id, type, title, required, position]
+      properties:
+        id: {type: integer}
+        type: {type: string}
+        title: {type: string}
+        description: {type: string}
+        required: {type: boolean}
+        position: {type: integer}
+        settings: {type: object, additionalProperties: true}
+        options: {type: array, items: {type: object, additionalProperties: true}}
+    Form:
+      type: object
+      description: "`questions`, `current_version` and `settings` appear on the endpoints that say so."
+      required: [id, created_at, updated_at, workspace_id, name, description, slug, status, created_by]
+      properties:
+        id: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        workspace_id: {type: integer}
+        name: {type: string}
+        description: {type: string}
+        slug: {type: string}
+        status: {type: string, enum: [draft, published, archived]}
+        current_version_id: {type: integer}
+        created_by: {type: integer}
+        questions: {type: array, items: {$ref: '#/components/schemas/FormQuestion'}}
+        current_version: {type: object, additionalProperties: true}
+        task_config: {type: object, additionalProperties: true}
+        settings: {type: object, additionalProperties: true}
+        previous_slugs: {type: array, items: {type: string}}
+    PublicForm:
+      type: object
+      required: [name, description, slug, version, questions, settings, closed, full]
+      properties:
+        name: {type: string}
+        description: {type: string}
+        slug: {type: string}
+        version: {type: integer}
+        questions: {type: array, items: {$ref: '#/components/schemas/FormQuestion'}}
+        settings: {type: object, additionalProperties: true}
+        closed: {type: boolean}
+        full: {type: boolean}
+    FormTaskConfigView:
+      type: object
+      required: [enabled, owner_id, target, task_defaults, mappings]
+      properties:
+        enabled: {type: boolean}
+        owner_id: {type: integer, nullable: true}
+        target:
+          type: object
+          required: [workspace_id, list_id]
+          properties:
+            workspace_id: {type: integer}
+            list_id: {type: integer}
+        task_defaults:
+          type: object
+          required: [priority, status_id, assignee_id]
+          properties:
+            priority: {type: string, enum: ['', low, normal, high, urgent, critical], description: "Empty means not set: the task template or the default priority decides."}
+            status_id: {type: integer, nullable: true}
+            assignee_id: {type: integer, nullable: true}
+        template: {type: object, additionalProperties: true, description: "`template_id` and `version_id` when the configuration builds tasks from a task template."}
+        mappings: {type: array, items: {type: object, additionalProperties: true}}
+    TaskTemplateVersion:
+      type: object
+      required: [id, template_id, version, configuration, created_at]
+      properties:
+        id: {type: integer}
+        template_id: {type: integer}
+        version: {type: integer}
+        configuration: {type: object, additionalProperties: true}
+        created_at: {type: string, format: date-time}
+    TaskTemplate:
+      type: object
+      description: "`versions` is filled by the single-template endpoints only."
+      required: [id, workspace_id, name, description, status, created_by, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        workspace_id: {type: integer}
+        name: {type: string}
+        description: {type: string}
+        status: {type: string, enum: [active, archived]}
+        created_by: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        versions: {type: array, items: {$ref: '#/components/schemas/TaskTemplateVersion'}}
+    CustomFieldValues:
+      type: object
+      description: "Values keyed by custom field id."
+      additionalProperties: {nullable: true}
+    RelatedTask:
+      type: object
+      required: [id, title, list_id, status_id, done]
+      properties:
+        id: {type: integer}
+        title: {type: string}
+        list_id: {type: integer}
+        status_id: {type: integer}
+        done: {type: boolean}
+    TaskRelations:
+      type: object
+      required: [blocks, blocked_by, related, blocked]
+      properties:
+        blocks: {type: array, items: {$ref: '#/components/schemas/RelatedTask'}}
+        blocked_by: {type: array, items: {$ref: '#/components/schemas/RelatedTask'}}
+        related: {type: array, items: {$ref: '#/components/schemas/RelatedTask'}}
+        blocked: {type: boolean, description: "True while at least one blocker is not done."}

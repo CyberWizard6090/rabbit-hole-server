@@ -1,4 +1,4 @@
-.PHONY: help build run test lint loadtest clean docker-up docker-build docker-down docker-logs db-create db-up db-down
+.PHONY: help build run test lint api-types loadtest clean docker-up docker-build docker-down docker-logs db-create db-up db-down
 
 APP_NAME = rabbit-hole-server
 BUILD_DIR = bin
@@ -24,6 +24,9 @@ test: ## Запустить все тесты
 
 lint: ## Запустить линтер
 	golangci-lint run
+
+api-types: ## Сгенерировать TypeScript-типы API из docs/openapi.yaml (docs/api-types.ts)
+	go run ./cmd/apitypes
 
 loadtest: ## Нагрузочный прогон на одноразовой БД (пример: make loadtest DB='host=/tmp user=postgres dbname=rh_load port=5433 sslmode=disable')
 	@if [ -z "$(DB)" ]; then echo "❌ Ошибка: укажите одноразовую БД с \"load\" в имени. Пример: make loadtest DB='host=127.0.0.1 user=postgres password=... dbname=rh_load sslmode=disable'"; exit 1; fi
