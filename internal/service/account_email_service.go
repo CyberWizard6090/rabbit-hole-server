@@ -39,6 +39,7 @@ type EmailTokenStore interface {
 
 type EmailUserStore interface {
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
+	GetByID(ctx context.Context, id uint) (*domain.User, error)
 }
 
 type AccountEmailConfig struct {
@@ -166,5 +167,38 @@ func (s *AccountEmailService) ResetPassword(ctx context.Context, token, newPassw
 		return err
 	}
 	disconnectUser(s.revoker, userID)
+	if user, err := s.users.GetByID(ctx, userID); err == nil {
+		s.NotifyPasswordChanged(ctx, user)
+	}
 	return nil
+}
+
+const (
+	noticeKindNewSignIn       = "new_signin_notice"
+	noticeKindPasswordChanged = "password_changed_notice"
+)
+
+// NotifyNewSignIn mails the owner about a sign-in from an unfamiliar device.
+func (s *AccountEmailService) NotifyNewSignIn(ctx context.Context, user *domain.User, device, maskedIP string, at time.Time) {
+	locale := localeFrom(ctx)
+	if maskedIP == "" {
+		maskedIP = "-"
+	}
+	s.notice(ctx, user, noticeKindNewSignIn, mailView{Device: device, IP: maskedIP, When: at.UTC().Format("2006-01-02 15:04 UTC")}, locale)
+}
+
+// NotifyPasswordChanged mails the owner after a password change or reset.
+func (s *AccountEmailService) NotifyPasswordChanged(ctx context.Context, user *domain.User) {
+	s.notice(ctx, user, noticeKindPasswordChanged, mailView{}, localeFrom(ctx))
+}
+
+func (s *AccountEmailService) notice(ctx context.Context, user *domain.User, kind string, view mailView, locale string) {
+	subject, text, html, err := renderMail(locale, kind, view)
+	if err != nil {
+		slog.Warn("account email: cannot render a security notice", "kind", kind, "user_id", user.ID, "error", err)
+		return
+	}
+	if err := s.sender.Send(ctx, mail.Message{To: user.Email, Subject: subject, Text: text, HTML: html}); err != nil {
+		slog.Warn("account email: cannot send a security notice", "kind", kind, "user_id", user.ID, "error", err)
+	}
 }

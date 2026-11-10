@@ -71,6 +71,15 @@ func (f *emailUserStoreFake) GetByEmail(_ context.Context, email string) (*domai
 	return nil, domain.ErrNotFound
 }
 
+func (f *emailUserStoreFake) GetByID(_ context.Context, id uint) (*domain.User, error) {
+	for _, u := range f.users {
+		if u.ID == id {
+			return u, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
 var testNow = time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 
 func newAccountEmailFixture(t *testing.T) (*AccountEmailService, *emailTokenStoreFake, *mail.Memory) {
@@ -352,6 +361,10 @@ func (f *authStoreFake) GetByEmail(context.Context, string) (*domain.User, error
 func (f *authStoreFake) CreateSession(context.Context, *domain.UserSession) error {
 	f.sessions++
 	return nil
+}
+
+func (f *authStoreFake) TouchLoginDevice(context.Context, uint, string, string) (bool, bool, error) {
+	return false, false, nil
 }
 
 type verificationSenderFake struct {

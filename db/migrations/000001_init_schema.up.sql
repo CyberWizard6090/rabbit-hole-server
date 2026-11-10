@@ -39,6 +39,9 @@ CREATE TABLE user_sessions (
     rotated_at TIMESTAMPTZ,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    user_agent TEXT NOT NULL DEFAULT '',
+    ip TEXT NOT NULL DEFAULT '',
+    login_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_user_sessions_token_hash UNIQUE (token_hash),
     CONSTRAINT fk_user_sessions_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 );
@@ -1015,3 +1018,13 @@ CREATE TABLE task_relations (
 CREATE INDEX idx_task_relations_to ON task_relations (to_task_id);
 CREATE INDEX idx_task_relations_creator ON task_relations (created_by) WHERE created_by IS NOT NULL;
 
+-- Devices a user has signed in from: the first sign-in from an unknown one is announced by e-mail.
+CREATE TABLE login_devices (
+    user_id BIGINT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    label TEXT NOT NULL,
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, fingerprint),
+    CONSTRAINT fk_login_devices_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+);

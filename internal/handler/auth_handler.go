@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -39,6 +40,13 @@ func (h *AuthHandler) setRefreshCookie(c *gin.Context, value string, maxAge int)
 		Secure:   h.secureCookie,
 		SameSite: http.SameSiteLaxMode,
 	}).String())
+}
+
+// requestContext carries what the service needs to know about the caller: the language of the mails it may
+// send and the device the session belongs to.
+func requestContext(c *gin.Context) context.Context {
+	ctx := service.WithLocale(c.Request.Context(), c.GetHeader("Accept-Language"))
+	return service.WithClientInfo(ctx, c.ClientIP(), c.GetHeader("User-Agent"))
 }
 
 type registerInput struct {
@@ -90,7 +98,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	tokenPair, err := h.authService.Login(c.Request.Context(), input.Email, input.Password)
+	tokenPair, err := h.authService.Login(requestContext(c), input.Email, input.Password)
 	if err != nil {
 		if passwordBusy(c, err) {
 			return
@@ -115,7 +123,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	tokenPair, err := h.authService.Refresh(c.Request.Context(), refreshToken)
+	tokenPair, err := h.authService.Refresh(requestContext(c), refreshToken)
 	if err != nil {
 		response.HandleError(c, httperrors.Unauthorized("TOKEN_EXPIRED", "invalid or expired refresh token", err))
 		return
@@ -156,7 +164,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	tokenPair, err := h.authService.ChangePassword(c.Request.Context(), uid, req.CurrentPassword, req.NewPassword)
+	tokenPair, err := h.authService.ChangePassword(requestContext(c), uid, req.CurrentPassword, req.NewPassword)
 	switch {
 	case passwordBusy(c, err):
 		return

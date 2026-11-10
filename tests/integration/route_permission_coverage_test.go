@@ -33,6 +33,9 @@ var (
 	}
 	selfScopedRoutes = map[string]string{
 		"GET /api/v1/profile":                             "caller's own profile",
+		"GET /api/v1/profile/sessions":                    "caller's own devices only",
+		"DELETE /api/v1/profile/sessions":                 "ends the caller's own other devices",
+		"DELETE /api/v1/profile/sessions/:session":        "scoped to the caller in SQL; a foreign or missing session is 404",
 		"PATCH /api/v1/profile":                           "caller's own profile",
 		"DELETE /api/v1/profile":                          "deletes the caller's own account",
 		"POST /api/v1/profile/password":                   "changes the caller's own password",
@@ -143,7 +146,7 @@ func buildRouteFixture(t *testing.T, tc *TestContext, token string, userID uint)
 
 	return routeFixture{params: map[string]string{
 		"workspace_id": itoa(ws), "space_id": itoa(sp), "folder_id": itoa(fo), "list_id": itoa(li),
-		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "attachment_id": itoa(att), "checklist_id": itoa(cl), "item_id": itoa(it), "user_id": itoa(userID), "contact_id": itoa(userID), "notification_id": "1", "channel_id": "1", "other_id": "1", "view_id": "1", "entry_id": "1",
+		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "attachment_id": itoa(att), "checklist_id": itoa(cl), "item_id": itoa(it), "user_id": itoa(userID), "contact_id": itoa(userID), "notification_id": "1", "channel_id": "1", "other_id": "1", "view_id": "1", "entry_id": "1", "session": "none",
 		"field_id": itoa(cf),
 		"form_id":  itoa(form), "question_id": itoa(question), "submission_id": itoa(submission), "file_id": "1",
 		"slug":        formSlug,

@@ -40,6 +40,21 @@ type UserSession struct {
 	RotatedAt *time.Time `json:"-"`
 	ExpiresAt time.Time  `json:"-"`
 	CreatedAt time.Time  `json:"-"`
+	UserAgent string     `json:"-"`
+	IP        string     `json:"-"`
+	LoginAt   time.Time  `json:"-"`
+}
+
+// SessionInfo is one signed-in device as the owner sees it. ID is the opaque family id of the
+// refresh tokens; it is only ever shown to the user who owns it.
+type SessionInfo struct {
+	ID         string    `json:"id"`
+	Device     string    `json:"device"`
+	UserAgent  string    `json:"user_agent"`
+	IP         string    `json:"ip"`
+	CreatedAt  time.Time `json:"created_at"`
+	LastUsedAt time.Time `json:"last_used_at"`
+	Current    bool      `json:"current"`
 }
 
 type SessionReplay struct {

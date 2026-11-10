@@ -43,6 +43,7 @@ func AuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
 
 		c.Set("userID", claims.UserID)
 		c.Set(contextutil.TokenVersionKey, claims.TokenVersion)
+		c.Set(contextutil.SessionIDKey, claims.SessionID)
 		c.Next()
 	}
 }
@@ -58,6 +59,8 @@ func OptionalAuthMiddleware(authService *service.AuthService) gin.HandlerFunc {
 		if err == nil {
 			c.Set("userID", claims.UserID)
 			c.Set(contextutil.TokenVersionKey, claims.TokenVersion)
+			c.Set(contextutil.SessionIDKey, claims.SessionID)
+			c.Set(contextutil.SessionIDKey, claims.SessionID)
 		}
 		c.Next()
 	}

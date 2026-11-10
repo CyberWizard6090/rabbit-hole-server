@@ -27,6 +27,7 @@ import (
 type Container struct {
 	AuthService         *service.AuthService
 	AuthHandler         *handler.AuthHandler
+	SessionHandler      *handler.SessionHandler
 	AccountEmailHandler *handler.AccountEmailHandler
 	EmailChangeHandler  *handler.EmailChangeHandler
 	TaskHandler         *handler.TaskHandler
@@ -160,7 +161,9 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		WithVerificationSender(accountEmail).
 		WithRequireVerifiedEmail(cfg.Mail.RequireVerifiedEmail).
 		WithConnectionRevoker(hub).
-		WithLoginBackoff(lockout)
+		WithLoginBackoff(lockout).
+		WithSecurityNotifier(accountEmail)
+	authHandler := handler.NewAuthHandler(authServ, cfg.SecureCookies())
 	service.ConfigurePasswordHashing(cfg.Auth.HashSlots(), cfg.Auth.HashWait)
 	spaceServ := service.NewSpaceService(spaceRepo)
 	statusServ := service.NewStatusService(statusRepo, spaceRepo)
@@ -241,7 +244,8 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 
 	return &Container{
 		AuthService:         authServ,
-		AuthHandler:         handler.NewAuthHandler(authServ, cfg.SecureCookies()),
+		AuthHandler:         authHandler,
+		SessionHandler:      handler.NewSessionHandler(authHandler),
 		AccountEmailHandler: handler.NewAccountEmailHandler(accountEmail),
 		EmailChangeHandler:  handler.NewEmailChangeHandler(emailChange),
 		ActivityHandler:     handler.NewActivityHandler(activityService),

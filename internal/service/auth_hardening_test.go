@@ -33,6 +33,10 @@ func (s *hardeningStore) CreateSession(context.Context, *domain.UserSession) err
 	return nil
 }
 
+func (s *hardeningStore) TouchLoginDevice(context.Context, uint, string, string) (bool, bool, error) {
+	return false, false, nil
+}
+
 func (s *hardeningStore) RevokeAll(context.Context, uint) (int, error) { return 2, nil }
 
 func (s *hardeningStore) UpdatePasswordAndRevoke(context.Context, uint, string) (int, error) {

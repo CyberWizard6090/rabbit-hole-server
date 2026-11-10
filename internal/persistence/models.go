@@ -33,6 +33,9 @@ type UserSession struct {
 	RotatedAt *time.Time
 	ExpiresAt time.Time `gorm:"not null"`
 	CreatedAt time.Time `gorm:"not null"`
+	UserAgent string    `gorm:"not null"`
+	IP        string    `gorm:"column:ip;not null"`
+	LoginAt   time.Time `gorm:"not null"`
 }
 
 type Workspace struct {

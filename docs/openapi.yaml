@@ -270,6 +270,45 @@ paths:
       responses:
         '200': {$ref: '#/components/responses/AvatarUrl'}
         '401': {$ref: '#/components/responses/Error'}
+  /profile/sessions:
+    get:
+      tags: [users]
+      summary: "Devices the caller is signed in on"
+      description: |
+        One entry per sign-in (refresh token family), most recently used first. `device` is a readable "Browser on System"
+        derived from the User-Agent, `ip` the address of the last refresh, `current` marks the device that made this request.
+        The `id` is opaque and only ever valid for its owner.
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/SessionArray'}
+        '401': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [users]
+      summary: "Sign out every device except the current one"
+      description: "Answers with `ended`, the number of devices that were signed out. Their access tokens stop working at once."
+      security:
+        - bearerAuth: []
+      responses:
+        '200': {$ref: '#/components/responses/EndedSessions'}
+        '401': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /profile/sessions/{session}:
+    delete:
+      tags: [users]
+      summary: "Sign out one device"
+      description: |
+        Ends the session with that `id`: its access token stops working at once and its refresh token is revoked. Ending the
+        current session also clears the refresh cookie. A session of another user and a missing one are both 404 `SESSION_NOT_FOUND`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: session, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {$ref: '#/components/responses/Message'}
+        '401': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
   /profile/password:
     post:
       tags: [profile]
@@ -3914,6 +3953,24 @@ components:
             required: [data]
             properties:
               data: {$ref: '#/components/schemas/TaskRelations'}
+    SessionArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Session'}}
+    EndedSessions:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/EndedSessions'}
     Error:
       description: "Error envelope. For 403 FORBIDDEN the object may be missing or deleted as well as inaccessible; that is deliberate (anti-enumeration), see Access policy in the API description."
       content:
@@ -5132,3 +5189,19 @@ components:
         blocked_by: {type: array, items: {$ref: '#/components/schemas/RelatedTask'}}
         related: {type: array, items: {$ref: '#/components/schemas/RelatedTask'}}
         blocked: {type: boolean, description: "True while at least one blocker is not done."}
+    Session:
+      type: object
+      required: [id, device, user_agent, ip, created_at, last_used_at, current]
+      properties:
+        id: {type: string, description: "Opaque; pass it to DELETE /profile/sessions/{session}."}
+        device: {type: string, example: Chrome on Windows}
+        user_agent: {type: string}
+        ip: {type: string, description: "Address of the last refresh; empty when unknown."}
+        created_at: {type: string, format: date-time, description: "When the user signed in."}
+        last_used_at: {type: string, format: date-time, description: "When the access token was last renewed."}
+        current: {type: boolean}
+    EndedSessions:
+      type: object
+      required: [ended]
+      properties:
+        ended: {type: integer}

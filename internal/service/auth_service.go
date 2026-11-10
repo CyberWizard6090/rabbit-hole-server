@@ -47,6 +47,12 @@ type AuthUserStore interface {
 	RevokeAll(ctx context.Context, userID uint) (int, error)
 	UpdatePasswordAndRevoke(ctx context.Context, userID uint, passwordHash string) (int, error)
 	AnonymizeIfNoOwnedWorkspaces(ctx context.Context, userID uint) error
+	FindSessionFamily(ctx context.Context, tokenHash string) (string, error)
+	SessionAlive(ctx context.Context, userID uint, familyID string) (bool, error)
+	ListSessions(ctx context.Context, userID uint) ([]domain.SessionInfo, error)
+	RevokeUserSession(ctx context.Context, userID uint, familyID string) (bool, error)
+	RevokeOtherSessions(ctx context.Context, userID uint, keepFamily string) (int, error)
+	TouchLoginDevice(ctx context.Context, userID uint, fingerprint, label string) (isNew, hadOthers bool, err error)
 }
 
 func validatePassword(password string) error {
@@ -67,6 +73,9 @@ type Claims struct {
 	UserID       uint      `json:"user_id"`
 	TokenType    TokenType `json:"token_type"`
 	TokenVersion int       `json:"tv"`
+	// SessionID is the refresh token family the access token was issued for. It lets a user end one
+	// device: the token stops working as soon as its family is revoked. Tokens without it stay valid.
+	SessionID string `json:"sid,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -90,6 +99,7 @@ type AuthService struct {
 	requireVerified bool
 	revoker         ConnectionRevoker
 	backoff         ratelimit.Lockout
+	security        SecurityNotifier
 }
 
 func NewAuthService(r AuthUserStore, jwtSecret string, accessTTL, refreshTTL time.Duration) *AuthService {
@@ -298,7 +308,12 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (dto.To
 		return dto.TokenPair{}, ErrEmailNotVerified
 	}
 
-	return s.issueTokenPair(ctx, user.ID, user.TokenVersion)
+	pair, err := s.issueTokenPair(ctx, user.ID, user.TokenVersion)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	s.announceSignIn(ctx, user)
+	return pair, nil
 }
 
 func (s *AuthService) GenerateTokenPair(ctx context.Context, userID uint) (dto.TokenPair, error) {
@@ -310,15 +325,17 @@ func (s *AuthService) GenerateTokenPair(ctx context.Context, userID uint) (dto.T
 }
 
 func (s *AuthService) issueTokenPair(ctx context.Context, userID uint, version int) (dto.TokenPair, error) {
-	pair, session, err := s.generateTokenPair(userID, version)
-	if err != nil {
-		return dto.TokenPair{}, err
-	}
 	familyID, err := newFamilyID()
 	if err != nil {
 		return dto.TokenPair{}, err
 	}
+	pair, session, err := s.generateTokenPair(userID, version, familyID)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
 	session.FamilyID = familyID
+	client := clientInfoFrom(ctx)
+	session.UserAgent, session.IP, session.LoginAt = client.UserAgent, client.IP, time.Now()
 	if err := s.repo.CreateSession(ctx, session); err != nil {
 		return dto.TokenPair{}, err
 	}
@@ -333,7 +350,7 @@ func newFamilyID() (string, error) {
 	return hex.EncodeToString(raw), nil
 }
 
-func (s *AuthService) generateTokenPair(userID uint, version int) (dto.TokenPair, *domain.UserSession, error) {
+func (s *AuthService) generateTokenPair(userID uint, version int, familyID string) (dto.TokenPair, *domain.UserSession, error) {
 	nonceBytes := make([]byte, 16)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return dto.TokenPair{}, nil, fmt.Errorf("generate token id: %w", err)
@@ -344,6 +361,7 @@ func (s *AuthService) generateTokenPair(userID uint, version int) (dto.TokenPair
 		UserID:       userID,
 		TokenType:    TokenAccess,
 		TokenVersion: version,
+		SessionID:    familyID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        nonce,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtTTL)),
@@ -401,10 +419,15 @@ func (s *AuthService) Refresh(ctx context.Context, refreshTokenString string) (d
 	if err != nil {
 		return dto.TokenPair{}, errors.New("session not found")
 	}
-	pair, replacement, err := s.generateTokenPair(claims.UserID, version)
+	familyID, err := s.repo.FindSessionFamily(ctx, tokenHash)
+	if err != nil {
+		return dto.TokenPair{}, errors.New("session not found")
+	}
+	pair, replacement, err := s.generateTokenPair(claims.UserID, version, familyID)
 	if err != nil {
 		return dto.TokenPair{}, err
 	}
+	replacement.IP = clientInfoFrom(ctx).IP
 	if err := s.repo.RotateSession(ctx, tokenHash, replacement); err != nil {
 		var replay *domain.SessionReplay
 		if errors.As(err, &replay) {
@@ -460,6 +483,11 @@ func (s *AuthService) Authenticate(ctx context.Context, tokenString string) (*Cl
 	if err != nil || current != claims.TokenVersion {
 		return nil, ErrTokenRevoked
 	}
+	if claims.SessionID != "" {
+		if alive, err := s.repo.SessionAlive(ctx, claims.UserID, claims.SessionID); err != nil || !alive {
+			return nil, ErrTokenRevoked
+		}
+	}
 	return claims, nil
 }
 
@@ -491,7 +519,14 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uint, currentPa
 		return dto.TokenPair{}, err
 	}
 	disconnectUser(s.revoker, userID)
-	return s.issueTokenPair(ctx, userID, version)
+	pair, err := s.issueTokenPair(ctx, userID, version)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	if s.security != nil {
+		s.security.NotifyPasswordChanged(ctx, user)
+	}
+	return pair, nil
 }
 
 func (s *AuthService) LogoutAll(ctx context.Context, userID uint) error {
