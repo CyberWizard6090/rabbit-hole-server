@@ -109,3 +109,32 @@ func (r *outboxRepository) HasDue(ctx context.Context, types []string) (bool, er
 		)`, types).Scan(&found).Error
 	return found, mapErr(err)
 }
+
+// QueueStats summarizes the queue per event type for the metrics: how many events wait, how long the longest
+// waiting due one has waited, and how many are dead. Both partial indexes of the table serve it.
+func (r *outboxRepository) QueueStats(ctx context.Context) ([]domain.OutboxQueueStat, error) {
+	var rows []struct {
+		EventType string
+		Pending   int64
+		Oldest    float64
+		Dead      int64
+	}
+	err := database.DBFromContext(ctx, r.db).Raw(`
+		SELECT event_type,
+			count(*) FILTER (WHERE published_at IS NULL AND dead_at IS NULL) AS pending,
+			COALESCE(EXTRACT(EPOCH FROM now() - min(next_attempt_at) FILTER (
+				WHERE published_at IS NULL AND dead_at IS NULL AND next_attempt_at <= now()
+				  AND (locked_until IS NULL OR locked_until < now()))), 0)::float8 AS oldest,
+			count(*) FILTER (WHERE dead_at IS NOT NULL) AS dead
+		FROM outbox_events
+		WHERE (published_at IS NULL AND dead_at IS NULL) OR dead_at IS NOT NULL
+		GROUP BY event_type`).Scan(&rows).Error
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	out := make([]domain.OutboxQueueStat, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.OutboxQueueStat{EventType: row.EventType, Pending: row.Pending, OldestDueSeconds: row.Oldest, Dead: row.Dead})
+	}
+	return out, nil
+}

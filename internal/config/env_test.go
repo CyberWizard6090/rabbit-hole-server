@@ -43,6 +43,7 @@ func deployedEnv(t *testing.T, appEnv, secret, origins, dbURL string) error {
 	t.Setenv("MAIL_DRIVER", "smtp")
 	t.Setenv("SMTP_HOST", "smtp.example.com")
 	t.Setenv("FRONTEND_URL", "https://app.example.com")
+	t.Setenv("METRICS_TOKEN", "metrics-token-for-tests-0123")
 	_, err := Load()
 	return err
 }

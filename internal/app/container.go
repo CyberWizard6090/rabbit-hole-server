@@ -16,6 +16,7 @@ import (
 	"rabbit-hole-server/internal/handler"
 	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/mail"
+	"rabbit-hole-server/internal/metrics"
 	"rabbit-hole-server/internal/ratelimit"
 	"rabbit-hole-server/internal/realtime"
 	"rabbit-hole-server/internal/repository"
@@ -68,6 +69,7 @@ type Container struct {
 
 	Ready           func(ctx context.Context) error
 	Realtime        *realtime.Hub
+	Metrics         *metrics.Metrics
 	RealtimeHandler *handler.RealtimeHandler
 }
 
@@ -242,7 +244,18 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		return nil, fmt.Errorf("get database handle for readiness checks: %w", err)
 	}
 
+	var instruments *metrics.Metrics
+	if cfg.Metrics.Enabled {
+		instruments = metrics.New()
+		instruments.RegisterDB(sqlDB)
+		instruments.RegisterConnections(hub.Connections)
+		instruments.RegisterOutbox(outboxRepo, metricsQueueTTL)
+		eventWorker.WithObserver(instruments)
+		deliveryWorker.WithObserver(instruments)
+	}
+
 	return &Container{
+		Metrics:             instruments,
 		AuthService:         authServ,
 		AuthHandler:         authHandler,
 		SessionHandler:      handler.NewSessionHandler(authHandler),
@@ -302,6 +315,9 @@ type notificationParts struct {
 }
 
 const deliveryWorkers = 4
+
+// metricsQueueTTL bounds how often a scrape may ask the database for the queue state.
+const metricsQueueTTL = 10 * time.Second
 
 const (
 	webhookRequestTimeout = 5 * time.Second

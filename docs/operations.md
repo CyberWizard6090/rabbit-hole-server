@@ -79,6 +79,52 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build   
 - Задайте `PUBLIC_BASE_URL` публичным адресом API: от него зависят абсолютные URL картинок.
 - Задайте `FRONTEND_URL`: на него указывают ссылки в письмах.
 
+## Метрики и алерты
+
+`GET /metrics` отдаёт метрики в формате Prometheus. В `staging` и `production` эндпоинт требует токен
+(`METRICS_TOKEN`, не короче 16 символов, заголовок `Authorization: Bearer ...`), без него сервер не запустится; отключить
+эндпоинт можно через `METRICS_ENABLED=false`. В development токен не нужен. Запросы к `/metrics` не попадают в журнал доступа
+и не считаются в метриках.
+
+```yaml
+scrape_configs:
+  - job_name: rabbit-hole
+    metrics_path: /metrics
+    authorization: {type: Bearer, credentials_file: /etc/prometheus/rabbit-hole.token}
+    static_configs: [{targets: ["api.internal:8080"]}]
+```
+
+| Метрика | Что показывает |
+|---|---|
+| `rabbit_hole_http_requests_total{method,route,status}` | запросы; `route` это шаблон маршрута (`/api/v1/tasks/:task_id`), поэтому число рядов ограничено; неизвестные пути попадают в `unmatched` |
+| `rabbit_hole_http_request_duration_seconds{method,route}` | гистограмма задержки (от 5 мс до 10 с) |
+| `rabbit_hole_http_requests_in_flight` | запросы в работе сейчас |
+| `rabbit_hole_outbox_pending{event_type}` | события очереди, ожидающие обработки (вместе с повторами) |
+| `rabbit_hole_outbox_oldest_due_age_seconds{event_type}` | сколько ждёт самое старое событие, которое уже пора обработать; 0, если очередь справляется |
+| `rabbit_hole_outbox_dead{event_type}` | события, исчерпавшие попытки |
+| `rabbit_hole_outbox_events_processed_total{event_type,result}` | исходы обработки этим процессом: `ok`, `retry`, `dead` |
+| `rabbit_hole_outbox_stats_up` | 1, если состояние очереди удалось прочитать |
+| `go_sql_*{db_name="main"}` | пул соединений: открыто, занято, ожидания (`go_sql_wait_count_total`) |
+| `rabbit_hole_websocket_connections` | открытые WebSocket этого процесса |
+| `go_*`, `process_*` | рантайм Go и процесс |
+
+Состояние очереди читается из базы не чаще раза в 10 секунд, сколько бы ни было сборщиков. Счётчики исходов и соединений считаются
+на процесс, поэтому при нескольких репликах суммируйте их запросом (`sum(...)`); длина очереди одна на всех, берите `max`.
+
+Правила оповещений лежат в [`alerts.yml`](alerts.yml): сервис не отвечает, доля 5xx выше 5 %, p95 выше секунды, поток
+ответов 429, задержка очереди выше 5 минут, мёртвые события, недоступность статистики очереди, исчерпание пула соединений.
+Пороги это отправная точка, подстройте их под свою нагрузку. Подключение: `rule_files: ["alerts.yml"]`.
+
+Что делать по алертам:
+
+| Алерт | Первый шаг |
+|---|---|
+| `OutboxBacklog` | `SELECT event_type, count(*) ... WHERE published_at IS NULL` (см. «Очередь outbox»), журнал `outbox: cannot process events`, живы ли воркеры |
+| `OutboxDeadEvents` | `last_error` у строк с `dead_at`, исправить причину (SMTP, получатель webhook), вернуть строки в очередь |
+| `HighServerErrorRate` | строки журнала с уровнем ERROR, разбивка `sum by (route)` |
+| `DatabasePoolSaturated` | предупреждения о медленных запросах, затем `DB_MAX_OPEN_CONNS` |
+| `TooManyRateLimited` | не задан `TRUSTED_PROXIES` (все клиенты на одном адресе) либо атака |
+
 ## Журналы
 
 - `LOG_LEVEL`: debug, info, warn, error. По умолчанию debug в development и info в остальных.
@@ -99,6 +145,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build   
 | Почта | очередь outbox (6 попыток); `NOTIFICATION_EMAIL_PER_HOUR` на пользователя |
 | Отправки форм | `FORM_SUBMISSIONS_PER_HOUR` на форму, дополнительно лимит по IP |
 | Realtime | ограниченное число соединений на пользователя, билет живёт 30 с |
+| Метрики | `METRICS_ENABLED` (true), `METRICS_TOKEN` (обязателен в staging и production) |
 
 Лимиты запросов по IP, блокировка входа, лимит писем уведомлений и лимит отправок форм считаются в PostgreSQL
 (`RATE_LIMIT_STORE=postgres`, по умолчанию): все реплики делят один бюджет, рестарт его не сбрасывает. Таблицы

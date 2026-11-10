@@ -58,6 +58,7 @@ type OutboxWorker struct {
 	now         func() time.Time
 	wake        chan struct{}
 	mu          sync.Mutex
+	observer    OutboxObserver
 }
 
 func NewOutboxWorker(repo domain.OutboxRepository, tx TransactionRunner, concurrency int, logger *slog.Logger) *OutboxWorker {
@@ -194,6 +195,23 @@ func DrainOutbox(ctx context.Context, workers ...*OutboxWorker) error {
 	}
 }
 
+// OutboxObserver is told what became of each handled event; result is ok, retry or dead.
+type OutboxObserver interface {
+	ObserveOutbox(eventType, result string)
+}
+
+// WithObserver reports the outcome of every handled event, for the metrics.
+func (w *OutboxWorker) WithObserver(o OutboxObserver) *OutboxWorker {
+	w.observer = o
+	return w
+}
+
+func (w *OutboxWorker) observe(eventType, result string) {
+	if w.observer != nil {
+		w.observer.ObserveOutbox(eventType, result)
+	}
+}
+
 func (w *OutboxWorker) process(ctx context.Context, event domain.OutboxEvent) {
 	route, ok := w.routeFor(event.Type)
 	if !ok {
@@ -203,6 +221,7 @@ func (w *OutboxWorker) process(ctx context.Context, event domain.OutboxEvent) {
 	final := event.Attempts >= route.MaxAttempts
 	err := w.handle(ctx, route, event, final)
 	if err == nil {
+		w.observe(event.Type, "ok")
 		if !route.Transactional {
 			if completeErr := w.repo.Complete(ctx, event.ID); completeErr != nil {
 				w.logger.Warn("outbox: cannot mark an event as done", "id", event.ID, "type", event.Type, "error", completeErr)
@@ -234,6 +253,7 @@ func (w *OutboxWorker) settle(ctx context.Context, event domain.OutboxEvent, rou
 	reason := truncateRunes(cause.Error(), outboxErrorCap)
 	var permanent *permanentError
 	if errors.As(cause, &permanent) || event.Attempts >= route.MaxAttempts {
+		w.observe(event.Type, "dead")
 		if err := w.repo.Bury(ctx, event.ID, reason); err != nil {
 			w.logger.Warn("outbox: cannot bury an event", "id", event.ID, "error", err)
 		}
@@ -247,6 +267,7 @@ func (w *OutboxWorker) settle(ctx context.Context, event domain.OutboxEvent, rou
 	if index >= len(route.Backoff) {
 		index = len(route.Backoff) - 1
 	}
+	w.observe(event.Type, "retry")
 	if err := w.repo.Retry(ctx, event.ID, reason, w.now().Add(route.Backoff[index])); err != nil {
 		w.logger.Warn("outbox: cannot schedule a retry", "id", event.ID, "error", err)
 		return

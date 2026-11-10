@@ -162,7 +162,7 @@ func TestDeployedRulesAreStricter(t *testing.T) {
 	deployed := map[string]string{
 		"APP_ENV": "production", "MAIL_DRIVER": "smtp", "SMTP_HOST": "smtp.example.com",
 		"FRONTEND_URL": "https://app.example.com", "ALLOWED_ORIGINS": "https://app.example.com",
-		"PUBLIC_BASE_URL": "https://api.example.com",
+		"PUBLIC_BASE_URL": "https://api.example.com", "METRICS_TOKEN": "metrics-token-for-tests-0123",
 	}
 	merge := func(extra map[string]string) map[string]string {
 		out := map[string]string{}
