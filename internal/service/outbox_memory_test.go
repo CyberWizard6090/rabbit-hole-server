@@ -133,3 +133,5 @@ func (m *memOutbox) rowsOfType(eventType string) []memOutboxRow {
 type passthroughTx struct{}
 
 func (passthroughTx) Run(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) }
+
+func (m *memOutbox) QueueStats(context.Context) ([]domain.OutboxQueueStat, error) { return nil, nil }

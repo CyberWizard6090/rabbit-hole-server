@@ -879,6 +879,7 @@ CREATE TABLE outbox_events (
     dead_at TIMESTAMPTZ
 );
 CREATE INDEX idx_outbox_events_pending ON outbox_events(next_attempt_at, id) WHERE published_at IS NULL AND dead_at IS NULL;
+CREATE INDEX idx_outbox_events_dead ON outbox_events(event_type) WHERE dead_at IS NOT NULL;
 
 ALTER TABLE forms ADD COLUMN settings JSONB NOT NULL DEFAULT '{}'::jsonb;
 

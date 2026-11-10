@@ -146,6 +146,7 @@ relies on:
   WebSocket feed `GET /notifications/events` (single-use ticket from `POST /notifications/events/ticket`):
   `notification.created`, `.read`, `.deleted` and `.unread_count`.
 - **Bulk tasks**: `POST /tasks/bulk` updates (status, priority, due date, assignees, tags), moves or deletes up to 100 tasks in one request; each task is checked and handled like its single route and reported in `results`, so one forbidden or invalid task does not stop the others.
+- **Metrics**: `GET /metrics` (Prometheus, bearer token required when deployed) exports request rate, errors and latency per route, outbox queue depth and age, dead events, the database pool and WebSocket connections; alert rules are in `docs/alerts.yml`.
 - **Sessions**: `GET /profile/sessions` lists the devices a user is signed in on, `DELETE /profile/sessions/{session}` ends one (its access token stops working at once) and `DELETE /profile/sessions` ends all the others; a sign-in from an unfamiliar device and a password change are announced by e-mail.
 - **API contract**: every response is described in `docs/openapi.yaml`, every integration test checks the real responses against it, and `make api-types` generates `docs/api-types.ts` for the frontend (see `docs/api-contract.md`).
 - **Task relations**: `/tasks/{id}/relations` links tasks as blocking, blocked by or related (same workspace, at most 50 per task); a blocking circle is refused with 409 even under concurrent requests, `blocked` tells the card whether an open blocker remains, and changes are written to the activity feed.

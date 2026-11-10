@@ -77,6 +77,7 @@ func TestDeployedEnvironmentsNeedRealMail(t *testing.T) {
 		t.Setenv("MAIL_DRIVER", "smtp")
 		t.Setenv("SMTP_HOST", "smtp.example.com")
 		t.Setenv("FRONTEND_URL", "https://app.example.com")
+		t.Setenv("METRICS_TOKEN", "metrics-token-for-tests-0123")
 		for k, v := range env {
 			t.Setenv(k, v)
 		}

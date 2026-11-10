@@ -19,9 +19,10 @@ import (
 const readyTimeout = 2 * time.Second
 
 const (
-	routeLists = "/lists"
-	healthPath = "/healthz" // liveness: the process is up and serving
-	readyPath  = "/readyz"  // readiness: dependencies answer too
+	routeLists  = "/lists"
+	healthPath  = "/healthz" // liveness: the process is up and serving
+	readyPath   = "/readyz"  // readiness: dependencies answer too
+	metricsPath = "/metrics" // Prometheus; needs METRICS_TOKEN when deployed
 )
 
 const (
@@ -56,8 +57,12 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	}
 
 	logger := slog.Default()
-	r.Use(middleware.ExtractWSTicket(), middleware.RequestID(), middleware.AccessLog(logger, healthPath, readyPath), middleware.Recovery(logger))
+	r.Use(middleware.ExtractWSTicket(), middleware.RequestID(), middleware.AccessLog(logger, healthPath, readyPath, metricsPath), middleware.Recovery(logger))
 	r.Use(middleware.SecurityHeaders(cfg.Environment == "production"))
+	if deps.Metrics != nil {
+		r.Use(deps.Metrics.Middleware())
+		r.GET(metricsPath, deps.Metrics.Handler(cfg.Metrics.Token))
+	}
 
 	r.GET(healthPath, func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})

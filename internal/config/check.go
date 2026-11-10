@@ -278,6 +278,19 @@ func checkSecurity(cfg *Config, set *problemSet) {
 	}
 }
 
+func checkMetrics(cfg *Config, set *problemSet) {
+	if !cfg.Metrics.Enabled || !cfg.IsDeployed() {
+		return
+	}
+	token := cfg.Metrics.Token
+	switch {
+	case token == "":
+		set.add("METRICS_TOKEN", "is required in %s while METRICS_ENABLED=true: /metrics lists routes and queue state; set a token (`openssl rand -base64 32`) and give it to Prometheus as a bearer token, or set METRICS_ENABLED=false", cfg.Environment)
+	case len(token) < 16:
+		set.add("METRICS_TOKEN", "is too short (%d characters, need at least 16)", len(token))
+	}
+}
+
 func checkMail(cfg *Config, set *problemSet) {
 	m := cfg.Mail
 	if parsed, err := mail.ParseAddress(m.From); err != nil || parsed.Address == "" || strings.ContainsAny(m.From, "\r\n") {
@@ -334,6 +347,7 @@ func checkStorage(cfg *Config, set *problemSet) {
 func checkDeployment(cfg *Config, set *problemSet) {
 	checkSecurity(cfg, set)
 	checkMail(cfg, set)
+	checkMetrics(cfg, set)
 	checkStorage(cfg, set)
 	checkOrigins(cfg, set)
 	checkProxies(cfg, set)

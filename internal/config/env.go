@@ -20,6 +20,7 @@ type Config struct {
 	Auth           AuthConfig
 	RateLimit      RateLimitConfig
 	Retention      RetentionConfig
+	Metrics        MetricsConfig
 	Storage        StorageConfig
 	Mail           MailConfig
 	Notifications  NotificationConfig
@@ -61,6 +62,13 @@ func (a AuthConfig) HashSlots() int {
 
 type RateLimitConfig struct {
 	Store string `env:"RATE_LIMIT_STORE" envDefault:"postgres" validate:"oneof=postgres memory"`
+}
+
+// MetricsConfig controls GET /metrics (Prometheus). In staging and production the endpoint needs a token: queue
+// depths and route names are not for the public.
+type MetricsConfig struct {
+	Enabled bool   `env:"METRICS_ENABLED" envDefault:"true"`
+	Token   string `env:"METRICS_TOKEN"`
 }
 
 type RetentionConfig struct {

@@ -119,3 +119,39 @@ func TestDBOptionsCarryEveryLimit(t *testing.T) {
 		t.Fatalf("options = %+v", opts)
 	}
 }
+
+func TestMetricsEndpointNeedsATokenWhenDeployed(t *testing.T) {
+	cases := []struct {
+		name    string
+		env     string
+		metrics MetricsConfig
+		problem bool
+	}{
+		{"enabled without a token", "production", MetricsConfig{Enabled: true}, true},
+		{"enabled without a token in staging", "staging", MetricsConfig{Enabled: true}, true},
+		{"short token", "production", MetricsConfig{Enabled: true, Token: "short"}, true},
+		{"good token", "production", MetricsConfig{Enabled: true, Token: "0123456789abcdefghij"}, false},
+		{"switched off", "production", MetricsConfig{Enabled: false}, false},
+		{"development needs none", "development", MetricsConfig{Enabled: true}, false},
+		{"test needs none", "test", MetricsConfig{Enabled: true}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			set := newProblemSet()
+			checkMetrics(&Config{Environment: tc.env, Metrics: tc.metrics}, set)
+			if got := len(set.items) > 0; got != tc.problem {
+				t.Fatalf("problem = %v (%v), want %v", got, set.items, tc.problem)
+			}
+		})
+	}
+}
+
+func TestMetricsAreOnByDefault(t *testing.T) {
+	cfg, err := loadWith(t, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Metrics.Enabled || cfg.Metrics.Token != "" {
+		t.Fatalf("metrics defaults = %+v", cfg.Metrics)
+	}
+}

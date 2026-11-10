@@ -24,6 +24,7 @@ handler  ->  service  ->  repository  ->  PostgreSQL
 | `internal/realtime` | WebSocket-хаб, одноразовые билеты |
 | `internal/mail`, `internal/storage`, `internal/safehttp` | Почта, файлы (local или S3), безопасный исходящий HTTP |
 | `internal/txhook`, `internal/ratelimit`, `internal/logging` | Хуки после коммита, лимиты, журнал |
+| `internal/metrics` | Метрики Prometheus: запросы, очередь outbox, пул БД, WebSocket (см. [`operations.md`](operations.md)) |
 | `internal/architecture` | Тесты, которые охраняют правила ниже |
 
 Зависимость идёт только вниз. Хендлер не обращается к репозиторию, репозиторий не знает о HTTP.
