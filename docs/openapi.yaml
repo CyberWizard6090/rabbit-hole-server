@@ -286,12 +286,13 @@ paths:
     delete:
       tags: [users]
       summary: "Sign out every device except the current one"
-      description: "Answers with `ended`, the number of devices that were signed out. Their access tokens stop working at once."
+      description: "Answers with `ended`, the number of devices that were signed out. Their access tokens stop working at once. 409 `SESSION_UNKNOWN` when the access token predates session tracking and does not name its session: refresh the token and repeat."
       security:
         - bearerAuth: []
       responses:
         '200': {$ref: '#/components/responses/EndedSessions'}
         '401': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
   /profile/sessions/{session}:
     delete:

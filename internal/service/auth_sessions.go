@@ -16,6 +16,10 @@ import (
 // ErrSessionNotFound is returned when a user asks to end a session that is not theirs or no longer exists.
 var ErrSessionNotFound = errors.New("session not found")
 
+// ErrCurrentSessionUnknown is returned when the access token does not say which session it belongs to (it was
+// issued before sessions were tracked), so "every device but this one" cannot be told apart from "every device".
+var ErrCurrentSessionUnknown = errors.New("the current session is unknown, refresh the access token")
+
 // SecurityNotifier tells the owner of an account about events they would want to know about.
 // Failures are logged by the implementation and never fail the request.
 type SecurityNotifier interface {
@@ -76,6 +80,9 @@ func (s *AuthService) RevokeSession(ctx context.Context, userID uint, sessionID 
 
 // RevokeOtherSessions signs the user out everywhere except the device they are using.
 func (s *AuthService) RevokeOtherSessions(ctx context.Context, userID uint, currentSession string) (int, error) {
+	if currentSession == "" {
+		return 0, ErrCurrentSessionUnknown
+	}
 	ended, err := s.repo.RevokeOtherSessions(ctx, userID, currentSession)
 	if err != nil {
 		return 0, err

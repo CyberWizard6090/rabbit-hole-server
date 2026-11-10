@@ -98,7 +98,7 @@ handler  ->  service  ->  repository  ->  PostgreSQL
 | Поля и шаблоны | `custom_fields`, `custom_field_options`, `task_custom_field_values`, `task_templates`, `task_template_versions` |
 | Формы | `forms`, `form_slug_aliases`, `form_versions`, `form_questions`, `form_question_options`, `form_submissions`, `submission_answers`, `form_task_configs`, `form_submission_tasks`, `form_uploads`, `form_idempotency_keys` |
 | Уведомления | `notifications`, `notification_preferences`, `notification_settings`, `notification_channels`, `channel_confirmations`, `task_watchers` |
-| Прочее | `outbox_events` (заготовка), поисковые индексы `pg_trgm` |
+| Очередь и служебное | `outbox_events` (надёжная доставка), `rate_limit_windows`, `login_lockouts`, `login_devices`, поисковые индексы `pg_trgm` |
 
 ## Надёжная доставка (outbox)
 

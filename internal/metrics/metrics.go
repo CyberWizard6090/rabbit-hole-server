@@ -66,15 +66,36 @@ func (m *Metrics) Middleware() gin.HandlerFunc {
 		}
 		m.inFlight.Inc()
 		start := time.Now()
+		defer func() {
+			m.inFlight.Dec()
+			status := c.Writer.Status()
+			failure := recover()
+			if failure != nil {
+				status = http.StatusInternalServerError // the recovery middleware answers 500 after us
+			}
+			route := c.FullPath()
+			if route == "" {
+				route = "unmatched"
+			}
+			method := knownMethod(c.Request.Method)
+			m.requests.WithLabelValues(method, route, strconv.Itoa(status)).Inc()
+			m.duration.WithLabelValues(method, route).Observe(time.Since(start).Seconds())
+			if failure != nil {
+				panic(failure)
+			}
+		}()
 		c.Next()
-		m.inFlight.Dec()
-		route = c.FullPath()
-		if route == "" {
-			route = "unmatched"
-		}
-		m.requests.WithLabelValues(c.Request.Method, route, strconv.Itoa(c.Writer.Status())).Inc()
-		m.duration.WithLabelValues(c.Request.Method, route).Observe(time.Since(start).Seconds())
 	}
+}
+
+// knownMethod keeps the method label bounded: a client may send any token as the method.
+func knownMethod(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete,
+		http.MethodHead, http.MethodOptions:
+		return method
+	}
+	return "other"
 }
 
 // Handler serves the metrics. With a token it requires `Authorization: Bearer <token>`.

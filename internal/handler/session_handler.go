@@ -62,6 +62,10 @@ func (h *SessionHandler) RevokeOthers(c *gin.Context) {
 		return
 	}
 	ended, err := h.auth.authService.RevokeOtherSessions(c.Request.Context(), uid, contextutil.GetSessionID(c))
+	if errors.Is(err, service.ErrCurrentSessionUnknown) {
+		response.HandleError(c, httperrors.Conflict("SESSION_UNKNOWN", err.Error(), err))
+		return
+	}
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("SESSION_REVOKE_FAILED", "failed to end the sessions", err))
 		return
