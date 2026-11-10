@@ -278,6 +278,9 @@ func (r *UserRepository) AnonymizeIfNoOwnedWorkspaces(ctx context.Context, userI
 		if err := tx.Exec("DELETE FROM email_tokens WHERE user_id = ?", userID).Error; err != nil {
 			return err
 		}
+		if err := tx.Exec("DELETE FROM login_devices WHERE user_id = ?", userID).Error; err != nil {
+			return err
+		}
 		if err := tx.Exec("UPDATE users SET email_verified_at = NULL WHERE id = ?", userID).Error; err != nil {
 			return err
 		}

@@ -33,6 +33,29 @@ type timeEntryRow struct {
 const timeEntryColumns = `e.id, e.task_id, e.user_id, e.started_at, e.ended_at, e.note, e.created_at,
 	CASE WHEN e.ended_at IS NULL THEN LEAST(GREATEST(EXTRACT(EPOCH FROM (now() - e.started_at)), 0)::int, 86400) ELSE e.seconds END AS seconds`
 
+// closeStrandedTimers stops the user's running timers on tasks they can no longer reach (the task or its space
+// was deleted, or the user left the workspace). Such a timer is invisible and cannot be stopped through the task,
+// yet it would block every new timer because a user has one running timer at most.
+func closeStrandedTimers(tx *gorm.DB, userID uint) error {
+	var tasks []uint
+	if err := tx.Raw(`UPDATE task_time_entries e SET ended_at = now(), updated_at = now(),
+			seconds = LEAST(GREATEST(EXTRACT(EPOCH FROM (now() - e.started_at)), 0)::int, 86400)
+		WHERE e.user_id = ? AND e.ended_at IS NULL AND NOT EXISTS (
+			SELECT 1 FROM tasks t
+			JOIN spaces s ON s.id = t.space_id AND s.deleted_at IS NULL
+			JOIN workspace_members m ON m.workspace_id = s.workspace_id AND m.user_id = e.user_id AND m.deleted_at IS NULL
+			WHERE t.id = e.task_id AND t.deleted_at IS NULL)
+		RETURNING e.task_id`, userID).Scan(&tasks).Error; err != nil {
+		return err
+	}
+	for _, taskID := range tasks {
+		if err := recalcTimeSpent(tx, taskID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func recalcTimeSpent(tx *gorm.DB, taskID uint) error {
 	return tx.Exec(`UPDATE tasks SET time_spent = (
 		SELECT LEAST(COALESCE(SUM(seconds), 0), 2147483647)::int FROM task_time_entries WHERE task_id = ? AND ended_at IS NOT NULL)
@@ -84,9 +107,15 @@ func (r *timeEntryRepository) Get(ctx context.Context, taskID, entryID uint) (*d
 
 func (r *timeEntryRepository) Start(ctx context.Context, taskID, userID uint, note string) (*domain.TimeEntry, error) {
 	var id uint
-	err := database.DBFromContext(ctx, r.db).Raw(
-		`INSERT INTO task_time_entries (task_id, user_id, started_at, note) VALUES (?, ?, now(), ?) RETURNING id`,
-		taskID, userID, note).Scan(&id).Error
+	err := database.WithTransaction(ctx, r.db, func(txCtx context.Context) error {
+		tx := database.DBFromContext(txCtx, r.db)
+		if err := closeStrandedTimers(tx, userID); err != nil {
+			return err
+		}
+		return tx.Raw(
+			`INSERT INTO task_time_entries (task_id, user_id, started_at, note) VALUES (?, ?, now(), ?) RETURNING id`,
+			taskID, userID, note).Scan(&id).Error
+	})
 	if err != nil {
 		if strings.Contains(err.Error(), "uq_time_entries_one_running_timer") {
 			return nil, domain.ErrTimerRunning

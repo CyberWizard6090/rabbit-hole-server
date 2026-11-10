@@ -150,3 +150,42 @@ func TestConnectionsGaugeFollowsTheSource(t *testing.T) {
 		t.Fatal("gauge did not follow the source")
 	}
 }
+
+func TestAPanickingRequestIsCountedAsAServerError(t *testing.T) {
+	m := New()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(gin.Recovery(), m.Middleware())
+	r.GET("/metrics", m.Handler(""))
+	r.GET("/panic", func(*gin.Context) { panic("boom") })
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/panic", nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("the recovery middleware must still answer 500, got %d", rec.Code)
+	}
+	_, body := scrape(t, r, "")
+	if !strings.Contains(body, `rabbit_hole_http_requests_total{method="GET",route="/panic",status="500"} 1`) {
+		t.Errorf("the panic is not counted as a 500:\n%.600s", body)
+	}
+	if !strings.Contains(body, "rabbit_hole_http_requests_in_flight 0") {
+		t.Error("a panic left the in-flight gauge raised")
+	}
+}
+
+func TestUnknownMethodsShareOneLabel(t *testing.T) {
+	m := New()
+	r := newEngine(m, "")
+	for _, method := range []string{"FOO", "BAR1", "PROPFIND", "ZZZ"} {
+		r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(method, "/anything", nil))
+	}
+	_, body := scrape(t, r, "")
+	if !strings.Contains(body, `rabbit_hole_http_requests_total{method="other",route="unmatched",status="404"} 4`) {
+		t.Errorf("unknown methods are not folded into one series:\n%.800s", body)
+	}
+	for _, method := range []string{"FOO", "BAR1", "ZZZ"} {
+		if strings.Contains(body, `method="`+method+`"`) {
+			t.Fatalf("method %s became a label value: a client could create unlimited series", method)
+		}
+	}
+}

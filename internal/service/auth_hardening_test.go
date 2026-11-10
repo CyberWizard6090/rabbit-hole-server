@@ -234,3 +234,13 @@ func TestWorkspaceRemovalDisconnectsOnlyTheFeeds(t *testing.T) {
 		t.Fatalf("deleting the workspace must close the feeds of its members: %v", revoker.feeds)
 	}
 }
+
+func TestSigningOutOtherDevicesNeedsToKnowTheCurrentOne(t *testing.T) {
+	// The store has no RevokeOtherSessions: reaching it would panic, which is the point. Without the id of the
+	// current session "all but this one" would mean "all", and the caller would sign itself out.
+	svc := NewAuthService(&hardeningStore{}, "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk", time.Hour, time.Hour)
+	ended, err := svc.RevokeOtherSessions(context.Background(), 1, "")
+	if !errors.Is(err, ErrCurrentSessionUnknown) || ended != 0 {
+		t.Fatalf("ended=%d err=%v, want ErrCurrentSessionUnknown", ended, err)
+	}
+}
