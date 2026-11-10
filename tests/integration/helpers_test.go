@@ -2,12 +2,15 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,7 +22,9 @@ import (
 	"rabbit-hole-server/internal/app"
 	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/database"
+	"rabbit-hole-server/internal/mail"
 	"rabbit-hole-server/internal/persistence"
+	"rabbit-hole-server/internal/service"
 )
 
 var (
@@ -32,6 +37,15 @@ type TestContext struct {
 	Router http.Handler
 	Token  string
 	UserID uint
+	Mail   *mail.Memory
+
+	Notifications *service.NotificationDispatcher
+	FormUploads   service.FormUploadService
+	StorageDir    string
+
+	Raw     http.Handler
+	Workers []*service.OutboxWorker
+	Config  config.Config
 }
 
 func TestMain(m *testing.M) {
@@ -84,21 +98,17 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	for _, action := range []string{"up", "up", "down", "up"} {
+	for _, action := range []string{"up", "up", database.ActionDownAll, "up"} {
 		if _, _, err := database.RunMigrations(testDBURL, action, 0, 0); err != nil {
 			fmt.Fprintf(os.Stderr, "run integration database migrations (%s): %v\n", action, err)
 			os.Exit(1)
 		}
 	}
 
+	cfg.Storage.Driver = "local"
+	cfg.Storage.LocalDir = filepath.Join(os.TempDir(), "rabbit-hole-integration-uploads")
 	cfg.DB.URL = testDBURL
-	integrationDB, err = database.ConnectDB(
-		testDBURL,
-		cfg.Environment,
-		cfg.DB.MaxIdleConnections,
-		cfg.DB.MaxOpenConnections,
-		cfg.DB.ConnMaxLifetime,
-	)
+	integrationDB, err = database.ConnectDB(testDBURL, cfg.DB.Options(cfg.Environment))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "connect integration database: %v\n", err)
 		os.Exit(1)
@@ -118,6 +128,11 @@ func integrationDBRequiredInCI(ci, testDBURL string) bool {
 
 func newTestContext(t *testing.T) *TestContext {
 	t.Helper()
+	return newTestContextWith(t, nil)
+}
+
+func newTestContextWith(t *testing.T, adjust func(cfg *config.Config), opts ...app.ContainerOption) *TestContext {
+	t.Helper()
 
 	if integrationDB == nil || integrationConfig == nil {
 		t.Skip("TEST_DB_URL is not set; integration tests require a dedicated PostgreSQL test database")
@@ -129,15 +144,72 @@ func newTestContext(t *testing.T) *TestContext {
 		}
 	})
 
-	container, err := app.NewContainer(integrationDB, integrationConfig)
+	cfg := *integrationConfig
+	cfg.Storage.LocalDir = t.TempDir()
+	if adjust != nil {
+		adjust(&cfg)
+	}
+
+	outbox := mail.NewMemory()
+	container, err := app.NewContainerWithMailer(integrationDB, &cfg, outbox, opts...)
 	if err != nil {
 		t.Fatalf("create integration app dependencies: %v", err)
 	}
 
+	rawRouter := app.SetupRouter(container, &cfg)
 	return &TestContext{
-		DB:     integrationDB,
-		Router: app.SetupRouter(container, integrationConfig),
+		DB:            integrationDB,
+		Router:        contractHandler{inner: drainingHandler{inner: rawRouter, workers: container.Workers}, t: t},
+		Raw:           rawRouter,
+		Workers:       container.Workers,
+		Config:        cfg,
+		Mail:          outbox,
+		Notifications: container.Notifications,
+		FormUploads:   container.FormUploads,
+		StorageDir:    cfg.Storage.LocalDir,
 	}
+}
+
+type drainingHandler struct {
+	inner   http.Handler
+	workers []*service.OutboxWorker
+}
+
+func (h drainingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.inner.ServeHTTP(w, r)
+	if err := service.DrainOutbox(context.Background(), h.workers...); err != nil {
+		panic(err)
+	}
+}
+
+func waitForMail(t *testing.T, memory *mail.Memory, to string, count int) []mail.Message {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if messages := memory.To(to); len(messages) >= count {
+			return messages
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("expected %d mails to %s, got %d", count, to, len(memory.To(to)))
+	return nil
+}
+
+func startWorkers(t *testing.T, container *app.Container) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	var group sync.WaitGroup
+	for _, worker := range container.Workers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			worker.Run(ctx)
+		}()
+	}
+	t.Cleanup(func() {
+		cancel()
+		group.Wait()
+	})
 }
 
 func ensureSeparateDatabaseURLs(applicationURL, testURL string) error {
@@ -158,6 +230,9 @@ func ensureSeparateDatabaseURLs(applicationURL, testURL string) error {
 func resetIntegrationDatabase() error {
 	return integrationDB.Exec(`
 		TRUNCATE TABLE
+			outbox_events,
+			rate_limit_windows,
+			login_lockouts,
 			task_assignees,
 			task_tags,
 			tasks,
@@ -226,7 +301,7 @@ func dataObject(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 func registerAndLogin(t *testing.T, tc *TestContext) {
 	t.Helper()
 
-	username := fmt.Sprintf("integration-%d", time.Now().UnixNano())
+	username := fmt.Sprintf("it-%d", time.Now().UnixNano())
 	email := username + "@example.test"
 	password := "test-password-123"
 
@@ -264,4 +339,14 @@ func registerAndLogin(t *testing.T, tc *TestContext) {
 
 	tc.UserID = user.ID
 	tc.Token = token
+}
+
+func errorDetail(body map[string]any, field string) map[string]any {
+	details, _ := body["details"].([]any)
+	for _, raw := range details {
+		if d, ok := raw.(map[string]any); ok && d["field"] == field {
+			return d
+		}
+	}
+	return nil
 }

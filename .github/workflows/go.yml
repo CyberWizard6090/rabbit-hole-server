@@ -136,8 +136,16 @@ jobs:
         run: go test -race -count=1 ./internal/... ./cmd/...
 
   integration-tests:
-    name: Integration Tests
+    # The suite is split by test name into parallel jobs (scripts/shard-tests.sh): each job has its own runner and
+    # its own database, so the shards cannot disturb each other, and the wall time is about a third of the whole.
+    name: Integration Tests (shard ${{ matrix.shard }}/${{ matrix.shards }})
     runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+        shards: [3]
 
     services:
       postgres:
@@ -176,7 +184,7 @@ jobs:
           DB_URL: postgres://postgres:postgres@127.0.0.1:5432/rabbit_hole?sslmode=disable
         run: |
           go run ./cmd/migrate -action up
-          go run ./cmd/migrate -action down
+          go run ./cmd/migrate -action down -all
           go run ./cmd/migrate -action up
 
       - name: Run integration tests
@@ -185,7 +193,9 @@ jobs:
           JWT_SECRET: ci-jwt-secret-at-least-32-characters-long-12345
           DB_URL: postgres://postgres:postgres@127.0.0.1:5432/rabbit_hole?sslmode=disable
           TEST_DB_URL: postgres://postgres:postgres@127.0.0.1:5432/rabbit_hole_test?sslmode=disable
-        run: go test -v -race -count=1 ./tests/integration/...
+        run: |
+          pattern=$(scripts/shard-tests.sh ./tests/integration "${{ matrix.shard }}" "${{ matrix.shards }}")
+          go test -v -race -count=1 -timeout 25m -run "$pattern" ./tests/integration/...
 
   build:
     name: Build Binaries
@@ -258,10 +268,15 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4.4.1
 
+      - name: Read the Go version from go.mod
+        id: goversion
+        run: echo "version=$(awk '/^go /{print $2}' go.mod)" >> "$GITHUB_OUTPUT"
+
       - name: Build Docker image
         uses: docker/build-push-action@v7.4.0
         with:
           context: .
+          build-args: GO_VERSION=${{ steps.goversion.outputs.version }}
           push: false
           tags: rabbit-hole:${{ github.sha }}
           cache-from: type=gha

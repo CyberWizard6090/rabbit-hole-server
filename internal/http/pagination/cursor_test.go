@@ -1,10 +1,11 @@
 package pagination
 
 import (
+	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
-	"time"
 )
 
 func testCodec(t *testing.T) *Codec {
@@ -16,23 +17,27 @@ func testCodec(t *testing.T) *Codec {
 	return codec
 }
 
+func testPosition(id int) TaskCursorPosition {
+	return TaskCursorPosition{Keys: []json.RawMessage{json.RawMessage(strconv.Itoa(id))}}
+}
+
 func TestTaskCursorContext(t *testing.T) {
-	if got, want := TaskCursorContext(42), (CursorContext{
+	if got, want := TaskCursorContext(42, "id_desc", ""), (CursorContext{
 		Resource: "tasks",
 		Scope:    "42",
-		Sort:     "created_at_desc_id_desc",
+		Sort:     "id_desc",
 	}); got != want {
 		t.Fatalf("TaskCursorContext(42) = %+v, want %+v", got, want)
+	}
+	if got := TaskCursorContext(42, "id_desc", "abc").Scope; got != "42:abc" {
+		t.Fatalf("filtered scope = %q", got)
 	}
 }
 
 func TestCursorRoundTrip(t *testing.T) {
 	codec := testCodec(t)
-	context := TaskCursorContext(7)
-	position := TaskCursorPosition{
-		CreatedAt: time.Date(2026, 10, 9, 12, 30, 0, 123456000, time.FixedZone("test", 2*60*60)),
-		ID:        42,
-	}
+	context := TaskCursorContext(7, "id_desc", "")
+	position := testPosition(42)
 	token, err := EncodePosition(codec, context, DirectionNext, position)
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +53,7 @@ func TestCursorRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gotPosition.ID != position.ID || !gotPosition.CreatedAt.Equal(position.CreatedAt) {
+	if len(gotPosition.Keys) != 1 || string(gotPosition.Keys[0]) != "42" {
 		t.Fatalf("position round trip mismatch: got=%#v want=%#v", gotPosition, position)
 	}
 }
@@ -80,7 +85,7 @@ func TestCursorSupportsDifferentResourcePositionShapes(t *testing.T) {
 
 func TestDecodeRejectsTampering(t *testing.T) {
 	codec := testCodec(t)
-	token, err := EncodePosition(codec, TaskCursorContext(7), DirectionNext, TaskCursorPosition{CreatedAt: time.Now(), ID: 42})
+	token, err := EncodePosition(codec, TaskCursorContext(7, "id_desc", ""), DirectionNext, testPosition(42))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,10 +106,10 @@ func TestDecodeEmptyCursor(t *testing.T) {
 func TestCursorValidation(t *testing.T) {
 	codec := testCodec(t)
 	for name, cursor := range map[string]Cursor{
-		"missing resource":  {Sort: "created_at_desc_id_desc", Position: []byte(`{"id":"1"}`), Direction: DirectionNext},
+		"missing resource":  {Sort: "id_desc", Position: []byte(`{"id":"1"}`), Direction: DirectionNext},
 		"missing sort":      {Resource: "tasks", Position: []byte(`{"id":"1"}`), Direction: DirectionNext},
-		"missing position":  {Resource: "tasks", Sort: "created_at_desc_id_desc", Direction: DirectionNext},
-		"invalid direction": {Resource: "tasks", Sort: "created_at_desc_id_desc", Position: []byte(`{"id":"1"}`), Direction: "sideways"},
+		"missing position":  {Resource: "tasks", Sort: "id_desc", Direction: DirectionNext},
+		"invalid direction": {Resource: "tasks", Sort: "id_desc", Position: []byte(`{"id":"1"}`), Direction: "sideways"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := codec.Encode(cursor); !errors.Is(err, ErrInvalidCursor) {
@@ -130,32 +135,34 @@ func TestParseLimit(t *testing.T) {
 
 func TestParseParams(t *testing.T) {
 	codec := testCodec(t)
-	token, err := EncodePosition(codec, TaskCursorContext(7), DirectionNext, TaskCursorPosition{CreatedAt: time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC), ID: 42})
+	token, err := EncodePosition(codec, TaskCursorContext(7, "id_desc", ""), DirectionNext, testPosition(42))
 	if err != nil {
 		t.Fatal(err)
 	}
-	params, err := ParseParams("25", token, codec, TaskCursorContext(7))
+	params, err := ParseParams("25", token, codec, TaskCursorContext(7, "id_desc", ""))
 	if err != nil || params.Limit != 25 || params.Cursor == nil {
 		t.Fatalf("ParseParams() = (%+v, %v)", params, err)
 	}
-	if _, err := ParseParams("invalid", token, codec, TaskCursorContext(7)); !errors.Is(err, ErrInvalidLimit) {
+	if _, err := ParseParams("invalid", token, codec, TaskCursorContext(7, "id_desc", "")); !errors.Is(err, ErrInvalidLimit) {
 		t.Fatalf("expected invalid limit, got %v", err)
 	}
-	if _, err := ParseParams("25", "invalid", codec, TaskCursorContext(7)); !errors.Is(err, ErrInvalidCursor) {
+	if _, err := ParseParams("25", "invalid", codec, TaskCursorContext(7, "id_desc", "")); !errors.Is(err, ErrInvalidCursor) {
 		t.Fatalf("expected invalid cursor, got %v", err)
 	}
 }
 
 func TestParseParamsRejectsCursorFromDifferentContext(t *testing.T) {
 	codec := testCodec(t)
-	token, err := EncodePosition(codec, TaskCursorContext(7), DirectionNext, TaskCursorPosition{CreatedAt: time.Now(), ID: 42})
+	token, err := EncodePosition(codec, TaskCursorContext(7, "id_desc", ""), DirectionNext, testPosition(42))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []CursorContext{
-		TaskCursorContext(8),
-		{Resource: "spaces", Scope: "7", Sort: "created_at_desc_id_desc"},
+		TaskCursorContext(8, "id_desc", ""),
+		{Resource: "spaces", Scope: "7", Sort: "id_desc"},
 		{Resource: "tasks", Scope: "7", Sort: "title_asc"},
+		TaskCursorContext(7, "id_desc", "f1"),
+		TaskCursorContext(7, "priority_desc,id_asc", ""),
 	} {
 		if _, err := ParseParams("10", token, codec, expected); !errors.Is(err, ErrInvalidCursor) {
 			t.Errorf("expected context mismatch for %+v, got %v", expected, err)

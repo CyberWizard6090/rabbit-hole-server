@@ -1,0 +1,79 @@
+# Prometheus alerting rules for Rabbit Hole. Load with `rule_files: [alerts.yml]`; thresholds are a starting point,
+# tune them to your traffic. The metrics are described in docs/operations.md ("Метрики и алерты").
+groups:
+  - name: rabbit-hole
+    rules:
+      - alert: RabbitHoleDown
+        expr: up{job="rabbit-hole"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "Rabbit Hole does not answer scrapes"
+          description: "Prometheus cannot read /metrics from {{ $labels.instance }} for 2 minutes: the process is down, unreachable or the bearer token is wrong."
+
+      - alert: HighServerErrorRate
+        expr: |
+          sum(rate(rabbit_hole_http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(rabbit_hole_http_requests_total[5m])), 1) > 0.05
+        for: 10m
+        labels: {severity: critical}
+        annotations:
+          summary: "More than 5% of requests fail with 5xx"
+          description: "Look at the log lines with level ERROR and the routes below: sum by (route) (rate(rabbit_hole_http_requests_total{status=~\"5..\"}[5m]))."
+
+      - alert: SlowRequests
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(rabbit_hole_http_request_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "95th percentile of request latency is above 1 second"
+          description: "Compare by route: histogram_quantile(0.95, sum by (le, route) (rate(rabbit_hole_http_request_duration_seconds_bucket[5m])))."
+
+      - alert: TooManyRateLimited
+        expr: sum(rate(rabbit_hole_http_requests_total{status="429"}[5m])) > 5
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Many requests are answered 429"
+          description: "Either an attack or TRUSTED_PROXIES is not set so every client shares one address (docs/operations.md)."
+
+      - alert: OutboxBacklog
+        expr: max by (event_type) (rabbit_hole_outbox_oldest_due_age_seconds) > 300
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Outbox events of type {{ $labels.event_type }} wait longer than 5 minutes"
+          description: "Workers are stopped, too slow or the database is struggling. Mail, notifications and webhooks are delayed."
+
+      - alert: OutboxDeadEvents
+        expr: max by (event_type) (rabbit_hole_outbox_dead) > 0
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Outbox has dead events of type {{ $labels.event_type }}"
+          description: "They exhausted their attempts (see last_error in outbox_events). Fix the cause, then requeue them as described in docs/operations.md; they are deleted after RETENTION_OUTBOX_DEAD."
+
+      - alert: OutboxStatsUnavailable
+        expr: min(rabbit_hole_outbox_stats_up) == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "The queue state cannot be read"
+          description: "The database does not answer the queue query; the backlog alerts are blind until it does."
+
+      - alert: DatabasePoolSaturated
+        expr: go_sql_in_use_connections{db_name="main"} / go_sql_max_open_connections{db_name="main"} > 0.9
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Database connection pool is almost exhausted"
+          description: "Requests wait for a connection. Raise DB_MAX_OPEN_CONNS (mind the database limit) or find the slow queries (DB_SLOW_QUERY_THRESHOLD warnings)."
+
+      - alert: DatabasePoolWaiting
+        expr: rate(go_sql_wait_count_total{db_name="main"}[5m]) > 1
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Requests regularly wait for a database connection"
+          description: "The pool is too small for the load or connections are held too long."

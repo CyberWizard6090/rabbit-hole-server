@@ -4,12 +4,21 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
-	"rabbit-hole-server/internal/persistence"
+)
+
+const (
+	contactPending  = "pending"
+	contactAccepted = "accepted"
+	contactDeclined = "declined"
+
+	searchResultLimit = 20
 )
 
 type ContactRepository struct {
@@ -20,49 +29,176 @@ func NewContactRepository(db *gorm.DB) *ContactRepository {
 	return &ContactRepository{db: db}
 }
 
-func (r *ContactRepository) AddContact(ctx context.Context, userID, contactID uint) error {
-	err := r.db.WithContext(ctx).Exec("INSERT INTO user_contacts (user_id, contact_id) VALUES (?, ?)", userID, contactID).Error
-	if err != nil && isContactDuplicate(err) {
-		return domain.ErrContactAlreadyAdded
-	}
-	return mapErr(err)
+type publicUserRow struct {
+	ID        uint
+	Username  string
+	FirstName string
+	LastName  string
+	AvatarURL string
 }
+
+func (u publicUserRow) toDomain() domain.CommentUser {
+	return domain.CommentUser{ID: u.ID, Username: u.Username, FirstName: u.FirstName, LastName: u.LastName, AvatarURL: u.AvatarURL}
+}
+
+const publicUserColumns = "users.id, users.username, users.first_name, users.last_name, users.avatar_url"
 
 func isContactDuplicate(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
-func (r *ContactRepository) GetContacts(ctx context.Context, userID uint) ([]domain.User, error) {
-	contacts, _, err := r.GetContactsPage(ctx, userID, 1000, 0)
-	return contacts, err
-}
-
-func (r *ContactRepository) GetContactsPage(ctx context.Context, userID uint, limit, offset int) ([]domain.User, int64, error) {
-	var rows []persistence.User
+func (r *ContactRepository) ListContacts(ctx context.Context, userID uint, limit, offset int) ([]domain.CommentUser, int64, error) {
+	base := func() *gorm.DB {
+		return database.DBFromContext(ctx, r.db).Table("users").Where(`users.id IN (
+			SELECT contact_id FROM user_contacts WHERE user_id = ? AND status = ?
+			UNION
+			SELECT user_id FROM user_contacts WHERE contact_id = ? AND status = ?)`,
+			userID, contactAccepted, userID, contactAccepted)
+	}
 	var total int64
-
-	baseQuery := r.db.WithContext(ctx).Table("users").
-		Joins("JOIN user_contacts ON user_contacts.contact_id = users.id").
-		Where("user_contacts.user_id = ?", userID)
-
-	if err := baseQuery.Count(&total).Error; err != nil {
+	if err := base().Count(&total).Error; err != nil {
 		return nil, 0, mapErr(err)
 	}
+	var rows []publicUserRow
+	if err := base().Select(publicUserColumns).Order("users.id ASC").Limit(limit).Offset(offset).Scan(&rows).Error; err != nil {
+		return nil, 0, mapErr(err)
+	}
+	return nonNilUsers(mapSlice(rows, publicUserRow.toDomain)), total, nil
+}
 
-	err := baseQuery.
-		Order("users.id ASC").
-		Limit(limit).
-		Offset(offset).
-		Find(&rows).Error
+func (r *ContactRepository) Request(ctx context.Context, requesterID, targetID uint) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		var pending int64
+		if err := tx.Table("user_contacts").Where("user_id = ? AND status = ?", requesterID, contactPending).Count(&pending).Error; err != nil {
+			return err
+		}
+		if pending >= domain.MaxPendingContactRequests {
+			return domain.ErrContactRequestLimit
+		}
+
+		var known int64
+		if err := tx.Table("users").Where("id = ? AND email NOT LIKE ?", targetID, "%@deleted.invalid").Count(&known).Error; err != nil {
+			return err
+		}
+		if known == 0 {
+			return nil
+		}
+
+		type pairRow struct {
+			UserID uint
+			Status string
+		}
+		var existing []pairRow
+		if err := tx.Raw(`SELECT user_id, status FROM user_contacts
+			WHERE (user_id = ? AND contact_id = ?) OR (user_id = ? AND contact_id = ?) FOR UPDATE`,
+			requesterID, targetID, targetID, requesterID).Scan(&existing).Error; err != nil {
+			return err
+		}
+		if len(existing) == 0 {
+			return tx.Exec("INSERT INTO user_contacts (user_id, contact_id, status) VALUES (?, ?, ?)",
+				requesterID, targetID, contactPending).Error
+		}
+		row := existing[0]
+		if row.UserID == requesterID {
+			return nil
+		}
+		switch row.Status {
+		case contactPending:
+			return tx.Exec("UPDATE user_contacts SET status = ?, responded_at = ? WHERE user_id = ? AND contact_id = ?",
+				contactAccepted, time.Now().UTC(), targetID, requesterID).Error
+		case contactDeclined:
+			if err := tx.Exec("DELETE FROM user_contacts WHERE user_id = ? AND contact_id = ?", targetID, requesterID).Error; err != nil {
+				return err
+			}
+			return tx.Exec("INSERT INTO user_contacts (user_id, contact_id, status) VALUES (?, ?, ?)",
+				requesterID, targetID, contactPending).Error
+		}
+		return nil
+	})
+	if errors.Is(err, domain.ErrContactRequestLimit) {
+		return err
+	}
+	if err != nil && isContactDuplicate(err) {
+		return nil
+	}
+	return mapErr(err)
+}
+
+func (r *ContactRepository) ListRequests(ctx context.Context, userID uint, incoming bool, limit, offset int) ([]domain.ContactRequest, int64, error) {
+	ownColumn, otherColumn := "user_contacts.user_id", "user_contacts.contact_id"
+	if incoming {
+		ownColumn, otherColumn = otherColumn, ownColumn
+	}
+	base := func() *gorm.DB {
+		return database.DBFromContext(ctx, r.db).Table("user_contacts").
+			Joins("JOIN users ON users.id = "+otherColumn).
+			Where(ownColumn+" = ? AND user_contacts.status = ?", userID, contactPending)
+	}
+	var total int64
+	if err := base().Count(&total).Error; err != nil {
+		return nil, 0, mapErr(err)
+	}
+	var rows []struct {
+		ID          uint
+		Username    string
+		FirstName   string
+		LastName    string
+		AvatarURL   string
+		RequestedAt time.Time
+	}
+	err := base().Select(publicUserColumns + ", user_contacts.created_at AS requested_at").
+		Order("user_contacts.created_at DESC, users.id ASC").Limit(limit).Offset(offset).Scan(&rows).Error
 	if err != nil {
 		return nil, 0, mapErr(err)
 	}
-	return mapSlice(rows, userToDomain), total, nil
+	out := make([]domain.ContactRequest, len(rows))
+	for i, row := range rows {
+		out[i] = domain.ContactRequest{
+			User:      domain.CommentUser{ID: row.ID, Username: row.Username, FirstName: row.FirstName, LastName: row.LastName, AvatarURL: row.AvatarURL},
+			CreatedAt: row.RequestedAt,
+		}
+	}
+	return out, total, nil
 }
 
-func (r *ContactRepository) DeleteContact(ctx context.Context, userID, contactID uint) error {
-	res := r.db.WithContext(ctx).Exec("DELETE FROM user_contacts WHERE user_id = ? AND contact_id = ?", userID, contactID)
+func (r *ContactRepository) respond(ctx context.Context, userID, requesterID uint, status string) error {
+	res := database.DBFromContext(ctx, r.db).Exec(
+		"UPDATE user_contacts SET status = ?, responded_at = ? WHERE user_id = ? AND contact_id = ? AND status = ?",
+		status, time.Now().UTC(), requesterID, userID, contactPending)
+	if res.Error != nil {
+		return mapErr(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ContactRepository) Accept(ctx context.Context, userID, requesterID uint) error {
+	return r.respond(ctx, userID, requesterID, contactAccepted)
+}
+
+func (r *ContactRepository) Decline(ctx context.Context, userID, requesterID uint) error {
+	return r.respond(ctx, userID, requesterID, contactDeclined)
+}
+
+func (r *ContactRepository) Cancel(ctx context.Context, userID, targetID uint) error {
+	res := database.DBFromContext(ctx, r.db).Exec(
+		"DELETE FROM user_contacts WHERE user_id = ? AND contact_id = ? AND status = ?", userID, targetID, contactPending)
+	if res.Error != nil {
+		return mapErr(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ContactRepository) Remove(ctx context.Context, userID, contactID uint) error {
+	res := database.DBFromContext(ctx, r.db).Exec(`DELETE FROM user_contacts WHERE status = ?
+		AND ((user_id = ? AND contact_id = ?) OR (user_id = ? AND contact_id = ?))`,
+		contactAccepted, userID, contactID, contactID, userID)
 	if res.Error != nil {
 		return mapErr(res.Error)
 	}
@@ -76,18 +212,25 @@ func escapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
-func (r *ContactRepository) SearchUsers(ctx context.Context, query string, excludeID uint) ([]domain.User, error) {
-	var rows []persistence.User
-
-	query = strings.ToLower(strings.TrimSpace(query))
-	err := r.db.WithContext(ctx).
-		Where(`(LOWER(username) LIKE ? ESCAPE '\' OR LOWER(email) = ?) AND id != ?`,
-			escapeLike(query)+"%", query, excludeID).
-		Order("username ASC, id ASC").
-		Limit(20).
-		Find(&rows).Error
+func (r *ContactRepository) SearchUsers(ctx context.Context, query string, excludeID uint) ([]domain.CommentUser, error) {
+	var rows []publicUserRow
+	pattern := escapeLike(strings.ToLower(strings.TrimSpace(query))) + "%"
+	err := database.DBFromContext(ctx, r.db).Table("users").Select(publicUserColumns).
+		Where(`users.id <> ? AND users.email NOT LIKE '%@deleted.invalid' AND (
+			LOWER(users.username) LIKE ? ESCAPE '\' OR LOWER(users.first_name) LIKE ? ESCAPE '\' OR LOWER(users.last_name) LIKE ? ESCAPE '\')`,
+			excludeID, pattern, pattern, pattern).
+		Order("users.username ASC, users.id ASC").
+		Limit(searchResultLimit).
+		Scan(&rows).Error
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return mapSlice(rows, userToDomain), nil
+	return nonNilUsers(mapSlice(rows, publicUserRow.toDomain)), nil
+}
+
+func nonNilUsers(users []domain.CommentUser) []domain.CommentUser {
+	if users == nil {
+		return []domain.CommentUser{}
+	}
+	return users
 }

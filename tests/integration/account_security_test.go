@@ -72,8 +72,16 @@ func TestAccount_ChangePasswordRevokesOldTokens(t *testing.T) {
 	t.Run("wrong current password", func(t *testing.T) {
 		rec := request(t, tc.Router, http.MethodPost, "/api/v1/profile/password", old.access,
 			map[string]any{"current_password": "nope-nope-1", "new_password": "new-password-1"})
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 (a 401 would make clients sign the user out), got %d: %s", rec.Code, rec.Body.String())
+		}
+		body := decodeJSON(t, rec)["error"].(map[string]any)
+		if body["code"] != "INVALID_CURRENT_PASSWORD" {
+			t.Fatalf("code = %v, want INVALID_CURRENT_PASSWORD", body["code"])
+		}
+		details, _ := body["details"].([]any)
+		if len(details) != 1 || details[0].(map[string]any)["field"] != "current_password" || details[0].(map[string]any)["code"] != "INVALID_VALUE" {
+			t.Fatalf("details = %v, want one INVALID_VALUE entry for current_password", body["details"])
 		}
 	})
 	t.Run("weak new password", func(t *testing.T) {
@@ -143,9 +151,7 @@ func TestAccount_DeleteAccount(t *testing.T) {
 	friendID, friendToken := newUser(t, tc, "friend@example.test")
 	var selfID uint
 	tc.DB.Table("users").Select("id").Where("email = ?", email).Scan(&selfID)
-	if rec := request(t, tc.Router, http.MethodPost, "/api/v1/contacts", friendToken, map[string]any{"contact_id": selfID}); rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
-		t.Fatalf("add contact: %d: %s", rec.Code, rec.Body.String())
-	}
+	addContact(t, tc, friendToken, selfID)
 	_ = friendID
 
 	workspace := request(t, tc.Router, http.MethodPost, "/api/v1/workspaces", s.access, map[string]any{"name": "mine"})
@@ -156,8 +162,8 @@ func TestAccount_DeleteAccount(t *testing.T) {
 
 	t.Run("wrong password", func(t *testing.T) {
 		rec := request(t, tc.Router, http.MethodDelete, "/api/v1/profile", s.access, map[string]any{"password": "wrong-password"})
-		if rec.Code != http.StatusUnauthorized {
-			t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "INVALID_CURRENT_PASSWORD") {
+			t.Fatalf("expected 400 INVALID_CURRENT_PASSWORD, got %d: %s", rec.Code, rec.Body.String())
 		}
 	})
 	t.Run("blocked while owning a workspace", func(t *testing.T) {

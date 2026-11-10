@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -13,8 +14,18 @@ import (
 	"rabbit-hole-server/internal/service"
 )
 
+type PendingEmailReader interface {
+	Pending(ctx context.Context, userID uint) string
+}
+
 type UserHandler struct {
 	service service.UserService
+	pending PendingEmailReader
+}
+
+func (h *UserHandler) WithPendingEmail(reader PendingEmailReader) *UserHandler {
+	h.pending = reader
+	return h
 }
 
 func NewUserHandler(service service.UserService) *UserHandler {
@@ -38,6 +49,9 @@ func (h *UserHandler) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
+	if h.pending != nil {
+		user.PendingEmail = h.pending.Pending(c.Request.Context(), uid)
+	}
 	response.Success(c, http.StatusOK, user)
 }
 

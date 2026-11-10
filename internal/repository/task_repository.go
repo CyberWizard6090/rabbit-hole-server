@@ -3,11 +3,14 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/persistence"
@@ -23,10 +26,18 @@ func NewTaskRepository(db *gorm.DB) domain.TaskRepository {
 
 func (r *taskRepository) Create(ctx context.Context, task *domain.Task, assigneeIDs []uint, tagIDs []uint) error {
 	m := taskFromDomain(*task)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		if err := lockListForAppend(tx, task.ListID); err != nil {
+			return err
+		}
 		if err := validateTaskReferences(tx, task, assigneeIDs, tagIDs); err != nil {
 			return err
 		}
+		last, err := lastPosition(tx, task.ListID, 0)
+		if err != nil {
+			return err
+		}
+		m.Position = last + positionStep
 		if len(assigneeIDs) > 0 {
 			var users []persistence.User
 			if err := tx.Find(&users, assigneeIDs).Error; err != nil {
@@ -49,12 +60,13 @@ func (r *taskRepository) Create(ctx context.Context, task *domain.Task, assignee
 		return mapErr(err)
 	}
 	*task = taskToDomain(m)
-	return nil
+	return mapErr(decorateTask(database.DBFromContext(ctx, r.db), task))
 }
 
 func (r *taskRepository) List(
 	ctx context.Context,
 	listID uint,
+	query domain.TaskQuery,
 	params pagination.Params,
 ) ([]domain.Task, bool, bool, error) {
 	fetchLimit, err := pagination.FetchLimit(params.Limit)
@@ -62,56 +74,60 @@ func (r *taskRepository) List(
 		return nil, false, false, err
 	}
 
-	var rows []persistence.Task
+	keys := query.SortKeys()
+	specs := make([]taskSortSpec, len(keys))
+	selects := append([]string{"tasks.*"}, checklistCountSelects...)
+	for i, key := range keys {
+		spec, ok := taskSortSpecs[key.Field]
+		if !ok {
+			return nil, false, false, fmt.Errorf("unsupported task sort field: %q", key.Field)
+		}
+		specs[i] = spec
+		if spec.alias != "" {
+			selects = append(selects, spec.expr+" AS "+spec.alias)
+		}
+	}
 
-	query := r.db.WithContext(ctx).
-		Where("list_id = ?", listID).
+	db := database.DBFromContext(ctx, r.db).
+		Model(&persistence.Task{}).
+		Select(strings.Join(selects, ", ")).
+		Joins(checklistCountsJoin).
+		Where("tasks.list_id = ?", listID).
 		Preload("Assignees").
 		Preload("Tags")
+	db = applyTaskFilter(db, query.Filter)
+
+	isPrev := params.Cursor != nil && params.Cursor.Direction == pagination.DirectionPrev
 
 	if params.Cursor != nil {
 		cursor := params.Cursor
-		position, err := decodeTaskCursorPosition(cursor)
+		if cursor.Direction != pagination.DirectionNext && cursor.Direction != pagination.DirectionPrev {
+			return nil, false, false, fmt.Errorf("unsupported cursor direction: %q", cursor.Direction)
+		}
+		position, err := pagination.DecodePosition[pagination.TaskCursorPosition](cursor, query.CursorContext(listID))
 		if err != nil {
 			return nil, false, false, err
 		}
-
-		switch cursor.Direction {
-		case pagination.DirectionNext:
-			query = query.Where(
-				"(created_at, id) < (?, ?)",
-				position.CreatedAt,
-				position.ID,
-			)
-		case pagination.DirectionPrev:
-			query = query.Where(
-				"(created_at, id) > (?, ?)",
-				position.CreatedAt,
-				position.ID,
-			)
-		default:
-			return nil, false, false, fmt.Errorf(
-				"unsupported cursor direction: %q",
-				cursor.Direction,
-			)
+		condition, args, err := keysetCondition(keys, specs, position, isPrev)
+		if err != nil {
+			return nil, false, false, err
 		}
+		db = db.Where(condition, args...)
 	}
 
-	order := "created_at DESC, id DESC"
-
-	if params.Cursor != nil && params.Cursor.Direction == pagination.DirectionPrev {
-		order = "created_at ASC, id ASC"
+	for i, key := range keys {
+		db = db.Order(orderClause(specs[i], key.Desc, isPrev))
 	}
 
-	err = query.
-		Order(order).
-		Limit(fetchLimit).
-		Find(&rows).Error
-	if err != nil {
+	var rows []persistence.Task
+	if err := db.Limit(fetchLimit).Find(&rows).Error; err != nil {
 		return nil, false, false, mapErr(err)
 	}
 
 	tasks := mapSlice(rows, taskToDomain)
+	if err := decorateTasks(database.DBFromContext(ctx, r.db), tasks); err != nil {
+		return nil, false, false, mapErr(err)
+	}
 	hasMore := len(tasks) > params.Limit
 	if hasMore {
 		tasks = tasks[:params.Limit]
@@ -119,31 +135,284 @@ func (r *taskRepository) List(
 
 	hasPrev := hasPreviousPage(params.Cursor, hasMore)
 
-	if params.Cursor != nil && params.Cursor.Direction == pagination.DirectionPrev {
+	if isPrev {
 		for i, j := 0, len(tasks)-1; i < j; i, j = i+1, j-1 {
 			tasks[i], tasks[j] = tasks[j], tasks[i]
 		}
 	}
 
 	hasNext := hasMore
-	if params.Cursor != nil && params.Cursor.Direction == pagination.DirectionPrev {
-		// A previous-page request can become stale after deletions. An empty
-		// result must not advertise a next page without a usable cursor.
+	if isPrev {
 		hasNext = len(tasks) > 0
 	}
 
 	return tasks, hasNext, hasPrev, nil
 }
 
-func decodeTaskCursorPosition(cursor *pagination.Cursor) (pagination.TaskCursorPosition, error) {
-	var position pagination.TaskCursorPosition
-	if cursor == nil {
-		return position, fmt.Errorf("%w: cursor is required", pagination.ErrInvalidCursor)
+func (r *taskRepository) Count(ctx context.Context, listID uint, filter domain.TaskFilter) (int64, error) {
+	var total int64
+	db := database.DBFromContext(ctx, r.db).Model(&persistence.Task{}).Where("tasks.list_id = ?", listID)
+	if err := applyTaskFilter(db, filter).Count(&total).Error; err != nil {
+		return 0, mapErr(err)
 	}
-	if err := json.Unmarshal(cursor.Position, &position); err != nil || position.ID == 0 || position.ID > uint64(1<<63-1) {
-		return pagination.TaskCursorPosition{}, fmt.Errorf("%w: invalid task cursor position", pagination.ErrInvalidCursor)
+	return total, nil
+}
+
+type taskSortKind int
+
+const (
+	sortKindInt taskSortKind = iota
+	sortKindText
+	sortKindTime
+)
+
+type taskSortSpec struct {
+	expr     string
+	kind     taskSortKind
+	nullable bool
+	param    string
+	alias    string
+}
+
+const (
+	textKeyExpr = "left(lower(%s), 100)"
+
+	assigneeSortExpr = "(SELECT min(left(lower(coalesce(" +
+		"nullif(btrim(concat_ws(' ', u.first_name, u.last_name)), ''), u.username, u.email)), 100)) " +
+		"FROM task_assignees ta JOIN users u ON u.id = ta.user_id WHERE ta.task_id = tasks.id)"
+)
+
+var taskSortSpecs = map[domain.TaskSortField]taskSortSpec{
+	domain.TaskSortID:           {expr: "tasks.id", kind: sortKindInt, param: "?"},
+	domain.TaskSortTitle:        {expr: fmt.Sprintf(textKeyExpr, "tasks.title"), kind: sortKindText, param: fmt.Sprintf(textKeyExpr, "?")},
+	domain.TaskSortPriority:     {expr: "tasks.priority", kind: sortKindInt, param: "?"},
+	domain.TaskSortTimeEstimate: {expr: "tasks.time_estimate", kind: sortKindInt, param: "?"},
+	domain.TaskSortTimeSpent:    {expr: "tasks.time_spent", kind: sortKindInt, param: "?"},
+	domain.TaskSortPosition:     {expr: "tasks.position", kind: sortKindInt, param: "?"},
+	domain.TaskSortStartDate:    {expr: "tasks.start_date", kind: sortKindTime, nullable: true, param: "?"},
+	domain.TaskSortDueDate:      {expr: "tasks.due_date", kind: sortKindTime, nullable: true, param: "?"},
+	domain.TaskSortCreatedAt:    {expr: "tasks.created_at", kind: sortKindTime, param: "?"},
+	domain.TaskSortUpdatedAt:    {expr: "tasks.updated_at", kind: sortKindTime, param: "?"},
+	domain.TaskSortStatus: {
+		expr:  "(SELECT ts.position FROM task_statuses ts WHERE ts.id = tasks.status_id)",
+		kind:  sortKindInt,
+		param: "?",
+		alias: "sort_status_position",
+	},
+	domain.TaskSortAssignee: {
+		expr:     assigneeSortExpr,
+		kind:     sortKindText,
+		nullable: true,
+		param:    "?",
+		alias:    "sort_assignee",
+	},
+}
+
+func orderClause(spec taskSortSpec, desc, reverse bool) string {
+	if reverse {
+		desc = !desc
 	}
-	return position, nil
+	clause := spec.expr
+	if desc {
+		clause += " DESC"
+	} else {
+		clause += " ASC"
+	}
+	if spec.nullable {
+		if reverse {
+			clause += " NULLS FIRST"
+		} else {
+			clause += " NULLS LAST"
+		}
+	}
+	return clause
+}
+
+func decodeCursorValue(spec taskSortSpec, raw json.RawMessage) (any, error) {
+	if string(raw) == "null" {
+		if !spec.nullable {
+			return nil, fmt.Errorf("%w: unexpected null in cursor", pagination.ErrInvalidCursor)
+		}
+		return nil, nil
+	}
+	var (
+		value any
+		err   error
+	)
+	switch spec.kind {
+	case sortKindInt:
+		var v int64
+		err = json.Unmarshal(raw, &v)
+		value = v
+	case sortKindText:
+		var v string
+		err = json.Unmarshal(raw, &v)
+		value = v
+	case sortKindTime:
+		var v time.Time
+		err = json.Unmarshal(raw, &v)
+		value = v
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid cursor value", pagination.ErrInvalidCursor)
+	}
+	return value, nil
+}
+
+func keysetCondition(
+	keys []domain.TaskSortKey,
+	specs []taskSortSpec,
+	position pagination.TaskCursorPosition,
+	prev bool,
+) (string, []any, error) {
+	if len(position.Keys) != len(keys) {
+		return "", nil, fmt.Errorf("%w: cursor does not match sort", pagination.ErrInvalidCursor)
+	}
+	values := make([]any, len(keys))
+	for i, raw := range position.Keys {
+		v, err := decodeCursorValue(specs[i], raw)
+		if err != nil {
+			return "", nil, err
+		}
+		values[i] = v
+	}
+	if id, ok := values[len(values)-1].(int64); keys[len(keys)-1].Field == domain.TaskSortID && (!ok || id <= 0) {
+		return "", nil, fmt.Errorf("%w: invalid task cursor position", pagination.ErrInvalidCursor)
+	}
+
+	var branches []string
+	var args []any
+	for i := range keys {
+		spec, value := specs[i], values[i]
+
+		var cmp string
+		var cmpArgs []any
+		switch {
+		case !prev && value == nil:
+			continue
+		case !prev:
+			op := ">"
+			if keys[i].Desc {
+				op = "<"
+			}
+			cmp = spec.expr + " " + op + " " + spec.param
+			cmpArgs = []any{value}
+			if spec.nullable {
+				cmp = "(" + cmp + " OR " + spec.expr + " IS NULL)"
+			}
+		case value == nil:
+			cmp = spec.expr + " IS NOT NULL"
+		default:
+			op := "<"
+			if keys[i].Desc {
+				op = ">"
+			}
+			cmp = spec.expr + " " + op + " " + spec.param
+			cmpArgs = []any{value}
+		}
+
+		parts := make([]string, 0, i+1)
+		branchArgs := make([]any, 0, i+1)
+		for j := 0; j < i; j++ {
+			if values[j] == nil {
+				parts = append(parts, specs[j].expr+" IS NULL")
+			} else {
+				parts = append(parts, specs[j].expr+" = "+specs[j].param)
+				branchArgs = append(branchArgs, values[j])
+			}
+		}
+		parts = append(parts, cmp)
+		branchArgs = append(branchArgs, cmpArgs...)
+
+		branches = append(branches, "("+strings.Join(parts, " AND ")+")")
+		args = append(args, branchArgs...)
+	}
+	if len(branches) == 0 {
+		return "FALSE", nil, nil
+	}
+	return "(" + strings.Join(branches, " OR ") + ")", args, nil
+}
+
+func applyTaskFilter(db *gorm.DB, f domain.TaskFilter) *gorm.DB {
+	if f.Query != "" {
+		db = db.Where(`tasks.title ILIKE ? ESCAPE '\'`, "%"+escapeLike(f.Query)+"%")
+	}
+	if len(f.StatusIDs) > 0 {
+		db = db.Where("tasks.status_id IN ?", f.StatusIDs)
+	}
+	if len(f.Priorities) > 0 {
+		db = db.Where("tasks.priority IN ?", f.Priorities)
+	}
+	db = applyRelationFilter(db, "task_tags", "tag_id", f.TagIDs, f.NoTags)
+	db = applyRelationFilter(db, "task_assignees", "user_id", f.AssigneeIDs, f.Unassigned)
+
+	db = applyDateRange(db, "tasks.created_at", f.CreatedFrom, f.CreatedTo)
+	db = applyDateRange(db, "tasks.due_date", f.DueFrom, f.DueTo)
+	db = applyDateRange(db, "tasks.start_date", f.StartFrom, f.StartTo)
+
+	if f.HasDue != nil {
+		if *f.HasDue {
+			db = db.Where("tasks.due_date IS NOT NULL")
+		} else {
+			db = db.Where("tasks.due_date IS NULL")
+		}
+	}
+	if len(f.ParentIDs) > 0 {
+		db = db.Where("tasks.parent_id IN ?", f.ParentIDs)
+	}
+	if f.HasParent != nil {
+		if *f.HasParent {
+			db = db.Where("tasks.parent_id IS NOT NULL")
+		} else {
+			db = db.Where("tasks.parent_id IS NULL")
+		}
+	}
+	if f.HasOpenChecklistItems != nil {
+		if *f.HasOpenChecklistItems {
+			db = db.Where(openChecklistItemExists)
+		} else {
+			db = db.Where("NOT " + openChecklistItemExists)
+		}
+	}
+	return db
+}
+
+const openChecklistItemExists = "EXISTS (SELECT 1 FROM task_checklists oc " +
+	"JOIN task_checklist_items oi ON oi.checklist_id = oc.id " +
+	"WHERE oc.task_id = tasks.id AND NOT oi.resolved)"
+
+const checklistCountsJoin = "LEFT JOIN LATERAL (" +
+	"SELECT count(i.id)::int AS total, (count(i.id) FILTER (WHERE i.resolved))::int AS resolved " +
+	"FROM task_checklists c JOIN task_checklist_items i ON i.checklist_id = c.id " +
+	"WHERE c.task_id = tasks.id) cl ON true"
+
+var checklistCountSelects = []string{
+	"cl.total AS checklist_items_total",
+	"cl.resolved AS checklist_items_resolved",
+}
+
+func applyRelationFilter(db *gorm.DB, table, column string, ids []uint, none bool) *gorm.DB {
+	has := fmt.Sprintf("EXISTS (SELECT 1 FROM %s j WHERE j.task_id = tasks.id AND j.%s IN ?)", table, column)
+	hasNone := fmt.Sprintf("NOT EXISTS (SELECT 1 FROM %s j WHERE j.task_id = tasks.id)", table)
+	switch {
+	case len(ids) > 0 && none:
+		return db.Where("("+has+" OR "+hasNone+")", ids)
+	case len(ids) > 0:
+		return db.Where(has, ids)
+	case none:
+		return db.Where(hasNone)
+	}
+	return db
+}
+
+func applyDateRange(db *gorm.DB, column string, from, to *time.Time) *gorm.DB {
+	if from != nil {
+		db = db.Where(column+" >= ?", from.UTC())
+	}
+	if to != nil {
+		db = db.Where(column+" < ?", to.UTC().AddDate(0, 0, 1))
+	}
+	return db
 }
 
 func hasPreviousPage(cursor *pagination.Cursor, hasMore bool) bool {
@@ -161,55 +430,178 @@ func hasPreviousPage(cursor *pagination.Cursor, hasMore bool) bool {
 	}
 }
 
-func (r *taskRepository) GetByID(ctx context.Context, id uint) (*domain.Task, error) {
+func loadTask(tx *gorm.DB, id uint) (*domain.Task, error) {
 	var m persistence.Task
-	err := r.db.WithContext(ctx).Where("id = ?", id).
+	err := tx.
+		Select(append([]string{"tasks.*"}, checklistCountSelects...)).
+		Joins(checklistCountsJoin).
+		Where("tasks.id = ?", id).
 		Preload("Assignees").
 		Preload("Tags").
 		First(&m).Error
 	if err != nil {
-		return nil, mapErr(err)
+		return nil, err
 	}
 	task := taskToDomain(m)
+	if err := decorateTask(tx, &task); err != nil {
+		return nil, err
+	}
 	return &task, nil
 }
 
-func (r *taskRepository) Update(ctx context.Context, task *domain.Task, addTagIDs []uint) error {
-	m := taskFromDomain(*task)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		addTagIDs = uniqueIDs(addTagIDs)
-		if err := validateTaskReferences(tx, task, nil, addTagIDs); err != nil {
+func (r *taskRepository) GetByID(ctx context.Context, id uint) (*domain.Task, error) {
+	task, err := loadTask(database.DBFromContext(ctx, r.db), id)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return task, nil
+}
+
+func changedTaskColumns(before, after *domain.Task) map[string]any {
+	changes := map[string]any{}
+	if before.Title != after.Title {
+		changes["title"] = after.Title
+	}
+	if before.Description != after.Description {
+		changes["description"] = after.Description
+	}
+	if before.StatusID != after.StatusID {
+		changes["status_id"] = after.StatusID
+	}
+	if before.Priority != after.Priority {
+		changes["priority"] = after.Priority
+	}
+	if !sameUintPtr(before.ParentID, after.ParentID) {
+		changes["parent_id"] = uintPtrValue(after.ParentID)
+	}
+	if !sameTimePtr(before.StartDate, after.StartDate) {
+		changes["start_date"] = timePtrValue(after.StartDate)
+	}
+	if !sameTimePtr(before.DueDate, after.DueDate) {
+		changes["due_date"] = timePtrValue(after.DueDate)
+	}
+	if before.TimeEstimate != after.TimeEstimate {
+		changes["time_estimate"] = after.TimeEstimate
+	}
+	return changes
+}
+
+func sameUintPtr(a, b *uint) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+func sameTimePtr(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
+}
+
+func uintPtrValue(v *uint) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+func timePtrValue(v *time.Time) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+func (r *taskRepository) Update(
+	ctx context.Context,
+	id uint,
+	apply func(*domain.Task) error,
+	addTagIDs, removeTagIDs []uint,
+	replaceAssigneeIDs *[]uint,
+) (*domain.Task, *domain.Task, error) {
+	var before, after *domain.Task
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		if _, err := lockTaskRow(tx, id); err != nil {
 			return err
 		}
-		if err := tx.Omit(clause.Associations).Save(&m).Error; err != nil {
+		current, err := loadTask(tx, id)
+		if err != nil {
 			return err
 		}
-		if len(addTagIDs) == 0 {
-			return nil
+		before = current
+		next := *current
+		if err := apply(&next); err != nil {
+			return err
 		}
 
-		var tags []persistence.Tag
-		if err := tx.Find(&tags, addTagIDs).Error; err != nil {
+		addTagIDs = uniqueIDs(addTagIDs)
+		var assigneeIDs []uint
+		if replaceAssigneeIDs != nil {
+			assigneeIDs = uniqueIDs(*replaceAssigneeIDs)
+		}
+		if err := validateTaskReferences(tx, &next, assigneeIDs, addTagIDs); err != nil {
 			return err
 		}
-		return tx.Model(&m).Omit("Tags.*").Association("Tags").Append(tags)
+		if err := validateParentChain(tx, &next); err != nil {
+			return err
+		}
+
+		changes := changedTaskColumns(current, &next)
+		if len(changes) == 0 && (len(addTagIDs) > 0 || replaceAssigneeIDs != nil) {
+			changes["updated_at"] = gorm.Expr("now()")
+		}
+		if len(changes) > 0 {
+			if err := tx.Model(&persistence.Task{}).Where("id = ?", id).Updates(changes).Error; err != nil {
+				return err
+			}
+		}
+		if replaceAssigneeIDs != nil {
+			if err := replaceTaskAssignees(tx, id, assigneeIDs); err != nil {
+				return err
+			}
+		}
+		removeTagIDs = uniqueIDs(removeTagIDs)
+		if len(removeTagIDs) > 0 {
+			if err := tx.Exec("DELETE FROM task_tags WHERE task_id = ? AND tag_id IN ?", id, removeTagIDs).Error; err != nil {
+				return err
+			}
+		}
+		if len(addTagIDs) > 0 {
+			if err := tx.Exec(
+				"INSERT INTO task_tags (task_id, tag_id) SELECT ?, id FROM tags WHERE id IN ? ON CONFLICT DO NOTHING",
+				id, addTagIDs,
+			).Error; err != nil {
+				return err
+			}
+		}
+		after, err = loadTask(tx, id)
+		return err
 	})
 	if err != nil {
-		return mapErr(err)
+		return nil, nil, mapErr(err)
 	}
-	task.UpdatedAt = m.UpdatedAt
-	return nil
+	return before, after, nil
+}
+
+func replaceTaskAssignees(tx *gorm.DB, taskID uint, userIDs []uint) error {
+	if len(userIDs) == 0 {
+		return tx.Exec("DELETE FROM task_assignees WHERE task_id = ?", taskID).Error
+	}
+	if err := tx.Exec("DELETE FROM task_assignees WHERE task_id = ? AND user_id NOT IN ?", taskID, userIDs).Error; err != nil {
+		return err
+	}
+	return tx.Exec(
+		"INSERT INTO task_assignees (task_id, user_id) SELECT ?, id FROM users WHERE id IN ? ON CONFLICT DO NOTHING",
+		taskID, userIDs,
+	).Error
 }
 
 func (r *taskRepository) Delete(ctx context.Context, id uint) error {
-	res := r.db.WithContext(ctx).Where("id = ?", id).Delete(&persistence.Task{})
-	if res.Error != nil {
-		return mapErr(res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return domain.ErrNotFound
-	}
-	return nil
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		return softDeleteTaskTree(tx, id)
+	}))
 }
 
 func validateTaskReferences(tx *gorm.DB, task *domain.Task, assigneeIDs, tagIDs []uint) error {
@@ -243,18 +635,43 @@ func validateTaskReferences(tx *gorm.DB, task *domain.Task, assigneeIDs, tagIDs 
 		return nil
 	}
 
-	var assigneeCount int64
+	var found []uint
 	if err := tx.Table("users").
-		Joins("JOIN workspace_members ON workspace_members.user_id = users.id").
-		Joins("JOIN spaces ON spaces.workspace_id = workspace_members.workspace_id").
+		Joins("JOIN workspace_members ON workspace_members.user_id = users.id AND workspace_members.deleted_at IS NULL").
+		Joins("JOIN workspaces ON workspaces.id = workspace_members.workspace_id AND workspaces.deleted_at IS NULL").
+		Joins("JOIN spaces ON spaces.workspace_id = workspace_members.workspace_id AND spaces.deleted_at IS NULL").
 		Where("spaces.id = ? AND users.id IN ?", task.SpaceID, assigneeIDs).
-		Distinct("users.id").Count(&assigneeCount).Error; err != nil {
+		Distinct().Pluck("users.id", &found).Error; err != nil {
 		return err
 	}
-	if assigneeCount != int64(len(assigneeIDs)) {
-		return domain.ErrInvalidAssigneeReference
+	if len(found) != len(assigneeIDs) {
+		return missingReferenceError(domain.ErrInvalidAssigneeReference, assigneeIDs, found)
 	}
 	return nil
+}
+
+const maxTaskDepth = 100
+
+func validateParentChain(tx *gorm.DB, task *domain.Task) error {
+	if task.ParentID == nil || task.ID == 0 {
+		return nil
+	}
+	current := *task.ParentID
+	for i := 0; i < maxTaskDepth; i++ {
+		if current == task.ID {
+			return domain.ErrInvalidParentReference
+		}
+		var parent persistence.Task
+		err := tx.Select("id", "parent_id").Where("id = ?", current).First(&parent).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && parent.ParentID == nil) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		current = *parent.ParentID
+	}
+	return domain.ErrInvalidParentReference
 }
 
 func validateTagReferences(tx *gorm.DB, spaceID uint, tagIDs []uint) error {
@@ -263,16 +680,30 @@ func validateTagReferences(tx *gorm.DB, spaceID uint, tagIDs []uint) error {
 		return nil
 	}
 
-	var tagCount int64
+	var found []uint
 	if err := tx.Model(&persistence.Tag{}).
 		Where("space_id = ? AND id IN ?", spaceID, tagIDs).
-		Count(&tagCount).Error; err != nil {
+		Pluck("id", &found).Error; err != nil {
 		return err
 	}
-	if tagCount != int64(len(tagIDs)) {
-		return domain.ErrInvalidTagReference
+	if len(found) != len(tagIDs) {
+		return missingReferenceError(domain.ErrInvalidTagReference, tagIDs, found)
 	}
 	return nil
+}
+
+func missingReferenceError(sentinel error, wanted, found []uint) error {
+	present := make(map[uint]struct{}, len(found))
+	for _, id := range found {
+		present[id] = struct{}{}
+	}
+	missing := make([]uint, 0, len(wanted))
+	for _, id := range wanted {
+		if _, ok := present[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	return domain.InvalidFields(sentinel, []domain.FieldProblem{{Params: map[string]any{"ids": missing}}})
 }
 
 func uniqueIDs(ids []uint) []uint {

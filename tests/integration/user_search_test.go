@@ -48,17 +48,37 @@ func TestUserSearch_DoesNotLeakEmailsOrAllowEnumeration(t *testing.T) {
 		}
 	})
 
-	t.Run("exact email matches without exposing it", func(t *testing.T) {
-		code, res := searchUsers(t, tc, token, "Alice.Secret@example.test")
-		if code != http.StatusOK || len(res) != 1 {
-			t.Fatalf("code=%d results=%v, want exactly one", code, res)
+	t.Run("an e-mail address never matches, registered or not", func(t *testing.T) {
+		for _, q := range []string{"Alice.Secret@example.test", "alice.secret@example.test", "nobody.here@example.test"} {
+			if code, res := searchUsers(t, tc, token, q); code != http.StatusOK || len(res) != 0 {
+				t.Fatalf("q=%q: code=%d results=%v, want 200 and none", q, code, res)
+			}
 		}
-		user := res[0].(map[string]any)
-		if _, leaked := user["email"]; leaked {
-			t.Fatalf("search result exposes email: %v", user)
+	})
+
+	t.Run("results carry only the public projection", func(t *testing.T) {
+		rec := request(t, tc.Router, http.MethodGet, "/api/v1/users/search?q=bob.s", token, nil)
+		requireNoEmail(t, "search", rec.Body.String())
+		user := dataList(t, rec)[0].(map[string]any)
+		for _, key := range []string{"id", "username", "first_name", "last_name", "avatar_url"} {
+			if _, ok := user[key]; !ok {
+				t.Fatalf("missing %s in %v", key, user)
+			}
 		}
-		if user["id"] == nil || user["username"] == nil {
-			t.Fatalf("search result misses public fields: %v", user)
+		if len(user) != 5 {
+			t.Fatalf("unexpected fields in the public projection: %v", user)
+		}
+	})
+
+	t.Run("display name prefix matches", func(t *testing.T) {
+		if err := tc.DB.Exec("UPDATE users SET first_name = 'Zebulon', last_name = 'Quimby' WHERE username = 'aliceuser'").Error; err != nil {
+			t.Fatalf("set name: %v", err)
+		}
+		if code, res := searchUsers(t, tc, token, "zebul"); code != http.StatusOK || len(res) != 1 {
+			t.Fatalf("first name: code=%d results=%v", code, res)
+		}
+		if code, res := searchUsers(t, tc, token, "QUIMB"); code != http.StatusOK || len(res) != 1 {
+			t.Fatalf("last name: code=%d results=%v", code, res)
 		}
 	})
 

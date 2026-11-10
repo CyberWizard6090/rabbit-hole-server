@@ -4,6 +4,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -72,4 +73,34 @@ func TestStorageDetailsStayInsideTheRepositoryLayer(t *testing.T) {
 func TestPersistenceModelsAreIndependentOfBusinessLayers(t *testing.T) {
 	assertNoImports(t, "../persistence",
 		module+"domain", module+"service", module+"handler", module+"repository", module+"middleware")
+}
+
+func TestRepositoriesObtainTheirHandleThroughTheTransactionContext(t *testing.T) {
+	forbidden := []string{".db.WithContext(", ".db.Transaction(", ".db.Raw(", ".db.Exec(", ".db.Table(", ".db.Model("}
+	checked := 0
+	err := filepath.WalkDir("../repository", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		checked++
+		for _, call := range forbidden {
+			if strings.Contains(string(raw), call) {
+				t.Errorf("%s uses %q; obtain the handle with database.DBFromContext so transactions are honored", path, call)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked == 0 {
+		t.Fatal("no repository files found")
+	}
 }

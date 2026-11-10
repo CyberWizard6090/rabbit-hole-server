@@ -13,25 +13,68 @@ import (
 
 var (
 	publicRoutes = map[string]string{
-		"POST /api/v1/auth/register":          "anonymous",
-		"POST /api/v1/auth/login":             "anonymous",
-		"POST /api/v1/auth/refresh":           "authenticated by refresh cookie",
-		"POST /api/v1/auth/logout":            "authenticated by refresh cookie",
-		"GET /api/v1/lists/:list_id/events":   "authenticated by a single-use ticket issued after a permission check",
-		"GET /api/v1/spaces/:space_id/events": "authenticated by a single-use ticket issued after a permission check",
+		"POST /api/v1/auth/register":                  "anonymous",
+		"POST /api/v1/auth/login":                     "anonymous",
+		"POST /api/v1/auth/refresh":                   "authenticated by refresh cookie",
+		"POST /api/v1/auth/logout":                    "authenticated by refresh cookie",
+		"POST /api/v1/auth/verify-email":              "authenticated by a single-use emailed token",
+		"POST /api/v1/auth/resend-verification":       "anonymous; answers the same for every address",
+		"POST /api/v1/auth/forgot-password":           "anonymous; answers the same for every address",
+		"POST /api/v1/auth/reset-password":            "authenticated by a single-use emailed token",
+		"POST /api/v1/auth/confirm-email-change":      "authenticated by a single-use token emailed to the new address",
+		"POST /api/v1/notifications/channels/confirm": "authenticated by a single-use emailed token; answers the same for every address",
+		"GET /api/v1/notifications/events":            "authenticated by a single-use ticket issued to the signed-in user for their own feed",
+		"GET /api/v1/lists/:list_id/events":           "authenticated by a single-use ticket issued after a permission check",
+		"GET /api/v1/spaces/:space_id/events":         "authenticated by a single-use ticket issued after a permission check",
+		"GET /api/v1/images/:public_id":               "editor images and avatars are public by design; the id is a random 128-bit value",
+		"GET /api/v1/public/forms/:slug":              "published form schema is public",
+		"POST /api/v1/public/forms/:slug/submissions": "published form submission is public and rate limited",
+		"POST /api/v1/public/forms/:slug/uploads":     "file answers of a published form are uploaded anonymously; rate limited, size and type checked",
 	}
 	selfScopedRoutes = map[string]string{
-		"GET /api/v1/profile":                 "caller's own profile",
-		"PATCH /api/v1/profile":               "caller's own profile",
-		"DELETE /api/v1/profile":              "deletes the caller's own account",
-		"POST /api/v1/profile/password":       "changes the caller's own password",
-		"POST /api/v1/auth/logout-all":        "revokes the caller's own sessions",
-		"GET /api/v1/users/search":            "public projection only",
-		"GET /api/v1/contacts":                "caller's own contacts",
-		"POST /api/v1/contacts":               "caller's own contacts",
-		"DELETE /api/v1/contacts/:contact_id": "scoped to caller in SQL",
-		"POST /api/v1/workspaces":             "creates a workspace owned by the caller",
-		"GET /api/v1/workspaces":              "lists the caller's workspaces",
+		"GET /api/v1/profile":                             "caller's own profile",
+		"GET /api/v1/profile/sessions":                    "caller's own devices only",
+		"DELETE /api/v1/profile/sessions":                 "ends the caller's own other devices",
+		"DELETE /api/v1/profile/sessions/:session":        "scoped to the caller in SQL; a foreign or missing session is 404",
+		"PATCH /api/v1/profile":                           "caller's own profile",
+		"DELETE /api/v1/profile":                          "deletes the caller's own account",
+		"POST /api/v1/profile/password":                   "changes the caller's own password",
+		"POST /api/v1/profile/email":                      "starts a change of the caller's own email, password required",
+		"DELETE /api/v1/profile/email-change":             "cancels the caller's own pending email change",
+		"POST /api/v1/profile/avatar":                     "replaces the caller's own avatar",
+		"DELETE /api/v1/profile/avatar":                   "removes the caller's own avatar",
+		"POST /api/v1/auth/logout-all":                    "revokes the caller's own sessions",
+		"GET /api/v1/users/search":                        "public projection only",
+		"GET /api/v1/form-templates":                      "static catalog of form presets, no workspace data",
+		"GET /api/v1/list-templates":                      "static catalog of list templates, no workspace data",
+		"GET /api/v1/time/running":                        "the caller's own running timer",
+		"POST /api/v1/tasks/bulk":                         "permission is checked for every task in the body, covered by TestBulkTasks_PermissionsAreCheckedForEveryTask",
+		"GET /api/v1/contacts":                            "caller's own contacts",
+		"POST /api/v1/contacts":                           "creates a pending request from the caller; the answer is identical for every target",
+		"GET /api/v1/contacts/requests/incoming":          "caller's own incoming contact requests",
+		"GET /api/v1/contacts/requests/outgoing":          "caller's own outgoing contact requests",
+		"POST /api/v1/contacts/requests/:user_id/accept":  "scoped to the caller in SQL; others get 404",
+		"POST /api/v1/contacts/requests/:user_id/decline": "scoped to the caller in SQL; others get 404",
+		"DELETE /api/v1/contacts/requests/:user_id":       "scoped to the caller in SQL; others get 404",
+		"DELETE /api/v1/contacts/:contact_id":             "scoped to caller in SQL",
+		"POST /api/v1/workspaces":                         "creates a workspace owned by the caller",
+		"GET /api/v1/workspaces":                          "lists the caller's workspaces",
+
+		"GET /api/v1/notifications":                              "caller's own inbox; entries about unreadable tasks are hidden",
+		"GET /api/v1/notifications/unread-count":                 "caller's own unread counts",
+		"POST /api/v1/notifications/events/ticket":               "issues a ticket for the caller's own notification feed",
+		"POST /api/v1/notifications/read":                        "scoped to the caller in SQL",
+		"DELETE /api/v1/notifications/:notification_id":          "scoped to the caller in SQL; others get 404",
+		"GET /api/v1/notifications/preferences":                  "caller's own preferences",
+		"PUT /api/v1/notifications/preferences":                  "caller's own preferences",
+		"GET /api/v1/notifications/settings":                     "caller's own notification settings",
+		"PUT /api/v1/notifications/settings":                     "caller's own notification settings",
+		"GET /api/v1/notifications/channels":                     "caller's own delivery destinations",
+		"POST /api/v1/notifications/channels":                    "adds a destination to the caller's own account",
+		"POST /api/v1/notifications/channels/:channel_id/resend": "scoped to the caller in SQL; others get 404",
+		"DELETE /api/v1/notifications/channels/:channel_id":      "scoped to the caller in SQL; others get 404",
+
+		"POST /api/v1/notifications/channels/:channel_id/rotate-secret": "scoped to the caller in SQL; others get 404",
 	}
 )
 
@@ -56,10 +99,58 @@ func buildRouteFixture(t *testing.T, tc *TestContext, token string, userID uint)
 	st := create("/api/v1/lists/"+itoa(li)+"/statuses", map[string]any{"name": "Todo", "color": "#123456", "type": 1, "list_id": li})
 	tg := create("/api/v1/spaces/"+itoa(sp)+"/tags", map[string]any{"name": "fixture", "color": "#654321"})
 	tk := create("/api/v1/lists/"+itoa(li)+"/tasks", map[string]any{"title": "fixture", "status_id": st})
+	cf := create("/api/v1/workspaces/"+itoa(ws)+"/custom-fields", map[string]any{
+		"name": "fixture", "type": "text",
+	})
+	formSlug := fmt.Sprintf("route-fixture-%d", time.Now().UnixNano())
+	form := create("/api/v1/workspaces/"+itoa(ws)+"/forms", map[string]any{
+		"name": "fixture", "slug": formSlug,
+	})
+	question := create("/api/v1/workspaces/"+itoa(ws)+"/forms/"+itoa(form)+"/questions", map[string]any{
+		"type": "short_text", "title": "fixture", "position": 0,
+	})
+	if rec := request(t, tc.Router, http.MethodPost,
+		"/api/v1/workspaces/"+itoa(ws)+"/forms/"+itoa(form)+"/publish", token, nil); rec.Code != http.StatusOK {
+		t.Fatalf("publish route fixture form: %d: %s", rec.Code, rec.Body.String())
+	}
+	submissionRec := requestWithHeader(t, tc, http.MethodPost,
+		"/api/v1/public/forms/"+formSlug+"/submissions", "",
+		"Idempotency-Key", fmt.Sprintf("route-fixture-%d", time.Now().UnixNano()),
+		map[string]any{"answers": map[string]any{}})
+	if submissionRec.Code != http.StatusCreated {
+		t.Fatalf("create route fixture submission: %d: %s", submissionRec.Code, submissionRec.Body.String())
+	}
+	submission := responseID(t, submissionRec)
+	template := create("/api/v1/workspaces/"+itoa(ws)+"/task-templates", map[string]any{
+		"name": "fixture",
+		"configuration": map[string]any{
+			"task":          map[string]any{"priority": "normal"},
+			"custom_fields": []any{}, "tags": []uint{}, "subtasks": []any{},
+		},
+	})
+	templateVersionRec := request(t, tc.Router, http.MethodPost,
+		"/api/v1/task-templates/"+itoa(template)+"/versions", token, map[string]any{
+			"configuration": map[string]any{
+				"task":          map[string]any{"priority": "normal"},
+				"custom_fields": []any{}, "tags": []uint{}, "subtasks": []any{},
+			},
+		})
+	if templateVersionRec.Code != http.StatusCreated {
+		t.Fatalf("create route fixture template version: %d: %s", templateVersionRec.Code, templateVersionRec.Body.String())
+	}
+	templateVersion := responseID(t, templateVersionRec)
+	cm := create("/api/v1/tasks/"+itoa(tk)+"/comments", map[string]any{"body": "fixture"})
+	att := uploadFixtureFile(t, tc, token, tk)
+	cl := create("/api/v1/tasks/"+itoa(tk)+"/checklists", map[string]any{"name": "fixture"})
+	it := create("/api/v1/tasks/"+itoa(tk)+"/checklists/"+itoa(cl)+"/items", map[string]any{"text": "fixture"})
 
 	return routeFixture{params: map[string]string{
 		"workspace_id": itoa(ws), "space_id": itoa(sp), "folder_id": itoa(fo), "list_id": itoa(li),
-		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "user_id": itoa(userID), "contact_id": itoa(userID),
+		"status_id": itoa(st), "tag_id": itoa(tg), "task_id": itoa(tk), "comment_id": itoa(cm), "attachment_id": itoa(att), "checklist_id": itoa(cl), "item_id": itoa(it), "user_id": itoa(userID), "contact_id": itoa(userID), "notification_id": "1", "channel_id": "1", "other_id": "1", "view_id": "1", "entry_id": "1", "session": "none",
+		"field_id": itoa(cf),
+		"form_id":  itoa(form), "question_id": itoa(question), "submission_id": itoa(submission), "file_id": "1",
+		"slug":        formSlug,
+		"template_id": itoa(template), "version_id": itoa(templateVersion),
 	}}
 }
 
@@ -80,9 +171,9 @@ func (f routeFixture) expand(t *testing.T, path string) string {
 
 func apiRoutes(t *testing.T, tc *TestContext) []gin.RouteInfo {
 	t.Helper()
-	engine, ok := tc.Router.(*gin.Engine)
+	engine, ok := tc.Raw.(*gin.Engine)
 	if !ok {
-		t.Fatalf("router is %T, want *gin.Engine", tc.Router)
+		t.Fatalf("router is %T, want *gin.Engine", tc.Raw)
 	}
 	var routes []gin.RouteInfo
 	for _, r := range engine.Routes() {

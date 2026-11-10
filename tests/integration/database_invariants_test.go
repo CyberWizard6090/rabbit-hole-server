@@ -44,7 +44,12 @@ func TestQueryIndexesAndTrigramExtensionExist(t *testing.T) {
 		  AND indexname IN (
 			'idx_task_statuses_list_position',
 			'idx_tasks_list_keyset',
+			'idx_tasks_list_id_id',
+			'idx_tasks_list_priority_id',
+			'idx_tasks_list_due_date_id',
+			'idx_tasks_list_position_id',
 			'idx_user_sessions_user_id',
+			'idx_user_sessions_family_id',
 			'uq_user_sessions_token_hash',
 			'uq_users_email',
 			'uq_users_username',
@@ -54,8 +59,8 @@ func TestQueryIndexesAndTrigramExtensionExist(t *testing.T) {
 	`).Scan(&indexCount).Error; err != nil {
 		t.Fatalf("check query indexes: %v", err)
 	}
-	if indexCount != 8 {
-		t.Fatalf("query indexes found = %d, want 8", indexCount)
+	if indexCount != 13 {
+		t.Fatalf("query indexes found = %d, want 13", indexCount)
 	}
 
 	var extensionCount int64
@@ -185,8 +190,8 @@ func TestIntegrationResetPreservesPermissions(t *testing.T) {
 	if userCount != 0 {
 		t.Fatalf("users after reset = %d, want 0", userCount)
 	}
-	if permissionCount != 12 {
-		t.Fatalf("permissions after reset = %d, want 12", permissionCount)
+	if permissionCount != 18 {
+		t.Fatalf("permissions after reset = %d, want 18", permissionCount)
 	}
 }
 

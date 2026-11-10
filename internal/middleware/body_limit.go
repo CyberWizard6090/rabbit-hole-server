@@ -19,3 +19,16 @@ func BodyLimit(maxBytes int64) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+func BodyLimitByRoute(defaultMax int64, overrides map[string]int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		limit := defaultMax
+		if override, ok := overrides[c.Request.Method+" "+c.FullPath()]; ok {
+			limit = override
+		}
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
+		}
+		c.Next()
+	}
+}

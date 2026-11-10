@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -32,7 +31,7 @@ func RequirePermission(checker service.PermissionChecker, resource Resource, cod
 
 		id, err := strconv.ParseUint(c.Param(string(resource)), 10, 64)
 		if err != nil {
-			response.BadRequest(c, "invalid "+string(resource))
+			response.InvalidID(c, string(resource))
 			c.Abort()
 			return
 		}
@@ -54,12 +53,12 @@ func RequirePermission(checker service.PermissionChecker, resource Resource, cod
 		}
 
 		if checkErr != nil {
-			response.Error(c, http.StatusInternalServerError, "permission check failed")
+			response.Internal(c)
 			c.Abort()
 			return
 		}
 		if !ok {
-			response.Forbidden(c, "")
+			response.Forbidden(c)
 			c.Abort()
 			return
 		}

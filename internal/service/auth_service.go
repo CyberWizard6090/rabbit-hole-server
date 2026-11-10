@@ -9,7 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,13 +20,14 @@ import (
 
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/dto"
+	"rabbit-hole-server/internal/ratelimit"
 )
 
 var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrWeakPassword       = errors.New("password must be between 8 and 128 characters")
 	ErrTokenRevoked       = errors.New("token has been revoked")
-	ErrOwnsWorkspaces     = errors.New("transfer or delete your workspaces before deleting the account")
+	ErrOwnsWorkspaces     = domain.ErrOwnsWorkspaces
 )
 
 const (
@@ -40,13 +41,18 @@ type AuthUserStore interface {
 	GetByID(ctx context.Context, id uint) (*domain.User, error)
 	GetTokenVersion(ctx context.Context, userID uint) (int, error)
 	CreateSession(ctx context.Context, session *domain.UserSession) error
-	DeleteSession(ctx context.Context, tokenHash string) error
+	DeleteSessionFamily(ctx context.Context, tokenHash string) error
+	RevokeSessionFamily(ctx context.Context, familyID string) error
 	RotateSession(ctx context.Context, tokenHash string, replacement *domain.UserSession) error
 	RevokeAll(ctx context.Context, userID uint) (int, error)
-	HasSessionCreatedSince(ctx context.Context, userID uint, since time.Time) (bool, error)
 	UpdatePasswordAndRevoke(ctx context.Context, userID uint, passwordHash string) (int, error)
-	CountOwnedWorkspaces(ctx context.Context, userID uint) (int64, error)
-	Anonymize(ctx context.Context, userID uint) error
+	AnonymizeIfNoOwnedWorkspaces(ctx context.Context, userID uint) error
+	FindSessionFamily(ctx context.Context, tokenHash string) (string, error)
+	SessionAlive(ctx context.Context, userID uint, familyID string) (bool, error)
+	ListSessions(ctx context.Context, userID uint) ([]domain.SessionInfo, error)
+	RevokeUserSession(ctx context.Context, userID uint, familyID string) (bool, error)
+	RevokeOtherSessions(ctx context.Context, userID uint, keepFamily string) (int, error)
+	TouchLoginDevice(ctx context.Context, userID uint, fingerprint, label string) (isNew, hadOthers bool, err error)
 }
 
 func validatePassword(password string) error {
@@ -67,6 +73,9 @@ type Claims struct {
 	UserID       uint      `json:"user_id"`
 	TokenType    TokenType `json:"token_type"`
 	TokenVersion int       `json:"tv"`
+	// SessionID is the refresh token family the access token was issued for. It lets a user end one
+	// device: the token stops working as soon as its family is revoked. Tokens without it stay valid.
+	SessionID string `json:"sid,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -84,6 +93,13 @@ type AuthService struct {
 	jwtSecret  []byte
 	jwtTTL     time.Duration
 	refreshTTL time.Duration
+	avatars    AvatarRemover
+
+	verification    VerificationSender
+	requireVerified bool
+	revoker         ConnectionRevoker
+	backoff         ratelimit.Lockout
+	security        SecurityNotifier
 }
 
 func NewAuthService(r AuthUserStore, jwtSecret string, accessTTL, refreshTTL time.Duration) *AuthService {
@@ -179,7 +195,7 @@ func (s *AuthService) Register(ctx context.Context, email, password, username st
 	if err := validatePassword(password); err != nil {
 		return err
 	}
-	passwordHash, err := hashPassword(password)
+	passwordHash, err := hashPasswordLimited(ctx, password)
 	if err != nil {
 		return err
 	}
@@ -193,7 +209,15 @@ func (s *AuthService) Register(ctx context.Context, email, password, username st
 		user.Username = fmt.Sprintf("user_%d", time.Now().UnixNano())
 	}
 
-	return s.repo.CreateUser(ctx, user)
+	if err := s.repo.CreateUser(ctx, user); err != nil {
+		return err
+	}
+	if s.verification != nil {
+		if err := s.verification.SendVerification(ctx, user); err != nil {
+			slog.Warn("auth: cannot send the verification mail after registration", "user_id", user.ID, "error", err)
+		}
+	}
+	return nil
 }
 
 var (
@@ -208,19 +232,88 @@ func burnPasswordHash(password string) {
 	_ = verifyPassword(password, dummyHash)
 }
 
+func burnPasswordHashLimited(ctx context.Context, password string) error {
+	release, err := acquirePasswordSlot(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+	burnPasswordHash(password)
+	return nil
+}
+
+func (s *AuthService) WithLoginBackoff(backoff ratelimit.Lockout) *AuthService {
+	s.backoff = backoff
+	return s
+}
+
+func (s *AuthService) lockoutActive() bool {
+	return s.backoff != nil && s.backoff.Enabled()
+}
+
+func (s *AuthService) loginLocked(ctx context.Context, email string) bool {
+	if !s.lockoutActive() {
+		return false
+	}
+	locked, _, err := s.backoff.Locked(ctx, email)
+	if err != nil {
+		slog.Warn("auth: cannot read the sign-in lock", "error", err)
+		return false
+	}
+	return locked
+}
+
+func (s *AuthService) loginFailed(ctx context.Context, email string) {
+	if !s.lockoutActive() {
+		return
+	}
+	if _, err := s.backoff.Fail(ctx, email); err != nil {
+		slog.Warn("auth: cannot record a failed sign-in", "error", err)
+	}
+}
+
+func (s *AuthService) loginSucceeded(ctx context.Context, email string) {
+	if !s.lockoutActive() {
+		return
+	}
+	if err := s.backoff.Succeed(ctx, email); err != nil {
+		slog.Warn("auth: cannot clear the sign-in lock", "error", err)
+	}
+}
+
 func (s *AuthService) Login(ctx context.Context, email, password string) (dto.TokenPair, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
+	if s.loginLocked(ctx, email) {
+		return dto.TokenPair{}, ErrInvalidCredentials
+	}
 	user, err := s.repo.GetByEmail(ctx, email)
 	if err != nil {
-		burnPasswordHash(password)
+		if busy := burnPasswordHashLimited(ctx, password); busy != nil {
+			return dto.TokenPair{}, busy
+		}
+		s.loginFailed(ctx, email)
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
 
-	if !verifyPassword(password, user.PasswordHash) {
+	matches, err := verifyPasswordLimited(ctx, password, user.PasswordHash)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	if !matches {
+		s.loginFailed(ctx, email)
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
+	s.loginSucceeded(ctx, email)
+	if s.requireVerified && user.EmailVerifiedAt == nil {
+		return dto.TokenPair{}, ErrEmailNotVerified
+	}
 
-	return s.issueTokenPair(ctx, user.ID, user.TokenVersion)
+	pair, err := s.issueTokenPair(ctx, user.ID, user.TokenVersion)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	s.announceSignIn(ctx, user)
+	return pair, nil
 }
 
 func (s *AuthService) GenerateTokenPair(ctx context.Context, userID uint) (dto.TokenPair, error) {
@@ -232,17 +325,32 @@ func (s *AuthService) GenerateTokenPair(ctx context.Context, userID uint) (dto.T
 }
 
 func (s *AuthService) issueTokenPair(ctx context.Context, userID uint, version int) (dto.TokenPair, error) {
-	pair, session, err := s.generateTokenPair(userID, version)
+	familyID, err := newFamilyID()
 	if err != nil {
 		return dto.TokenPair{}, err
 	}
+	pair, session, err := s.generateTokenPair(userID, version, familyID)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	session.FamilyID = familyID
+	client := clientInfoFrom(ctx)
+	session.UserAgent, session.IP, session.LoginAt = client.UserAgent, client.IP, time.Now()
 	if err := s.repo.CreateSession(ctx, session); err != nil {
 		return dto.TokenPair{}, err
 	}
 	return pair, nil
 }
 
-func (s *AuthService) generateTokenPair(userID uint, version int) (dto.TokenPair, *domain.UserSession, error) {
+func newFamilyID() (string, error) {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate session family id: %w", err)
+	}
+	return hex.EncodeToString(raw), nil
+}
+
+func (s *AuthService) generateTokenPair(userID uint, version int, familyID string) (dto.TokenPair, *domain.UserSession, error) {
 	nonceBytes := make([]byte, 16)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return dto.TokenPair{}, nil, fmt.Errorf("generate token id: %w", err)
@@ -253,6 +361,7 @@ func (s *AuthService) generateTokenPair(userID uint, version int) (dto.TokenPair
 		UserID:       userID,
 		TokenType:    TokenAccess,
 		TokenVersion: version,
+		SessionID:    familyID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        nonce,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.jwtTTL)),
@@ -310,13 +419,22 @@ func (s *AuthService) Refresh(ctx context.Context, refreshTokenString string) (d
 	if err != nil {
 		return dto.TokenPair{}, errors.New("session not found")
 	}
-	pair, replacement, err := s.generateTokenPair(claims.UserID, version)
+	familyID, err := s.repo.FindSessionFamily(ctx, tokenHash)
+	if err != nil {
+		return dto.TokenPair{}, errors.New("session not found")
+	}
+	pair, replacement, err := s.generateTokenPair(claims.UserID, version, familyID)
 	if err != nil {
 		return dto.TokenPair{}, err
 	}
+	replacement.IP = clientInfoFrom(ctx).IP
 	if err := s.repo.RotateSession(ctx, tokenHash, replacement); err != nil {
+		var replay *domain.SessionReplay
+		if errors.As(err, &replay) {
+			s.handleReplayedRefreshToken(ctx, claims.UserID, replay)
+			return dto.TokenPair{}, errors.New("session not found")
+		}
 		if errors.Is(err, domain.ErrNotFound) {
-			s.handleUnknownRefreshSession(ctx, claims.UserID)
 			return dto.TokenPair{}, errors.New("session not found")
 		}
 		return dto.TokenPair{}, fmt.Errorf("rotate refresh session: %w", err)
@@ -326,21 +444,21 @@ func (s *AuthService) Refresh(ctx context.Context, refreshTokenString string) (d
 
 const refreshReuseGrace = 10 * time.Second
 
-func (s *AuthService) handleUnknownRefreshSession(ctx context.Context, userID uint) {
-	recent, err := s.repo.HasSessionCreatedSince(ctx, userID, time.Now().Add(-refreshReuseGrace))
-	if err != nil || recent {
+func (s *AuthService) handleReplayedRefreshToken(ctx context.Context, userID uint, replay *domain.SessionReplay) {
+	if replay.Age <= refreshReuseGrace {
 		return
 	}
-	if _, err := s.repo.RevokeAll(context.WithoutCancel(ctx), userID); err != nil {
-		log.Printf("revoke sessions after refresh token reuse (user %d): %v", userID, err)
+	if err := s.repo.RevokeSessionFamily(context.WithoutCancel(ctx), replay.FamilyID); err != nil {
+		slog.Error("auth: cannot revoke the session family after refresh token reuse", "user_id", userID, "error", err)
 		return
 	}
-	log.Printf("refresh token reuse detected: revoked all sessions of user %d", userID)
+	disconnectUser(s.revoker, userID)
+	slog.Warn("auth: refresh token reuse detected, session family revoked", "user_id", userID)
 }
 
 func (s *AuthService) Logout(ctx context.Context, refreshTokenString string) error {
 	tokenHash := s.hashToken(refreshTokenString)
-	return s.repo.DeleteSession(ctx, tokenHash)
+	return s.repo.DeleteSessionFamily(ctx, tokenHash)
 }
 
 func (s *AuthService) ParseToken(tokenString string) (*Claims, error) {
@@ -365,7 +483,16 @@ func (s *AuthService) Authenticate(ctx context.Context, tokenString string) (*Cl
 	if err != nil || current != claims.TokenVersion {
 		return nil, ErrTokenRevoked
 	}
+	if claims.SessionID != "" {
+		if alive, err := s.repo.SessionAlive(ctx, claims.UserID, claims.SessionID); err != nil || !alive {
+			return nil, ErrTokenRevoked
+		}
+	}
 	return claims, nil
+}
+
+func (s *AuthService) CurrentTokenVersion(ctx context.Context, userID uint) (int, error) {
+	return s.repo.GetTokenVersion(ctx, userID)
 }
 
 func (s *AuthService) ChangePassword(ctx context.Context, userID uint, currentPassword, newPassword string) (dto.TokenPair, error) {
@@ -373,10 +500,17 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uint, currentPa
 		return dto.TokenPair{}, err
 	}
 	user, err := s.repo.GetByID(ctx, userID)
-	if err != nil || !verifyPassword(currentPassword, user.PasswordHash) {
+	if err != nil {
 		return dto.TokenPair{}, ErrInvalidCredentials
 	}
-	hash, err := hashPassword(newPassword)
+	matches, err := verifyPasswordLimited(ctx, currentPassword, user.PasswordHash)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	if !matches {
+		return dto.TokenPair{}, ErrInvalidCredentials
+	}
+	hash, err := hashPasswordLimited(ctx, newPassword)
 	if err != nil {
 		return dto.TokenPair{}, err
 	}
@@ -384,25 +518,76 @@ func (s *AuthService) ChangePassword(ctx context.Context, userID uint, currentPa
 	if err != nil {
 		return dto.TokenPair{}, err
 	}
-	return s.issueTokenPair(ctx, userID, version)
+	disconnectUser(s.revoker, userID)
+	pair, err := s.issueTokenPair(ctx, userID, version)
+	if err != nil {
+		return dto.TokenPair{}, err
+	}
+	if s.security != nil {
+		s.security.NotifyPasswordChanged(ctx, user)
+	}
+	return pair, nil
 }
 
 func (s *AuthService) LogoutAll(ctx context.Context, userID uint) error {
-	_, err := s.repo.RevokeAll(ctx, userID)
-	return err
+	if _, err := s.repo.RevokeAll(ctx, userID); err != nil {
+		return err
+	}
+	disconnectUser(s.revoker, userID)
+	return nil
+}
+
+type VerificationSender interface {
+	SendVerification(ctx context.Context, user *domain.User) error
+}
+
+func (s *AuthService) WithVerificationSender(sender VerificationSender) *AuthService {
+	s.verification = sender
+	return s
+}
+
+func (s *AuthService) WithConnectionRevoker(revoker ConnectionRevoker) *AuthService {
+	s.revoker = revoker
+	return s
+}
+
+func (s *AuthService) WithRequireVerifiedEmail(required bool) *AuthService {
+	s.requireVerified = required
+	return s
+}
+
+type AvatarRemover interface {
+	RemoveAvatar(ctx context.Context, userID uint) error
+}
+
+func (s *AuthService) WithAvatarRemover(remover AvatarRemover) *AuthService {
+	s.avatars = remover
+	return s
 }
 
 func (s *AuthService) DeleteAccount(ctx context.Context, userID uint, password string) error {
 	user, err := s.repo.GetByID(ctx, userID)
-	if err != nil || !verifyPassword(password, user.PasswordHash) {
+	if err != nil {
 		return ErrInvalidCredentials
 	}
-	owned, err := s.repo.CountOwnedWorkspaces(ctx, userID)
+	matches, err := verifyPasswordLimited(ctx, password, user.PasswordHash)
 	if err != nil {
 		return err
 	}
-	if owned > 0 {
-		return ErrOwnsWorkspaces
+	if !matches {
+		return ErrInvalidCredentials
 	}
-	return s.repo.Anonymize(ctx, userID)
+	if err := s.repo.AnonymizeIfNoOwnedWorkspaces(ctx, userID); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return ErrInvalidCredentials
+		}
+		return err
+	}
+	disconnectUser(s.revoker, userID)
+	if s.avatars != nil {
+		if err := s.avatars.RemoveAvatar(ctx, userID); err != nil {
+			slog.Warn("auth: cannot remove the avatar of a deleted account", "user_id", userID, "error", err)
+		}
+	}
+	return nil
 }

@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
-	"os"
+	"log/slog"
+	"strconv"
 	"time"
 
 	"rabbit-hole-server/db/migrations"
@@ -14,38 +14,81 @@ import (
 	migratedatabase "github.com/golang-migrate/migrate/v4/database"
 	migratedb "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	gormpostgres "gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
 
-func ConnectDB(dsn, environment string, maxIdleConnections, maxOpenConnections int, connectionLifetime time.Duration) (*gorm.DB, error) {
-	db, err := gorm.Open(gormpostgres.Open(dsn), &gorm.Config{
-		Logger: gormLogger(environment),
+const ActionDownAll = "down-all"
+
+var ErrDownNeedsSteps = errors.New("down needs a positive number of steps; roll back everything only with an explicit full rollback")
+
+type Options struct {
+	Environment string
+
+	MaxIdleConnections int
+	MaxOpenConnections int
+	ConnMaxLifetime    time.Duration
+	ConnMaxIdleTime    time.Duration
+
+	StatementTimeout   time.Duration
+	LockTimeout        time.Duration
+	IdleInTxnTimeout   time.Duration
+	SlowQueryThreshold time.Duration
+	Logger             *slog.Logger
+}
+
+func ConnectDB(dsn string, opts Options) (*gorm.DB, error) {
+	connConfig, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse database url: %w", err)
+	}
+	applySessionTimeouts(connConfig, opts)
+
+	sqlDB := stdlib.OpenDB(*connConfig)
+	db, err := gorm.Open(gormpostgres.New(gormpostgres.Config{Conn: sqlDB}), &gorm.Config{
+		Logger: gormLogger(opts),
+		NowFunc: func() time.Time {
+			return time.Now().Truncate(time.Microsecond)
+		},
 	})
 	if err != nil {
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-
-	sqlDB, err := db.DB()
-	if err != nil {
-		return nil, fmt.Errorf("get database connection: %w", err)
-	}
-	configurePool(sqlDB, maxIdleConnections, maxOpenConnections, connectionLifetime)
-
+	configurePool(sqlDB, opts)
 	if err := sqlDB.Ping(); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
-
 	return db, nil
 }
 
-func configurePool(db *sql.DB, maxIdleConnections, maxOpenConnections int, connectionLifetime time.Duration) {
-	db.SetMaxIdleConns(maxIdleConnections)
-	db.SetMaxOpenConns(maxOpenConnections)
-	db.SetConnMaxLifetime(connectionLifetime)
+func applySessionTimeouts(connConfig *pgx.ConnConfig, opts Options) {
+	if connConfig.RuntimeParams == nil {
+		connConfig.RuntimeParams = map[string]string{}
+	}
+	for name, value := range map[string]time.Duration{
+		"statement_timeout":                   opts.StatementTimeout,
+		"lock_timeout":                        opts.LockTimeout,
+		"idle_in_transaction_session_timeout": opts.IdleInTxnTimeout,
+	} {
+		if _, set := connConfig.RuntimeParams[name]; set || value <= 0 {
+			continue
+		}
+		connConfig.RuntimeParams[name] = strconv.FormatInt(value.Milliseconds(), 10)
+	}
+}
+
+func configurePool(db *sql.DB, opts Options) {
+	db.SetMaxIdleConns(opts.MaxIdleConnections)
+	db.SetMaxOpenConns(opts.MaxOpenConnections)
+	db.SetConnMaxLifetime(opts.ConnMaxLifetime)
+	if opts.ConnMaxIdleTime > 0 {
+		db.SetConnMaxIdleTime(opts.ConnMaxIdleTime)
+	}
 }
 
 func RunMigrations(dsn, action string, steps, version int) (uint, bool, error) {
@@ -115,11 +158,12 @@ func runMigrations(db *sql.DB, action string, steps, version int) (uint, bool, e
 	case "up":
 		err = migration.Up()
 	case "down":
-		if steps > 0 {
-			err = migration.Steps(-steps)
-		} else {
-			err = migration.Down()
+		if steps <= 0 {
+			return 0, false, ErrDownNeedsSteps
 		}
+		err = migration.Steps(-steps)
+	case ActionDownAll:
+		err = migration.Down()
 	case "force":
 		err = migration.Force(version)
 	case "version":
@@ -141,22 +185,22 @@ func runMigrations(db *sql.DB, action string, steps, version int) (uint, bool, e
 	return current, dirty, nil
 }
 
-func gormLogger(environment string) gormlogger.Interface {
+func gormLogger(opts Options) gormlogger.Interface {
 	level := gormlogger.Info
-	switch environment {
+	switch opts.Environment {
 	case "production":
 		level = gormlogger.Error
-	case "staging":
+	case "staging", "test":
 		level = gormlogger.Warn
 	}
-
-	return gormlogger.New(
-		log.New(os.Stdout, "\r\n", log.LstdFlags),
-		gormlogger.Config{
-			SlowThreshold:             200 * time.Millisecond,
-			LogLevel:                  level,
-			IgnoreRecordNotFoundError: true,
-			Colorful:                  environment != "production",
-		},
-	)
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return gormlogger.NewSlogLogger(logger, gormlogger.Config{
+		SlowThreshold:             opts.SlowQueryThreshold,
+		LogLevel:                  level,
+		IgnoreRecordNotFoundError: true,
+		ParameterizedQueries:      true,
+	})
 }

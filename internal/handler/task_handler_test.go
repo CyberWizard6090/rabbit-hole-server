@@ -2,12 +2,12 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -18,6 +18,7 @@ import (
 
 type taskHandlerServiceStub struct {
 	params pagination.Params
+	query  domain.TaskQuery
 	listID uint
 	called bool
 
@@ -29,10 +30,11 @@ func (s *taskHandlerServiceStub) CreateTask(context.Context, uint, service.Creat
 	return nil, nil
 }
 
-func (s *taskHandlerServiceStub) ListTasks(_ context.Context, listID uint, params pagination.Params) (pagination.Response[domain.Task], error) {
+func (s *taskHandlerServiceStub) ListTasks(_ context.Context, listID uint, params pagination.Params, query domain.TaskQuery) (pagination.Response[domain.Task], error) {
 	s.called = true
 	s.listID = listID
 	s.params = params
+	s.query = query
 	return pagination.Response[domain.Task]{Items: []domain.Task{}}, nil
 }
 
@@ -40,12 +42,16 @@ func (s *taskHandlerServiceStub) GetTaskByID(context.Context, uint) (*domain.Tas
 	return s.getTask, s.getErr
 }
 
-func (s *taskHandlerServiceStub) UpdateTask(context.Context, uint, service.UpdateTaskParams) (*domain.Task, error) {
+func (s *taskHandlerServiceStub) UpdateTask(context.Context, uint, uint, service.UpdateTaskParams) (*domain.Task, error) {
 	return nil, nil
 }
 
 func (s *taskHandlerServiceStub) DeleteTask(context.Context, uint) error {
 	return nil
+}
+
+func (s *taskHandlerServiceStub) MoveTask(context.Context, uint, uint, service.MoveTaskParams) (*domain.Task, error) {
+	return nil, nil
 }
 
 func TestTaskHandlerListParsesCursorParams(t *testing.T) {
@@ -54,10 +60,7 @@ func TestTaskHandlerListParsesCursorParams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := pagination.EncodePosition(codec, pagination.TaskCursorContext(7), pagination.DirectionNext, pagination.TaskCursorPosition{
-		CreatedAt: time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC),
-		ID:        42,
-	})
+	token, err := pagination.EncodePosition(codec, pagination.TaskCursorContext(7, "id_desc", ""), pagination.DirectionNext, pagination.TaskCursorPosition{Keys: []json.RawMessage{json.RawMessage("42")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,10 +118,7 @@ func TestTaskHandlerListRejectsCursorFromAnotherList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := pagination.EncodePosition(codec, pagination.TaskCursorContext(8), pagination.DirectionNext, pagination.TaskCursorPosition{
-		CreatedAt: time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC),
-		ID:        42,
-	})
+	token, err := pagination.EncodePosition(codec, pagination.TaskCursorContext(8, "id_desc", ""), pagination.DirectionNext, pagination.TaskCursorPosition{Keys: []json.RawMessage{json.RawMessage("42")}})
 	if err != nil {
 		t.Fatal(err)
 	}

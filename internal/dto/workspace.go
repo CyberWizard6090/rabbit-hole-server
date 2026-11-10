@@ -2,12 +2,12 @@ package dto
 
 type CreateWorkspaceRequest struct {
 	Name        string `json:"name" binding:"required,min=1,max=255"`
-	Description string `json:"description"`
+	Description string `json:"description" binding:"max=5000"`
 }
 
 type UpdateWorkspaceRequest struct {
 	Name        *string `json:"name,omitempty" binding:"omitempty,min=1,max=255"`
-	Description *string `json:"description,omitempty"`
+	Description *string `json:"description,omitempty" binding:"omitempty,max=5000"`
 }
 
 type AddMemberRequest struct {

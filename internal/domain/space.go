@@ -5,6 +5,8 @@ import (
 	"errors"
 )
 
+var ErrParentStatusNotFound = errors.New("parent status not found in this space")
+
 type Space struct {
 	Model
 	Name        string `json:"name"`
@@ -59,9 +61,19 @@ type TaskStatus struct {
 }
 
 var (
-	ErrStatusInUse              = errors.New("status is still used by tasks; pass replacement_id to move them")
+	ErrStatusInUse              = errors.New("status is still used by tasks; pass replacement_status_id to move them")
 	ErrInvalidReplacementStatus = errors.New("replacement status must be a different status of the same list")
+	ErrStatusUsedByForm         = errors.New("status is used by the task configuration of a published form")
+	ErrInvalidFolderReference   = errors.New("folder does not exist in the list space")
 )
+
+type StatusUsedByFormError struct {
+	FormIDs []uint
+}
+
+func (e *StatusUsedByFormError) Error() string { return ErrStatusUsedByForm.Error() }
+
+func (e *StatusUsedByFormError) Is(target error) bool { return target == ErrStatusUsedByForm }
 
 type FolderRepository interface {
 	Create(ctx context.Context, folder *Folder) error
@@ -82,7 +94,7 @@ type SpaceRepository interface {
 	CreateStatus(ctx context.Context, status *TaskStatus) error
 	CreateTag(ctx context.Context, tag *Tag) error
 
-	CreateList(ctx context.Context, list *List) error
+	CreateList(ctx context.Context, list *List, statuses []TaskStatus) error
 	GetListByID(ctx context.Context, id uint) (*List, error)
 	GetListsBySpace(ctx context.Context, spaceID uint) ([]List, error)
 	GetStatusByID(ctx context.Context, id uint) (*TaskStatus, error)

@@ -17,10 +17,10 @@ func TestWorkspaceServiceCreateTrimsAndValidates(t *testing.T) {
 			w.ID = 10
 			return nil
 		},
-		getByIDFn:       func(uint) (*domain.Workspace, error) { return nil, nil },
-		getAllForUserFn: func(uint) ([]domain.Workspace, error) { return nil, nil },
+		getByIDFn:     func(uint) (*domain.Workspace, error) { return nil, nil },
+		listForUserFn: func(uint) ([]domain.WorkspaceSummary, int64, error) { return nil, 0, nil },
 	}
-	svc := NewWorkspaceService(repo)
+	svc := NewWorkspaceService(repo, nil)
 
 	got, err := svc.CreateWorkspace(context.Background(), 4, "  My work  ", "  description  ")
 	if err != nil {
@@ -39,33 +39,35 @@ func TestWorkspaceServiceCreateTrimsAndValidates(t *testing.T) {
 
 func TestWorkspaceServiceGetAndList(t *testing.T) {
 	repo := &workspaceRepositoryMock{
-		createFn:        func(*domain.Workspace, uint) error { return nil },
-		getByIDFn:       func(uint) (*domain.Workspace, error) { return &domain.Workspace{Name: "W"}, nil },
-		getAllForUserFn: func(id uint) ([]domain.Workspace, error) { return []domain.Workspace{{OwnerID: id}}, nil },
+		createFn:  func(*domain.Workspace, uint) error { return nil },
+		getByIDFn: func(uint) (*domain.Workspace, error) { return &domain.Workspace{Name: "W"}, nil },
+		listForUserFn: func(id uint) ([]domain.WorkspaceSummary, int64, error) {
+			return []domain.WorkspaceSummary{{Workspace: domain.Workspace{OwnerID: id}, Role: "owner"}}, 1, nil
+		},
 	}
-	svc := NewWorkspaceService(repo)
+	svc := NewWorkspaceService(repo, nil)
 	got, err := svc.GetWorkspaceByID(context.Background(), 1)
 	if err != nil || got.Name != "W" {
 		t.Fatalf("got=%+v err=%v", got, err)
 	}
-	list, err := svc.GetAllForUser(context.Background(), 2)
-	if err != nil || len(list) != 1 || list[0].OwnerID != 2 {
-		t.Fatalf("list=%+v err=%v", list, err)
+	list, total, err := svc.ListForUser(context.Background(), 2, 50, 0)
+	if err != nil || total != 1 || len(list) != 1 || list[0].OwnerID != 2 || list[0].Role != "owner" {
+		t.Fatalf("list=%+v total=%d err=%v", list, total, err)
 	}
 }
 
 func TestWorkspaceServiceMapsNilWorkspaceAndPropagatesErrors(t *testing.T) {
 	want := errors.New("db")
 	repo := &workspaceRepositoryMock{
-		createFn:        func(*domain.Workspace, uint) error { return want },
-		getByIDFn:       func(uint) (*domain.Workspace, error) { return nil, nil },
-		getAllForUserFn: func(uint) ([]domain.Workspace, error) { return nil, want },
+		createFn:      func(*domain.Workspace, uint) error { return want },
+		getByIDFn:     func(uint) (*domain.Workspace, error) { return nil, nil },
+		listForUserFn: func(uint) ([]domain.WorkspaceSummary, int64, error) { return nil, 0, want },
 	}
-	svc := NewWorkspaceService(repo)
+	svc := NewWorkspaceService(repo, nil)
 	if _, err := svc.GetWorkspaceByID(context.Background(), 1); !errors.Is(err, ErrWorkspaceNotFound) {
 		t.Fatalf("err=%v", err)
 	}
-	if _, err := svc.GetAllForUser(context.Background(), 1); !errors.Is(err, want) {
+	if _, _, err := svc.ListForUser(context.Background(), 1, 50, 0); !errors.Is(err, want) {
 		t.Fatalf("err=%v", err)
 	}
 	if _, err := svc.CreateWorkspace(context.Background(), 1, "x", ""); !errors.Is(err, want) {

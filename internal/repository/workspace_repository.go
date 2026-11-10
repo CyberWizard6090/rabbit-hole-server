@@ -3,9 +3,11 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/persistence"
 )
@@ -20,7 +22,16 @@ func NewWorkspaceRepository(db *gorm.DB) domain.WorkspaceRepository {
 
 func (r *workspaceRepository) Create(ctx context.Context, workspace *domain.Workspace, ownerID uint) error {
 	m := workspaceFromDomain(*workspace)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		var activeUsers []uint
+		if err := tx.Raw(
+			"SELECT id FROM users WHERE id = ? AND password_hash <> '!' FOR UPDATE", ownerID,
+		).Scan(&activeUsers).Error; err != nil {
+			return err
+		}
+		if len(activeUsers) == 0 {
+			return domain.ErrNotFound
+		}
 		if err := tx.Create(&m).Error; err != nil {
 			return err
 		}
@@ -60,28 +71,61 @@ func (r *workspaceRepository) Create(ctx context.Context, workspace *domain.Work
 
 func (r *workspaceRepository) GetByID(ctx context.Context, id uint) (*domain.Workspace, error) {
 	var m persistence.Workspace
-	if err := r.db.WithContext(ctx).First(&m, id).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).First(&m, id).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	workspace := workspaceToDomain(m)
 	return &workspace, nil
 }
 
-func (r *workspaceRepository) GetAllForUser(ctx context.Context, userID uint) ([]domain.Workspace, error) {
-	var rows []persistence.Workspace
-	err := r.db.WithContext(ctx).
-		Joins("JOIN workspace_members ON workspace_members.workspace_id = workspaces.id").
-		Where("workspace_members.user_id = ?", userID).
-		Find(&rows).Error
-	if err != nil {
-		return nil, mapErr(err)
+func (r *workspaceRepository) ListForUser(ctx context.Context, userID uint, limit, offset int) ([]domain.WorkspaceSummary, int64, error) {
+	db := database.DBFromContext(ctx, r.db)
+	memberOf := func() *gorm.DB {
+		return db.Model(&persistence.Workspace{}).
+			Joins("JOIN workspace_members ON workspace_members.workspace_id = workspaces.id AND workspace_members.deleted_at IS NULL").
+			Where("workspace_members.user_id = ?", userID)
 	}
-	return mapSlice(rows, workspaceToDomain), nil
+	var total int64
+	if err := memberOf().Count(&total).Error; err != nil {
+		return nil, 0, mapErr(err)
+	}
+	var rows []persistence.Workspace
+	if err := memberOf().Order("workspaces.id ASC").Limit(limit).Offset(offset).Find(&rows).Error; err != nil {
+		return nil, 0, mapErr(err)
+	}
+	if len(rows) == 0 {
+		return []domain.WorkspaceSummary{}, total, nil
+	}
+	ids := make([]uint, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	var roles []struct {
+		WorkspaceID uint
+		Name        string
+	}
+	err := db.Table("workspace_members").
+		Select("workspace_members.workspace_id AS workspace_id, roles.name AS name").
+		Joins("JOIN roles ON roles.id = workspace_members.role_id AND roles.deleted_at IS NULL").
+		Where("workspace_members.user_id = ? AND workspace_members.workspace_id IN ? AND workspace_members.deleted_at IS NULL", userID, ids).
+		Scan(&roles).Error
+	if err != nil {
+		return nil, 0, mapErr(err)
+	}
+	roleByWorkspace := make(map[uint]string, len(roles))
+	for _, role := range roles {
+		roleByWorkspace[role.WorkspaceID] = strings.ToLower(role.Name)
+	}
+	out := make([]domain.WorkspaceSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.WorkspaceSummary{Workspace: workspaceToDomain(row), Role: roleByWorkspace[row.ID]})
+	}
+	return out, total, nil
 }
 
 func (r *workspaceRepository) ListMembers(ctx context.Context, workspaceID uint) ([]domain.MemberDetail, error) {
 	var members []domain.MemberDetail
-	err := r.db.WithContext(ctx).Table("workspace_members").
+	err := database.DBFromContext(ctx, r.db).Table("workspace_members").
 		Select(`workspace_members.user_id AS user_id, users.username, users.first_name, users.last_name,
 			users.avatar_url, workspace_members.role_id, roles.name AS role, workspace_members.created_at AS joined_at`).
 		Joins("JOIN users ON users.id = workspace_members.user_id").
@@ -94,7 +138,7 @@ func (r *workspaceRepository) ListMembers(ctx context.Context, workspaceID uint)
 
 func (r *workspaceRepository) GetMember(ctx context.Context, workspaceID, userID uint) (*domain.Member, error) {
 	var m persistence.Member
-	err := r.db.WithContext(ctx).Preload("Role").
+	err := database.DBFromContext(ctx, r.db).Preload("Role").
 		Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
 		First(&m).Error
 	if err != nil {
@@ -106,7 +150,7 @@ func (r *workspaceRepository) GetMember(ctx context.Context, workspaceID, userID
 
 func (r *workspaceRepository) GetRoleByName(ctx context.Context, workspaceID uint, name string) (*domain.Role, error) {
 	var m persistence.Role
-	if err := r.db.WithContext(ctx).Where("workspace_id = ? AND name = ?", workspaceID, name).First(&m).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Where("workspace_id = ? AND name = ?", workspaceID, name).First(&m).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	role := roleToDomain(m)
@@ -115,7 +159,7 @@ func (r *workspaceRepository) GetRoleByName(ctx context.Context, workspaceID uin
 
 func (r *workspaceRepository) AddMember(ctx context.Context, member *domain.Member) error {
 	m := memberFromDomain(*member)
-	err := r.db.WithContext(ctx).Omit("Role").Create(&m).Error
+	err := database.DBFromContext(ctx, r.db).Omit("Role").Create(&m).Error
 	if err != nil {
 		if isUniqueViolation(err) {
 			return domain.ErrAlreadyMember
@@ -127,7 +171,7 @@ func (r *workspaceRepository) AddMember(ctx context.Context, member *domain.Memb
 }
 
 func (r *workspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID, userID, roleID uint) error {
-	res := r.db.WithContext(ctx).Model(&persistence.Member{}).
+	res := database.DBFromContext(ctx, r.db).Model(&persistence.Member{}).
 		Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
 		Update("role_id", roleID)
 	if res.Error != nil {
@@ -140,7 +184,7 @@ func (r *workspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID,
 }
 
 func (r *workspaceRepository) RemoveMember(ctx context.Context, workspaceID, userID uint) error {
-	res := r.db.WithContext(ctx).Where("workspace_id = ? AND user_id = ?", workspaceID, userID).Delete(&persistence.Member{})
+	res := database.DBFromContext(ctx, r.db).Where("workspace_id = ? AND user_id = ?", workspaceID, userID).Delete(&persistence.Member{})
 	if res.Error != nil {
 		return mapErr(res.Error)
 	}
@@ -152,15 +196,16 @@ func (r *workspaceRepository) RemoveMember(ctx context.Context, workspaceID, use
 
 func (r *workspaceRepository) IsContact(ctx context.Context, userID, otherID uint) (bool, error) {
 	var count int64
-	err := r.db.WithContext(ctx).Table("user_contacts").
-		Where("user_id = ? AND contact_id = ?", userID, otherID).
+	err := database.DBFromContext(ctx, r.db).Table("user_contacts").
+		Where("status = ? AND ((user_id = ? AND contact_id = ?) OR (user_id = ? AND contact_id = ?))",
+			"accepted", userID, otherID, otherID, userID).
 		Count(&count).Error
 	return count > 0, mapErr(err)
 }
 
 func (r *workspaceRepository) Update(ctx context.Context, workspace *domain.Workspace) error {
 	m := workspaceFromDomain(*workspace)
-	if err := r.db.WithContext(ctx).Model(&m).Select("Name", "Description").Updates(&m).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Model(&m).Select("Name", "Description").Updates(&m).Error; err != nil {
 		return mapErr(err)
 	}
 	workspace.UpdatedAt = m.UpdatedAt
@@ -168,7 +213,7 @@ func (r *workspaceRepository) Update(ctx context.Context, workspace *domain.Work
 }
 
 func (r *workspaceRepository) Delete(ctx context.Context, id uint) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		res := tx.Delete(&persistence.Workspace{}, id)
 		if res.Error != nil {
 			return res.Error
@@ -179,6 +224,12 @@ func (r *workspaceRepository) Delete(ctx context.Context, id uint) error {
 		if err := tx.Where("workspace_id = ?", id).Delete(&persistence.Member{}).Error; err != nil {
 			return err
 		}
-		return tx.Where("workspace_id = ?", id).Delete(&persistence.Space{}).Error
+		var spaceIDs []uint
+		if err := tx.Raw(
+			"SELECT id FROM spaces WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY id FOR UPDATE", id,
+		).Scan(&spaceIDs).Error; err != nil {
+			return err
+		}
+		return softDeleteSpaceTrees(tx, spaceIDs)
 	}))
 }

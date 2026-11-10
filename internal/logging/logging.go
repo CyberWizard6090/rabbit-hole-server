@@ -12,6 +12,9 @@ func Setup(environment string, w io.Writer) *slog.Logger {
 		w = os.Stdout
 	}
 	opts := &slog.HandlerOptions{Level: level(environment, os.Getenv("LOG_LEVEL"))}
+	if environment != "development" {
+		opts.ReplaceAttr = scrubAttr
+	}
 
 	var handler slog.Handler
 	switch environment {

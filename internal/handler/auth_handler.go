@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -41,10 +42,17 @@ func (h *AuthHandler) setRefreshCookie(c *gin.Context, value string, maxAge int)
 	}).String())
 }
 
+// requestContext carries what the service needs to know about the caller: the language of the mails it may
+// send and the device the session belongs to.
+func requestContext(c *gin.Context) context.Context {
+	ctx := service.WithLocale(c.Request.Context(), c.GetHeader("Accept-Language"))
+	return service.WithClientInfo(ctx, c.ClientIP(), c.GetHeader("User-Agent"))
+}
+
 type registerInput struct {
-	Email    string `json:"email" binding:"required,email"`
+	Email    string `json:"email" binding:"required,email,max=254"`
 	Password string `json:"password" binding:"required,min=8,max=128"`
-	Username string `json:"username" binding:"omitempty,min=3"`
+	Username string `json:"username" binding:"omitempty,min=3,max=30"`
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -54,7 +62,11 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	if err := h.authService.Register(c.Request.Context(), input.Email, input.Password, input.Username); err != nil {
+	ctx := service.WithLocale(c.Request.Context(), c.GetHeader("Accept-Language"))
+	if err := h.authService.Register(ctx, input.Email, input.Password, input.Username); err != nil {
+		if passwordBusy(c, err) {
+			return
+		}
 		if errors.Is(err, domain.ErrEmailTaken) {
 			response.HandleError(c, httperrors.Conflict("EMAIL_TAKEN", "email is already registered", err))
 			return
@@ -75,8 +87,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 }
 
 type loginInput struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required"`
+	Email    string `json:"email" binding:"required,email,max=254"`
+	Password string `json:"password" binding:"required,max=128"`
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -86,8 +98,15 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	tokenPair, err := h.authService.Login(c.Request.Context(), input.Email, input.Password)
+	tokenPair, err := h.authService.Login(requestContext(c), input.Email, input.Password)
 	if err != nil {
+		if passwordBusy(c, err) {
+			return
+		}
+		if errors.Is(err, service.ErrEmailNotVerified) {
+			response.HandleError(c, httperrors.Forbidden("EMAIL_NOT_VERIFIED", err.Error(), err))
+			return
+		}
 		response.HandleError(c, httperrors.Unauthorized("INVALID_CREDENTIALS", "invalid email or password", err))
 		return
 	}
@@ -104,7 +123,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	tokenPair, err := h.authService.Refresh(c.Request.Context(), refreshToken)
+	tokenPair, err := h.authService.Refresh(requestContext(c), refreshToken)
 	if err != nil {
 		response.HandleError(c, httperrors.Unauthorized("TOKEN_EXPIRED", "invalid or expired refresh token", err))
 		return
@@ -145,13 +164,16 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	tokenPair, err := h.authService.ChangePassword(c.Request.Context(), uid, req.CurrentPassword, req.NewPassword)
+	tokenPair, err := h.authService.ChangePassword(requestContext(c), uid, req.CurrentPassword, req.NewPassword)
 	switch {
+	case passwordBusy(c, err):
+		return
 	case errors.Is(err, service.ErrWeakPassword):
 		response.HandleError(c, httperrors.BadRequest("WEAK_PASSWORD", err.Error(), err))
 		return
 	case errors.Is(err, service.ErrInvalidCredentials):
-		response.HandleError(c, httperrors.Unauthorized("INVALID_CREDENTIALS", "current password is incorrect", err))
+		response.HandleError(c, httperrors.BadRequest("INVALID_CURRENT_PASSWORD", "current password is incorrect", err).
+			WithDetails(httperrors.Detail{Field: "current_password", Code: "INVALID_VALUE"}))
 		return
 	case err != nil:
 		response.HandleError(c, httperrors.Internal("PASSWORD_CHANGE_FAILED", "internal server error", err))
@@ -191,8 +213,11 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 
 	err = h.authService.DeleteAccount(c.Request.Context(), uid, req.Password)
 	switch {
+	case passwordBusy(c, err):
+		return
 	case errors.Is(err, service.ErrInvalidCredentials):
-		response.HandleError(c, httperrors.Unauthorized("INVALID_CREDENTIALS", "password is incorrect", err))
+		response.HandleError(c, httperrors.BadRequest("INVALID_CURRENT_PASSWORD", "password is incorrect", err).
+			WithDetails(httperrors.Detail{Field: "password", Code: "INVALID_VALUE"}))
 		return
 	case errors.Is(err, service.ErrOwnsWorkspaces):
 		response.HandleError(c, httperrors.Conflict("OWNS_WORKSPACES", err.Error(), err))

@@ -48,7 +48,8 @@ func userToDomain(u persistence.User) domain.User {
 	return domain.User{
 		ID: u.ID, Email: u.Email, PasswordHash: u.PasswordHash, Username: u.Username,
 		FirstName: u.FirstName, LastName: u.LastName, AvatarURL: u.AvatarURL, Bio: u.Bio,
-		TimeZone: u.TimeZone, TokenVersion: u.TokenVersion, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+		TimeZone: u.TimeZone, TokenVersion: u.TokenVersion, EmailVerifiedAt: u.EmailVerifiedAt,
+		CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
 	}
 }
 
@@ -56,24 +57,39 @@ func userFromDomain(u domain.User) persistence.User {
 	return persistence.User{
 		ID: u.ID, Email: u.Email, PasswordHash: u.PasswordHash, Username: u.Username,
 		FirstName: u.FirstName, LastName: u.LastName, AvatarURL: u.AvatarURL, Bio: u.Bio,
-		TimeZone: u.TimeZone, TokenVersion: u.TokenVersion, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+		TimeZone: u.TimeZone, TokenVersion: u.TokenVersion, EmailVerifiedAt: u.EmailVerifiedAt,
+		CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
 	}
 }
 
+func publicUserToDomain(u persistence.User) domain.CommentUser {
+	return domain.CommentUser{ID: u.ID, Username: u.Username, FirstName: u.FirstName, LastName: u.LastName, AvatarURL: u.AvatarURL}
+}
+
+func publicUserFromDomain(u domain.CommentUser) persistence.User {
+	return persistence.User{ID: u.ID, Username: u.Username, FirstName: u.FirstName, LastName: u.LastName, AvatarURL: u.AvatarURL}
+}
+
 func sessionToDomain(s persistence.UserSession) domain.UserSession {
-	return domain.UserSession{ID: s.ID, UserID: s.UserID, TokenHash: s.TokenHash, ExpiresAt: s.ExpiresAt, CreatedAt: s.CreatedAt}
+	return domain.UserSession{
+		ID: s.ID, UserID: s.UserID, TokenHash: s.TokenHash, FamilyID: s.FamilyID, RotatedAt: s.RotatedAt,
+		ExpiresAt: s.ExpiresAt, CreatedAt: s.CreatedAt, UserAgent: s.UserAgent, IP: s.IP, LoginAt: s.LoginAt,
+	}
 }
 
 func sessionFromDomain(s domain.UserSession) persistence.UserSession {
-	return persistence.UserSession{ID: s.ID, UserID: s.UserID, TokenHash: s.TokenHash, ExpiresAt: s.ExpiresAt, CreatedAt: s.CreatedAt}
+	return persistence.UserSession{
+		ID: s.ID, UserID: s.UserID, TokenHash: s.TokenHash, FamilyID: s.FamilyID, RotatedAt: s.RotatedAt,
+		ExpiresAt: s.ExpiresAt, CreatedAt: s.CreatedAt, UserAgent: s.UserAgent, IP: s.IP, LoginAt: s.LoginAt,
+	}
 }
 
 func workspaceToDomain(w persistence.Workspace) domain.Workspace {
-	return domain.Workspace{Model: modelToDomain(w.Model), Name: w.Name, OwnerID: w.OwnerID, Description: w.Description}
+	return domain.Workspace{Model: modelToDomain(w.Model), Name: w.Name, OwnerID: w.OwnerID, Description: w.Description, AvatarURL: w.AvatarURL}
 }
 
 func workspaceFromDomain(w domain.Workspace) persistence.Workspace {
-	return persistence.Workspace{Model: modelFromDomain(w.Model), Name: w.Name, OwnerID: w.OwnerID, Description: w.Description}
+	return persistence.Workspace{Model: modelFromDomain(w.Model), Name: w.Name, OwnerID: w.OwnerID, Description: w.Description, AvatarURL: w.AvatarURL}
 }
 
 func spaceToDomain(s persistence.Space) domain.Space {
@@ -147,19 +163,81 @@ func taskToDomain(t persistence.Task) domain.Task {
 		Model: modelToDomain(t.Model), SpaceID: t.SpaceID, ListID: t.ListID, StatusID: t.StatusID,
 		ParentID: t.ParentID, Title: t.Title, Description: t.Description, Priority: t.Priority,
 		UserID: t.UserID, StartDate: t.StartDate, DueDate: t.DueDate,
-		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent,
-		Assignees: mapSlice(t.Assignees, userToDomain),
+		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent, Position: t.Position,
+		Source: domain.TaskSource(t.Source), SourceReferenceID: t.SourceReferenceID,
+		Actor:              taskActorToDomain(t),
+		RequesterInfo:      taskRequesterToDomain(t),
+		SortStatusPosition: t.SortStatusPosition, SortAssignee: t.SortAssignee,
+		ChecklistItemsTotal: t.ChecklistItemsTotal, ChecklistItemsResolved: t.ChecklistItemsResolved,
+		Assignees: mapSlice(t.Assignees, publicUserToDomain),
 		Tags:      mapSlice(t.Tags, tagToDomain),
 	}
 }
 
+func taskActorToDomain(t persistence.Task) domain.Actor {
+	actor := domain.Actor{Type: domain.ActorType(t.ActorType), ID: t.UserID}
+	if actor.Type != domain.ActorUser {
+		actor.ID = 0
+		if t.ActorID != nil {
+			actor.ID = *t.ActorID
+		}
+		if t.ActorLabel != nil {
+			actor.Label = *t.ActorLabel
+		}
+	}
+	return actor
+}
+
+func taskRequesterToDomain(t persistence.Task) *domain.Requester {
+	if t.Requester == nil {
+		return nil
+	}
+	requester, err := domain.ParseStoredRequester([]byte(*t.Requester))
+	if err != nil {
+		return nil
+	}
+	return requester
+}
+
+func taskActorColumns(t domain.Task) (string, *uint, *string) {
+	actor := t.Actor.Normalized()
+	id := actor.ID
+	if actor.Type == domain.ActorUser {
+		id = t.UserID
+	}
+	var actorID *uint
+	if id != 0 {
+		actorID = &id
+	}
+	var label *string
+	if actor.Label != "" {
+		label = &actor.Label
+	}
+	return string(actor.Type), actorID, label
+}
+
+func taskRequesterColumn(t domain.Task) *string {
+	if t.RequesterInfo == nil || t.RequesterInfo.Empty() {
+		return nil
+	}
+	raw, err := t.RequesterInfo.Stored()
+	if err != nil {
+		return nil
+	}
+	text := string(raw)
+	return &text
+}
+
 func taskFromDomain(t domain.Task) persistence.Task {
+	actorType, actorID, actorLabel := taskActorColumns(t)
 	return persistence.Task{
+		ActorType: actorType, ActorID: actorID, ActorLabel: actorLabel, Requester: taskRequesterColumn(t),
 		Model: modelFromDomain(t.Model), SpaceID: t.SpaceID, ListID: t.ListID, StatusID: t.StatusID,
 		ParentID: t.ParentID, Title: t.Title, Description: t.Description, Priority: t.Priority,
 		UserID: t.UserID, StartDate: t.StartDate, DueDate: t.DueDate,
-		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent,
-		Assignees: mapSlice(t.Assignees, userFromDomain),
+		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent, Position: t.Position,
+		Source: string(t.Source), SourceReferenceID: t.SourceReferenceID,
+		Assignees: mapSlice(t.Assignees, publicUserFromDomain),
 		Tags:      mapSlice(t.Tags, tagFromDomain),
 	}
 }

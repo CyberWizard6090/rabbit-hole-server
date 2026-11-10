@@ -12,9 +12,12 @@ import (
 	"rabbit-hole-server/internal/dto"
 	contextutil "rabbit-hole-server/internal/http/context"
 	httperrors "rabbit-hole-server/internal/http/errors"
+	"rabbit-hole-server/internal/http/pagination"
 	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/service"
 )
+
+const defaultWorkspacesLimit = 50
 
 type WorkspaceHandler struct {
 	service service.WorkspaceService
@@ -71,17 +74,26 @@ func (h *WorkspaceHandler) List(c *gin.Context) {
 		return
 	}
 
-	workspaces, err := h.service.GetAllForUser(c.Request.Context(), userID)
+	rawLimit := c.Query("limit")
+	if strings.TrimSpace(rawLimit) == "" {
+		rawLimit = strconv.Itoa(defaultWorkspacesLimit)
+	}
+	params, err := pagination.ParseOffset(c.Query("page"), rawLimit)
+	if err != nil {
+		response.HandleError(c, httperrors.BadRequest("INVALID_PAGINATION", err.Error(), err))
+		return
+	}
+
+	workspaces, total, err := h.service.ListForUser(c.Request.Context(), userID, params.Limit, params.Offset)
 	if err != nil {
 		response.HandleError(c, httperrors.Internal("WORKSPACES_FETCH_FAILED", "internal server error", err))
 		return
 	}
 
-	response.Success(
-		c,
-		http.StatusOK,
-		workspaces,
-	)
+	response.SuccessWithPagination(c, http.StatusOK, workspaces, &response.Pagination{
+		Total: int(total), Page: params.Page, Limit: params.Limit,
+		Pages: (int(total) + params.Limit - 1) / params.Limit,
+	})
 }
 
 func workspaceIDParam(c *gin.Context) (uint, bool) {
@@ -118,7 +130,12 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 		return
 	}
 
-	workspace, err := h.service.UpdateWorkspace(c.Request.Context(), id, req.Name, req.Description)
+	actorID, err := contextutil.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
+	workspace, err := h.service.UpdateWorkspace(c.Request.Context(), id, actorID, req.Name, req.Description)
 	if err != nil {
 		if errors.Is(err, service.ErrWorkspaceNameRequired) {
 			response.HandleError(c, httperrors.BadRequest("WORKSPACE_NAME_REQUIRED", err.Error(), err))
@@ -161,6 +178,8 @@ func memberError(c *gin.Context, code string, err error) {
 		response.HandleError(c, httperrors.Conflict("ALREADY_MEMBER", err.Error(), err))
 	case errors.Is(err, service.ErrOwnerImmutable):
 		response.HandleError(c, httperrors.Forbidden("OWNER_IMMUTABLE", err.Error(), err))
+	case errors.Is(err, service.ErrAdminOwnerOnly):
+		response.HandleError(c, httperrors.Forbidden("ADMIN_ROLE_OWNER_ONLY", err.Error(), err))
 	default:
 		response.HandleError(c, httperrors.Internal(code, "internal server error", err))
 	}
@@ -213,6 +232,11 @@ func (h *WorkspaceHandler) AddMember(c *gin.Context) {
 }
 
 func (h *WorkspaceHandler) UpdateMemberRole(c *gin.Context) {
+	actorID, err := contextutil.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
 	workspaceID, ok := parseUintParam(c, "workspace_id")
 	if !ok {
 		return
@@ -228,7 +252,7 @@ func (h *WorkspaceHandler) UpdateMemberRole(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.ChangeMemberRole(c.Request.Context(), workspaceID, targetID, req.Role); err != nil {
+	if err := h.service.ChangeMemberRole(c.Request.Context(), workspaceID, actorID, targetID, req.Role); err != nil {
 		memberError(c, "MEMBER_UPDATE_FAILED", err)
 		return
 	}
@@ -236,6 +260,11 @@ func (h *WorkspaceHandler) UpdateMemberRole(c *gin.Context) {
 }
 
 func (h *WorkspaceHandler) RemoveMember(c *gin.Context) {
+	actorID, err := contextutil.GetUserID(c)
+	if err != nil {
+		response.Unauthorized(c)
+		return
+	}
 	workspaceID, ok := parseUintParam(c, "workspace_id")
 	if !ok {
 		return
@@ -245,7 +274,7 @@ func (h *WorkspaceHandler) RemoveMember(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.RemoveMember(c.Request.Context(), workspaceID, targetID); err != nil {
+	if err := h.service.RemoveMember(c.Request.Context(), workspaceID, actorID, targetID); err != nil {
 		memberError(c, "MEMBER_REMOVE_FAILED", err)
 		return
 	}
@@ -263,9 +292,39 @@ func (h *WorkspaceHandler) Leave(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.RemoveMember(c.Request.Context(), workspaceID, userID); err != nil {
+	if err := h.service.Leave(c.Request.Context(), workspaceID, userID); err != nil {
 		memberError(c, "MEMBER_LEAVE_FAILED", err)
 		return
 	}
 	response.Success(c, http.StatusOK, gin.H{"message": "left workspace"})
+}
+
+func (h *WorkspaceHandler) AuditLog(c *gin.Context) {
+	workspaceID, ok := workspaceIDParam(c)
+	if !ok {
+		return
+	}
+	rawLimit := c.Query("limit")
+	if strings.TrimSpace(rawLimit) == "" {
+		rawLimit = strconv.Itoa(defaultWorkspacesLimit)
+	}
+	params, err := pagination.ParseOffset(c.Query("page"), rawLimit)
+	if err != nil {
+		response.HandleError(c, httperrors.BadRequest("INVALID_PAGINATION", err.Error(), err))
+		return
+	}
+	entries, total, err := h.service.ListAuditLog(c.Request.Context(), workspaceID, strings.TrimSpace(c.Query("action")), params.Limit, params.Offset)
+	switch {
+	case errors.Is(err, service.ErrInvalidAuditAction):
+		response.HandleError(c, httperrors.BadRequest("INVALID_FILTER", err.Error(), err).
+			WithDetails(httperrors.Detail{Field: "action", Code: "INVALID_VALUE"}))
+		return
+	case err != nil:
+		response.HandleError(c, httperrors.Internal("AUDIT_LOG_FETCH_FAILED", "internal server error", err))
+		return
+	}
+	response.SuccessWithPagination(c, http.StatusOK, entries, &response.Pagination{
+		Total: int(total), Page: params.Page, Limit: params.Limit,
+		Pages: (int(total) + params.Limit - 1) / params.Limit,
+	})
 }

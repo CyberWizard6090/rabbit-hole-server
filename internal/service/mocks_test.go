@@ -8,62 +8,57 @@ import (
 )
 
 type contactRepositoryMock struct {
-	contacts       []domain.User
-	searchResults  []domain.User
-	getErr         error
-	addErr         error
-	deleteErr      error
-	searchErr      error
-	gotGetUserID   uint
-	gotAddUserID   uint
-	gotAddContact  uint
-	gotDeleteUser  uint
-	gotDeleteCont  uint
-	gotSearchQuery string
-	gotExcludeID   uint
-
-	getContactsFn     func(uint) ([]domain.User, error)
-	getContactsPageFn func(uint, int, int) ([]domain.User, int64, error)
-	addContactFn      func(uint, uint) error
-	deleteContactFn   func(uint, uint) error
-	searchUsersFn     func(string, uint) ([]domain.User, error)
+	err       error
+	users     []domain.CommentUser
+	requests  []domain.ContactRequest
+	calls     []string
+	gotUser   uint
+	gotOther  uint
+	gotIn     bool
+	gotQuery  string
+	gotLimit  int
+	gotOffset int
 }
 
-func (m *contactRepositoryMock) GetContacts(_ context.Context, userID uint) ([]domain.User, error) {
-	m.gotGetUserID = userID
-	if m.getContactsFn != nil {
-		return m.getContactsFn(userID)
-	}
-	return m.contacts, m.getErr
+func (m *contactRepositoryMock) record(name string, userID, otherID uint) error {
+	m.calls = append(m.calls, name)
+	m.gotUser, m.gotOther = userID, otherID
+	return m.err
 }
 
-func (m *contactRepositoryMock) GetContactsPage(_ context.Context, userID uint, limit, offset int) ([]domain.User, int64, error) {
-	m.gotGetUserID = userID
-	if m.getContactsPageFn != nil {
-		return m.getContactsPageFn(userID, limit, offset)
-	}
-	return m.contacts, int64(len(m.contacts)), m.getErr
+func (m *contactRepositoryMock) ListContacts(_ context.Context, userID uint, limit, offset int) ([]domain.CommentUser, int64, error) {
+	m.gotLimit, m.gotOffset = limit, offset
+	return m.users, int64(len(m.users)), m.record("list", userID, 0)
 }
-func (m *contactRepositoryMock) AddContact(_ context.Context, userID, contactID uint) error {
-	m.gotAddUserID, m.gotAddContact = userID, contactID
-	if m.addContactFn != nil {
-		return m.addContactFn(userID, contactID)
-	}
-	return m.addErr
+
+func (m *contactRepositoryMock) Request(_ context.Context, requesterID, targetID uint) error {
+	return m.record("request", requesterID, targetID)
 }
-func (m *contactRepositoryMock) DeleteContact(_ context.Context, userID, contactID uint) error {
-	m.gotDeleteUser, m.gotDeleteCont = userID, contactID
-	if m.deleteContactFn != nil {
-		return m.deleteContactFn(userID, contactID)
-	}
-	return m.deleteErr
+
+func (m *contactRepositoryMock) ListRequests(_ context.Context, userID uint, incoming bool, limit, offset int) ([]domain.ContactRequest, int64, error) {
+	m.gotIn, m.gotLimit, m.gotOffset = incoming, limit, offset
+	return m.requests, int64(len(m.requests)), m.record("requests", userID, 0)
 }
-func (m *contactRepositoryMock) SearchUsers(_ context.Context, query string, excludeID uint) ([]domain.User, error) {
-	m.gotSearchQuery, m.gotExcludeID = query, excludeID
-	if m.searchUsersFn != nil {
-		return m.searchUsersFn(query, excludeID)
-	}
-	return m.searchResults, m.searchErr
+
+func (m *contactRepositoryMock) Accept(_ context.Context, userID, requesterID uint) error {
+	return m.record("accept", userID, requesterID)
+}
+
+func (m *contactRepositoryMock) Decline(_ context.Context, userID, requesterID uint) error {
+	return m.record("decline", userID, requesterID)
+}
+
+func (m *contactRepositoryMock) Cancel(_ context.Context, userID, targetID uint) error {
+	return m.record("cancel", userID, targetID)
+}
+
+func (m *contactRepositoryMock) Remove(_ context.Context, userID, contactID uint) error {
+	return m.record("remove", userID, contactID)
+}
+
+func (m *contactRepositoryMock) SearchUsers(_ context.Context, query string, excludeID uint) ([]domain.CommentUser, error) {
+	m.gotQuery = query
+	return m.users, m.record("search", excludeID, 0)
 }
 
 type folderRepositoryMock struct {
@@ -221,7 +216,7 @@ func (m *spaceRepositoryMock) CreateTag(_ context.Context, tag *domain.Tag) erro
 	}
 	return m.createTagErr
 }
-func (m *spaceRepositoryMock) CreateList(_ context.Context, list *domain.List) error {
+func (m *spaceRepositoryMock) CreateList(_ context.Context, list *domain.List, _ []domain.TaskStatus) error {
 	m.createdList = list
 	if m.createListFn != nil {
 		return m.createListFn(list)
@@ -417,24 +412,37 @@ func (m *tagRepositoryMock) Merge(_ context.Context, spaceID, sourceTagID, targe
 }
 
 type taskRepositoryMock struct {
-	task        *domain.Task
-	tasks       []domain.Task
-	hasNext     bool
-	hasPrev     bool
-	listParams  pagination.Params
-	listCalled  bool
-	getErr      error
-	createErr   error
-	updateErr   error
-	deleteErr   error
-	addTagsErr  error
-	createdTask *domain.Task
-	assigneeIDs []uint
-	tagIDs      []uint
-	updatedTask *domain.Task
-	deletedID   uint
-	addedTaskID uint
-	addedTagIDs []uint
+	replacedAssignees *[]uint
+	task              *domain.Task
+	tasks             []domain.Task
+	hasNext           bool
+	hasPrev           bool
+	listQuery         domain.TaskQuery
+	total             int64
+	listParams        pagination.Params
+	listCalled        bool
+	getErr            error
+	createErr         error
+	updateErr         error
+	deleteErr         error
+	addTagsErr        error
+	createdTask       *domain.Task
+	assigneeIDs       []uint
+	tagIDs            []uint
+	updatedTask       *domain.Task
+	deletedID         uint
+	addedTaskID       uint
+	addedTagIDs       []uint
+	moveErr           error
+	movedTarget       domain.TaskMove
+}
+
+func (m *taskRepositoryMock) Move(_ context.Context, id uint, target domain.TaskMove) (*domain.Task, error) {
+	m.movedTarget = target
+	if m.moveErr != nil {
+		return nil, m.moveErr
+	}
+	return &domain.Task{Model: domain.Model{ID: id}, ListID: target.ListID, StatusID: target.StatusID}, nil
 }
 
 func (m *taskRepositoryMock) Create(_ context.Context, task *domain.Task, assigneeIDs []uint, tagIDs []uint) error {
@@ -443,24 +451,36 @@ func (m *taskRepositoryMock) Create(_ context.Context, task *domain.Task, assign
 	m.tagIDs = append([]uint(nil), tagIDs...)
 	return m.createErr
 }
-func (m *taskRepositoryMock) List(_ context.Context, _ uint, params pagination.Params) ([]domain.Task, bool, bool, error) {
+func (m *taskRepositoryMock) Count(_ context.Context, _ uint, _ domain.TaskFilter) (int64, error) {
+	return m.total, m.getErr
+}
+func (m *taskRepositoryMock) List(_ context.Context, _ uint, query domain.TaskQuery, params pagination.Params) ([]domain.Task, bool, bool, error) {
 	m.listCalled = true
+	m.listQuery = query
 	m.listParams = params
 	return m.tasks, m.hasNext, m.hasPrev, m.getErr
 }
 func (m *taskRepositoryMock) GetByID(_ context.Context, id uint) (*domain.Task, error) {
 	return m.task, m.getErr
 }
-func (m *taskRepositoryMock) Update(_ context.Context, task *domain.Task, addTagIDs []uint) error {
-	m.updatedTask = task
-	m.addedTaskID = task.ID
+func (m *taskRepositoryMock) Update(_ context.Context, id uint, apply func(*domain.Task) error, addTagIDs, removeTagIDs []uint, replaceAssigneeIDs *[]uint) (*domain.Task, *domain.Task, error) {
+	m.replacedAssignees = replaceAssigneeIDs
+	m.updatedTask = m.task
+	m.addedTaskID = id
 	if len(addTagIDs) > 0 {
 		m.addedTagIDs = append([]uint(nil), addTagIDs...)
 	}
 	if m.updateErr != nil {
-		return m.updateErr
+		return nil, nil, m.updateErr
 	}
-	return m.addTagsErr
+	if m.addTagsErr != nil {
+		return nil, nil, m.addTagsErr
+	}
+	before := *m.task
+	if err := apply(m.task); err != nil {
+		return nil, nil, err
+	}
+	return &before, m.task, nil
 }
 func (m *taskRepositoryMock) Delete(_ context.Context, id uint) error {
 	m.deletedID = id
@@ -494,17 +514,16 @@ func (m *userRepositoryMock) Update(_ context.Context, user *domain.User) error 
 }
 
 type workspaceRepositoryMock struct {
-	workspace  *domain.Workspace
-	workspaces []domain.Workspace
-	getErr     error
-	createErr  error
-	allErr     error
-	created    *domain.Workspace
-	ownerID    uint
+	workspace *domain.Workspace
+	getErr    error
+	createErr error
+	allErr    error
+	created   *domain.Workspace
+	ownerID   uint
 
-	createFn        func(*domain.Workspace, uint) error
-	getByIDFn       func(uint) (*domain.Workspace, error)
-	getAllForUserFn func(uint) ([]domain.Workspace, error)
+	createFn      func(*domain.Workspace, uint) error
+	getByIDFn     func(uint) (*domain.Workspace, error)
+	listForUserFn func(uint) ([]domain.WorkspaceSummary, int64, error)
 }
 
 func (m *workspaceRepositoryMock) Create(_ context.Context, workspace *domain.Workspace, ownerID uint) error {
@@ -520,11 +539,11 @@ func (m *workspaceRepositoryMock) GetByID(_ context.Context, id uint) (*domain.W
 	}
 	return m.workspace, m.getErr
 }
-func (m *workspaceRepositoryMock) GetAllForUser(_ context.Context, userID uint) ([]domain.Workspace, error) {
-	if m.getAllForUserFn != nil {
-		return m.getAllForUserFn(userID)
+func (m *workspaceRepositoryMock) ListForUser(_ context.Context, userID uint, _, _ int) ([]domain.WorkspaceSummary, int64, error) {
+	if m.listForUserFn != nil {
+		return m.listForUserFn(userID)
 	}
-	return m.workspaces, m.allErr
+	return nil, 0, m.allErr
 }
 
 type tagServiceMock struct {

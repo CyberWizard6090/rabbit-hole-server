@@ -11,10 +11,16 @@ type Workspace struct {
 	Name        string `json:"name"`
 	OwnerID     uint   `json:"owner_id"`
 	Description string `json:"description"`
+	AvatarURL   string `json:"avatar_url"`
 
 	Members []Member `json:"-"`
 	Spaces  []Space  `json:"-"`
 	Roles   []Role   `json:"-"`
+}
+
+type WorkspaceSummary struct {
+	Workspace
+	Role string `json:"role"`
 }
 
 type Member struct {
@@ -70,7 +76,7 @@ type MemberDetail struct {
 type WorkspaceRepository interface {
 	Create(ctx context.Context, workspace *Workspace, ownerID uint) error
 	GetByID(ctx context.Context, id uint) (*Workspace, error)
-	GetAllForUser(ctx context.Context, userID uint) ([]Workspace, error)
+	ListForUser(ctx context.Context, userID uint, limit, offset int) ([]WorkspaceSummary, int64, error)
 
 	ListMembers(ctx context.Context, workspaceID uint) ([]MemberDetail, error)
 	GetMember(ctx context.Context, workspaceID, userID uint) (*Member, error)

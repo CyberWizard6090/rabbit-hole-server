@@ -13,6 +13,8 @@ var (
 	ErrHubClosed          = errors.New("realtime hub is shutting down")
 )
 
+const ReasonAccessRevoked = "access revoked"
+
 const (
 	DefaultMaxConnectionsPerUser = 10
 	subscriberBuffer             = 64
@@ -52,7 +54,7 @@ func (s *Subscriber) kick(reason string) {
 type Hub struct {
 	mu         sync.RWMutex
 	topics     map[string]map[*Subscriber]struct{}
-	perUser    map[uint]int
+	perUser    map[uint]map[*Subscriber]struct{}
 	maxPerUser int
 	closed     bool
 	log        *slog.Logger
@@ -68,7 +70,7 @@ func NewHub(maxPerUser int, log *slog.Logger) *Hub {
 	}
 	return &Hub{
 		topics:     make(map[string]map[*Subscriber]struct{}),
-		perUser:    make(map[uint]int),
+		perUser:    make(map[uint]map[*Subscriber]struct{}),
 		maxPerUser: maxPerUser,
 		log:        log,
 		now:        time.Now,
@@ -82,7 +84,7 @@ func (h *Hub) Subscribe(userID uint, topic string) (*Subscriber, error) {
 	if h.closed {
 		return nil, ErrHubClosed
 	}
-	if h.perUser[userID] >= h.maxPerUser {
+	if len(h.perUser[userID]) >= h.maxPerUser {
 		return nil, ErrTooManyConnections
 	}
 
@@ -96,7 +98,10 @@ func (h *Hub) Subscribe(userID uint, topic string) (*Subscriber, error) {
 		h.topics[topic] = make(map[*Subscriber]struct{})
 	}
 	h.topics[topic][sub] = struct{}{}
-	h.perUser[userID]++
+	if h.perUser[userID] == nil {
+		h.perUser[userID] = make(map[*Subscriber]struct{})
+	}
+	h.perUser[userID][sub] = struct{}{}
 	return sub, nil
 }
 
@@ -119,7 +124,8 @@ func (h *Hub) removeLocked(sub *Subscriber) {
 	if len(subs) == 0 {
 		delete(h.topics, sub.Topic)
 	}
-	if h.perUser[sub.UserID]--; h.perUser[sub.UserID] <= 0 {
+	delete(h.perUser[sub.UserID], sub)
+	if len(h.perUser[sub.UserID]) == 0 {
 		delete(h.perUser, sub.UserID)
 	}
 }
@@ -134,9 +140,25 @@ func (h *Hub) Publish(event Event) {
 		return
 	}
 
+	h.fanOut(payload, ListTopic(event.ListID), SpaceTopic(event.SpaceID))
+}
+
+func (h *Hub) PublishUser(userID uint, event UserEvent) {
+	if event.At.IsZero() {
+		event.At = h.now()
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		h.log.Error("realtime: cannot encode event", "type", event.Type, "error", err)
+		return
+	}
+	h.fanOut(payload, UserTopic(userID))
+}
+
+func (h *Hub) fanOut(payload []byte, topics ...string) {
 	var slow []*Subscriber
 	h.mu.RLock()
-	for _, topic := range []string{ListTopic(event.ListID), SpaceTopic(event.SpaceID)} {
+	for _, topic := range topics {
 		for sub := range h.topics[topic] {
 			select {
 			case sub.send <- payload:
@@ -156,6 +178,41 @@ func (h *Hub) Publish(event Event) {
 	}
 }
 
+func (h *Hub) disconnect(userID uint, match func(*Subscriber) bool) int {
+	h.mu.Lock()
+	var victims []*Subscriber
+	for sub := range h.perUser[userID] {
+		if match(sub) {
+			victims = append(victims, sub)
+		}
+	}
+	for _, sub := range victims {
+		h.removeLocked(sub)
+	}
+	h.mu.Unlock()
+
+	for _, sub := range victims {
+		sub.kick(ReasonAccessRevoked)
+	}
+	if len(victims) > 0 {
+		h.log.Info("realtime: disconnected revoked connections", "user_id", userID, "count", len(victims))
+	}
+	return len(victims)
+}
+
+func (h *Hub) DisconnectUser(userID uint) int {
+	return h.disconnect(userID, func(*Subscriber) bool { return true })
+}
+
+func (h *Hub) DisconnectUserTopic(userID uint, topic string) int {
+	return h.disconnect(userID, func(sub *Subscriber) bool { return sub.Topic == topic })
+}
+
+func (h *Hub) DisconnectUserFeeds(userID uint) int {
+	userTopic := UserTopic(userID)
+	return h.disconnect(userID, func(sub *Subscriber) bool { return sub.Topic != userTopic })
+}
+
 func (h *Hub) Close() {
 	h.mu.Lock()
 	h.closed = true
@@ -166,7 +223,7 @@ func (h *Hub) Close() {
 		}
 	}
 	h.topics = make(map[string]map[*Subscriber]struct{})
-	h.perUser = make(map[uint]int)
+	h.perUser = make(map[uint]map[*Subscriber]struct{})
 	h.mu.Unlock()
 
 	for _, sub := range all {

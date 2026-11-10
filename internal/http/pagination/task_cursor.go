@@ -1,24 +1,20 @@
 package pagination
 
 import (
+	"encoding/json"
 	"strconv"
-	"time"
 )
 
-const (
-	taskResource = "tasks"
-	taskSort     = "created_at_desc_id_desc"
-)
+const taskResource = "tasks"
 
 type TaskCursorPosition struct {
-	CreatedAt time.Time `json:"created_at"`
-	ID        uint64    `json:"id"`
+	Keys []json.RawMessage `json:"k"`
 }
 
-func TaskCursorContext(listID uint) CursorContext {
-	return CursorContext{
-		Resource: taskResource,
-		Scope:    strconv.FormatUint(uint64(listID), 10),
-		Sort:     taskSort,
+func TaskCursorContext(listID uint, sort, filter string) CursorContext {
+	scope := strconv.FormatUint(uint64(listID), 10)
+	if filter != "" {
+		scope += ":" + filter
 	}
+	return CursorContext{Resource: taskResource, Scope: scope, Sort: sort}
 }

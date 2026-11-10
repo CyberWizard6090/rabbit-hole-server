@@ -4,14 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/persistence"
 )
+
+const rotatedSessionRetention = "48 hours"
 
 type UserRepository struct {
 	db *gorm.DB
@@ -23,7 +27,7 @@ func NewUserRepository(db *gorm.DB) *UserRepository {
 
 func (r *UserRepository) CreateUser(ctx context.Context, user *domain.User) error {
 	m := userFromDomain(*user)
-	err := r.db.WithContext(ctx).Create(&m).Error
+	err := database.DBFromContext(ctx, r.db).Create(&m).Error
 	if err != nil && isEmailUniqueViolation(err) {
 		return domain.ErrEmailTaken
 	}
@@ -65,7 +69,7 @@ func isUniqueViolationForConstraints(err error, constraints ...string) bool {
 
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	var m persistence.User
-	if err := r.db.WithContext(ctx).Where("lower(email) = lower(?)", email).First(&m).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Where("lower(email) = lower(?)", email).First(&m).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	user := userToDomain(m)
@@ -74,7 +78,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.
 
 func (r *UserRepository) GetByID(ctx context.Context, id uint) (*domain.User, error) {
 	var m persistence.User
-	if err := r.db.WithContext(ctx).First(&m, id).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).First(&m, id).Error; err != nil {
 		return nil, mapErr(err)
 	}
 	user := userToDomain(m)
@@ -83,7 +87,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id uint) (*domain.User, er
 
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	m := userFromDomain(*user)
-	if err := r.db.WithContext(ctx).Omit("PasswordHash", "TokenVersion").Save(&m).Error; err != nil {
+	if err := database.DBFromContext(ctx, r.db).Omit("PasswordHash", "TokenVersion").Save(&m).Error; err != nil {
 		return mapErr(err)
 	}
 	user.UpdatedAt = m.UpdatedAt
@@ -92,7 +96,10 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 
 func (r *UserRepository) CreateSession(ctx context.Context, session *domain.UserSession) error {
 	m := sessionFromDomain(*session)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if m.LoginAt.IsZero() {
+		m.LoginAt = time.Now()
+	}
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("user_id = ? AND expires_at < NOW()", session.UserID).
 			Delete(&persistence.UserSession{}).Error; err != nil {
 			return err
@@ -108,7 +115,7 @@ func (r *UserRepository) CreateSession(ctx context.Context, session *domain.User
 
 func (r *UserRepository) FindSession(ctx context.Context, tokenHash string) (*domain.UserSession, error) {
 	var m persistence.UserSession
-	err := r.db.WithContext(ctx).Where("token_hash = ? AND expires_at > NOW()", tokenHash).First(&m).Error
+	err := database.DBFromContext(ctx, r.db).Where("token_hash = ? AND expires_at > NOW()", tokenHash).First(&m).Error
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -116,27 +123,64 @@ func (r *UserRepository) FindSession(ctx context.Context, tokenHash string) (*do
 	return &session, nil
 }
 
-func (r *UserRepository) DeleteSession(ctx context.Context, tokenHash string) error {
-	return mapErr(r.db.WithContext(ctx).Where("token_hash = ?", tokenHash).Delete(&persistence.UserSession{}).Error)
+func (r *UserRepository) DeleteSessionFamily(ctx context.Context, tokenHash string) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Exec(
+		"DELETE FROM user_sessions WHERE family_id <> '' AND family_id = (SELECT family_id FROM user_sessions WHERE token_hash = ?)",
+		tokenHash,
+	).Error)
+}
+
+func (r *UserRepository) RevokeSessionFamily(ctx context.Context, familyID string) error {
+	if familyID == "" {
+		return nil
+	}
+	return mapErr(database.DBFromContext(ctx, r.db).Where("family_id = ?", familyID).Delete(&persistence.UserSession{}).Error)
 }
 
 func (r *UserRepository) RotateSession(ctx context.Context, tokenHash string, replacement *domain.UserSession) error {
 	m := sessionFromDomain(*replacement)
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("user_id = ? AND expires_at < NOW()", replacement.UserID).
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ? AND (expires_at < NOW() OR rotated_at < NOW() - ?::interval)",
+			replacement.UserID, rotatedSessionRetention).
 			Delete(&persistence.UserSession{}).Error; err != nil {
 			return err
 		}
-		result := tx.Where("token_hash = ? AND expires_at > NOW()", tokenHash).
-			Delete(&persistence.UserSession{})
-		if result.Error != nil {
-			return result.Error
+		var rows []struct {
+			ID        uint
+			FamilyID  string
+			UserAgent string
+			IP        string
+			LoginAt   time.Time
+			Rotated   bool
+			AgeSecs   float64
 		}
-		if result.RowsAffected != 1 {
+		if err := tx.Raw(`SELECT id, family_id, user_agent, ip, login_at, rotated_at IS NOT NULL AS rotated,
+				COALESCE(EXTRACT(EPOCH FROM (NOW() - rotated_at)), 0) AS age_secs
+			FROM user_sessions WHERE token_hash = ? AND expires_at > NOW() FOR UPDATE`, tokenHash).Scan(&rows).Error; err != nil {
+			return err
+		}
+		if len(rows) != 1 {
 			return domain.ErrNotFound
+		}
+		row := rows[0]
+		if row.Rotated {
+			return &domain.SessionReplay{FamilyID: row.FamilyID, Age: time.Duration(row.AgeSecs * float64(time.Second))}
+		}
+		if err := tx.Model(&persistence.UserSession{}).Where("id = ?", row.ID).
+			UpdateColumn("rotated_at", gorm.Expr("NOW()")).Error; err != nil {
+			return err
+		}
+		m.FamilyID = row.FamilyID
+		m.UserAgent, m.LoginAt = row.UserAgent, row.LoginAt
+		if m.IP == "" {
+			m.IP = row.IP
 		}
 		return tx.Create(&m).Error
 	})
+	var replay *domain.SessionReplay
+	if errors.As(err, &replay) {
+		return replay
+	}
 	if err != nil {
 		return mapErr(err)
 	}
@@ -145,12 +189,12 @@ func (r *UserRepository) RotateSession(ctx context.Context, tokenHash string, re
 }
 
 func (r *UserRepository) DeleteAllUserSessions(ctx context.Context, userID uint) error {
-	return mapErr(r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&persistence.UserSession{}).Error)
+	return mapErr(database.DBFromContext(ctx, r.db).Where("user_id = ?", userID).Delete(&persistence.UserSession{}).Error)
 }
 
 func (r *UserRepository) GetTokenVersion(ctx context.Context, userID uint) (int, error) {
 	var version int
-	res := r.db.WithContext(ctx).Model(&persistence.User{}).Select("token_version").Where("id = ?", userID).Limit(1).Scan(&version)
+	res := database.DBFromContext(ctx, r.db).Model(&persistence.User{}).Select("token_version").Where("id = ?", userID).Limit(1).Scan(&version)
 	if res.Error != nil {
 		return 0, mapErr(res.Error)
 	}
@@ -162,7 +206,7 @@ func (r *UserRepository) GetTokenVersion(ctx context.Context, userID uint) (int,
 
 func (r *UserRepository) RevokeAll(ctx context.Context, userID uint) (int, error) {
 	var version int
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		return revokeAll(tx, userID, &version)
 	})
 	return version, mapErr(err)
@@ -185,9 +229,12 @@ func revokeAll(tx *gorm.DB, userID uint, version *int) error {
 
 func (r *UserRepository) UpdatePasswordAndRevoke(ctx context.Context, userID uint, passwordHash string) (int, error) {
 	var version int
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&persistence.User{}).Where("id = ?", userID).
 			UpdateColumn("password_hash", passwordHash).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM email_tokens WHERE user_id = ? AND kind = 'reset_password'", userID).Error; err != nil {
 			return err
 		}
 		return revokeAll(tx, userID, &version)
@@ -195,14 +242,26 @@ func (r *UserRepository) UpdatePasswordAndRevoke(ctx context.Context, userID uin
 	return version, mapErr(err)
 }
 
-func (r *UserRepository) CountOwnedWorkspaces(ctx context.Context, userID uint) (int64, error) {
-	var count int64
-	err := r.db.WithContext(ctx).Model(&persistence.Workspace{}).Where("owner_id = ?", userID).Count(&count).Error
-	return count, mapErr(err)
-}
+func (r *UserRepository) AnonymizeIfNoOwnedWorkspaces(ctx context.Context, userID uint) error {
+	return mapErr(database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		var users []struct {
+			ID           uint
+			PasswordHash string
+		}
+		if err := tx.Raw("SELECT id, password_hash FROM users WHERE id = ? FOR UPDATE", userID).Scan(&users).Error; err != nil {
+			return err
+		}
+		if len(users) == 0 || users[0].PasswordHash == "!" {
+			return domain.ErrNotFound
+		}
+		var owned int64
+		if err := tx.Model(&persistence.Workspace{}).Where("owner_id = ?", userID).Count(&owned).Error; err != nil {
+			return err
+		}
+		if owned > 0 {
+			return domain.ErrOwnsWorkspaces
+		}
 
-func (r *UserRepository) Anonymize(ctx context.Context, userID uint) error {
-	return mapErr(r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var version int
 		if err := revokeAll(tx, userID, &version); err != nil {
 			return err
@@ -216,6 +275,15 @@ func (r *UserRepository) Anonymize(ctx context.Context, userID uint) error {
 			"avatar_url":    "",
 			"bio":           "",
 		}
+		if err := tx.Exec("DELETE FROM email_tokens WHERE user_id = ?", userID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM login_devices WHERE user_id = ?", userID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("UPDATE users SET email_verified_at = NULL WHERE id = ?", userID).Error; err != nil {
+			return err
+		}
 		if err := tx.Model(&persistence.User{}).Where("id = ?", userID).UpdateColumns(tombstone).Error; err != nil {
 			return err
 		}
@@ -225,14 +293,123 @@ func (r *UserRepository) Anonymize(ctx context.Context, userID uint) error {
 		if err := tx.Exec("DELETE FROM task_assignees WHERE user_id = ?", userID).Error; err != nil {
 			return err
 		}
+		for _, table := range []string{
+			"notifications", "task_watchers", "notification_preferences", "notification_settings", "notification_channels",
+		} {
+			if err := tx.Exec("DELETE FROM "+table+" WHERE user_id = ?", userID).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Exec("DELETE FROM task_comment_mentions WHERE user_id = ?", userID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("UPDATE task_checklist_items SET assignee_id = NULL WHERE assignee_id = ?", userID).Error; err != nil {
+			return err
+		}
 		return tx.Where("user_id = ?", userID).Delete(&persistence.Member{}).Error
 	}))
 }
 
-func (r *UserRepository) HasSessionCreatedSince(ctx context.Context, userID uint, since time.Time) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).Model(&persistence.UserSession{}).
-		Where("user_id = ? AND created_at >= ?", userID, since).
-		Count(&count).Error
-	return count > 0, mapErr(err)
+// maxLoginDevices bounds the remembered devices of one user; the least recently seen is forgotten first.
+const maxLoginDevices = 20
+
+// ListSessions returns the signed-in devices of a user: one entry per refresh token family that still
+// has an unexpired token, most recently used first.
+func (r *UserRepository) ListSessions(ctx context.Context, userID uint) ([]domain.SessionInfo, error) {
+	var rows []struct {
+		FamilyID   string
+		UserAgent  string
+		IP         string
+		LoginAt    time.Time
+		LastUsedAt time.Time
+	}
+	err := database.DBFromContext(ctx, r.db).Raw(`
+		SELECT DISTINCT ON (family_id) family_id, user_agent, ip, login_at, created_at AS last_used_at
+		FROM user_sessions
+		WHERE user_id = ? AND family_id <> '' AND expires_at > NOW() AND rotated_at IS NULL
+		ORDER BY family_id, created_at DESC`, userID).Scan(&rows).Error
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	out := make([]domain.SessionInfo, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.SessionInfo{
+			ID: row.FamilyID, UserAgent: row.UserAgent, IP: row.IP, CreatedAt: row.LoginAt, LastUsedAt: row.LastUsedAt,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].LastUsedAt.After(out[j].LastUsedAt) })
+	return out, nil
+}
+
+// SessionAlive reports whether the refresh token family of an access token still exists.
+func (r *UserRepository) SessionAlive(ctx context.Context, userID uint, familyID string) (bool, error) {
+	var alive bool
+	err := database.DBFromContext(ctx, r.db).Raw(
+		"SELECT EXISTS (SELECT 1 FROM user_sessions WHERE family_id = ? AND user_id = ? AND expires_at > NOW())",
+		familyID, userID).Scan(&alive).Error
+	return alive, mapErr(err)
+}
+
+// FindSessionFamily returns the family of a refresh token, whatever its rotation state.
+func (r *UserRepository) FindSessionFamily(ctx context.Context, tokenHash string) (string, error) {
+	var family string
+	res := database.DBFromContext(ctx, r.db).Raw(
+		"SELECT family_id FROM user_sessions WHERE token_hash = ? AND expires_at > NOW()", tokenHash).Scan(&family)
+	if res.Error != nil {
+		return "", mapErr(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return "", domain.ErrNotFound
+	}
+	return family, nil
+}
+
+// RevokeUserSession ends one device of the user. It reports false when the user has no such session.
+func (r *UserRepository) RevokeUserSession(ctx context.Context, userID uint, familyID string) (bool, error) {
+	if familyID == "" {
+		return false, nil
+	}
+	res := database.DBFromContext(ctx, r.db).Where("user_id = ? AND family_id = ?", userID, familyID).Delete(&persistence.UserSession{})
+	return res.RowsAffected > 0, mapErr(res.Error)
+}
+
+// RevokeOtherSessions ends every device of the user except keepFamily and returns how many were ended.
+func (r *UserRepository) RevokeOtherSessions(ctx context.Context, userID uint, keepFamily string) (int, error) {
+	var ended []string
+	err := database.DBFromContext(ctx, r.db).Raw(
+		"DELETE FROM user_sessions WHERE user_id = ? AND family_id <> ? RETURNING family_id", userID, keepFamily).Scan(&ended).Error
+	if err != nil {
+		return 0, mapErr(err)
+	}
+	families := map[string]struct{}{}
+	for _, f := range ended {
+		families[f] = struct{}{}
+	}
+	return len(families), nil
+}
+
+// TouchLoginDevice records a sign-in from a device. It reports whether the device is new and whether
+// the user had signed in from any other device before.
+func (r *UserRepository) TouchLoginDevice(ctx context.Context, userID uint, fingerprint, label string) (isNew, hadOthers bool, err error) {
+	err = database.DBFromContext(ctx, r.db).Transaction(func(tx *gorm.DB) error {
+		var total int64
+		if err := tx.Raw("SELECT count(*) FROM login_devices WHERE user_id = ?", userID).Scan(&total).Error; err != nil {
+			return err
+		}
+		var inserted []int
+		if err := tx.Raw(`INSERT INTO login_devices (user_id, fingerprint, label) VALUES (?, ?, ?)
+			ON CONFLICT (user_id, fingerprint) DO UPDATE SET last_seen_at = now(), label = EXCLUDED.label
+			RETURNING CASE WHEN xmax = 0 THEN 1 ELSE 0 END`, userID, fingerprint, label).Scan(&inserted).Error; err != nil {
+			return err
+		}
+		isNew = len(inserted) == 1 && inserted[0] == 1
+		hadOthers = isNew && total > 0
+		if isNew {
+			return tx.Exec(`DELETE FROM login_devices WHERE user_id = ? AND fingerprint IN (
+				SELECT fingerprint FROM login_devices WHERE user_id = ? ORDER BY last_seen_at DESC OFFSET ?)`,
+				userID, userID, maxLoginDevices).Error
+		}
+		return nil
+	})
+	return isNew, hadOthers, mapErr(err)
 }

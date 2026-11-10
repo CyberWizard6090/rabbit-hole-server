@@ -18,6 +18,7 @@ import (
 
 	"rabbit-hole-server/internal/app"
 	"rabbit-hole-server/internal/config"
+	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/logging"
 )
 
@@ -26,17 +27,26 @@ func main() {
 
 	env, err := config.Load()
 	if err != nil {
-		fatal("failed to load environment", err)
+		fmt.Fprintf(os.Stderr, "refusing to start: %v\n", err)
+		os.Exit(1)
 	}
 	logging.Setup(env.Environment, os.Stdout)
+	config.LogStartup(env)
 
-	if env.Environment == "production" {
+	if env.Environment != "development" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	db, err := config.InitDB(env)
 	if err != nil {
 		fatal("failed to init database", err)
+	}
+
+	schemaCtx, cancelSchema := context.WithTimeout(context.Background(), schemaCheckTimeout)
+	schemaErr := database.CheckSchema(schemaCtx, db)
+	cancelSchema()
+	if schemaErr != nil {
+		fatal("database schema check failed", schemaErr)
 	}
 
 	application, err := app.NewApp(db, env)
@@ -60,7 +70,7 @@ func main() {
 	<-ctx.Done()
 	slog.Info("shutting down gracefully")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), env.Server.ShutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -80,6 +90,8 @@ func main() {
 
 	slog.Info("server stopped")
 }
+
+const schemaCheckTimeout = 10 * time.Second
 
 func fatal(msg string, err error) {
 	slog.Error(msg, "error", err)

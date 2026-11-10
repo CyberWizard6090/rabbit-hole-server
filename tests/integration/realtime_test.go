@@ -32,6 +32,7 @@ func newRealtimeEnv(t *testing.T, opts realtime.Options) *rtEnv {
 	}
 	container.RealtimeHandler.WithOptions(opts)
 	router := app.SetupRouter(container, integrationConfig)
+	startWorkers(t, container)
 	server := httptest.NewServer(router)
 	t.Cleanup(func() {
 		container.Realtime.Close()
@@ -382,7 +383,11 @@ func TestRealtime_ConnectionOutlivesTheServersWriteTimeout(t *testing.T) {
 	server.Config.ReadTimeout = 400 * time.Millisecond
 	server.Config.WriteTimeout = 400 * time.Millisecond
 	server.Start()
-	t.Cleanup(func() { container.Realtime.Close(); server.Close() })
+	startWorkers(t, container)
+	t.Cleanup(func() {
+		container.Realtime.Close()
+		server.Close()
+	})
 	e := &rtEnv{tc: tc, container: container, router: router, server: server}
 
 	b := e.newBoard(t, "rt-timeout@example.test")

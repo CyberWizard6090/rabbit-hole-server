@@ -79,15 +79,20 @@ func TestWorkspace_OnlyPermittedRolesCanUpdateOrDelete(t *testing.T) {
 	addMemberWithRole(t, tc, workspaceID, adminID, "Admin")
 	addMemberWithRole(t, tc, workspaceID, memberID, "Member")
 
-	for name, token := range map[string]string{"admin": adminToken, "member": memberToken, "outsider": outsiderToken} {
+	for name, token := range map[string]string{"member": memberToken, "outsider": outsiderToken} {
 		rec := request(t, tc.Router, http.MethodPatch, path, token, map[string]any{"name": "pwned"})
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("%s PATCH: expected 403, got %d", name, rec.Code)
 		}
-		rec = request(t, tc.Router, http.MethodDelete, path, token, nil)
+	}
+	for name, token := range map[string]string{"admin": adminToken, "member": memberToken, "outsider": outsiderToken} {
+		rec := request(t, tc.Router, http.MethodDelete, path, token, nil)
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("%s DELETE: expected 403, got %d", name, rec.Code)
 		}
+	}
+	if rec := request(t, tc.Router, http.MethodPatch, path, adminToken, map[string]any{"name": "renamed by admin"}); rec.Code != http.StatusOK {
+		t.Errorf("admin PATCH: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	if rec := request(t, tc.Router, http.MethodGet, path, memberToken, nil); rec.Code != http.StatusOK {
 		t.Errorf("member GET: expected 200, got %d", rec.Code)
@@ -97,9 +102,9 @@ func TestWorkspace_OnlyPermittedRolesCanUpdateOrDelete(t *testing.T) {
 	}
 
 	var count int64
-	tc.DB.Table("workspaces").Where("id = ? AND name <> 'pwned' AND deleted_at IS NULL", workspaceID).Count(&count)
+	tc.DB.Table("workspaces").Where("id = ? AND name = 'renamed by admin' AND deleted_at IS NULL", workspaceID).Count(&count)
 	if count != 1 {
-		t.Fatalf("workspace was modified or deleted by an unauthorized role")
+		t.Fatalf("workspace was modified by an unauthorized role, or the admin rename was lost, or it was deleted")
 	}
 }
 

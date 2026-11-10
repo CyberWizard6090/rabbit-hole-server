@@ -1,0 +1,204 @@
+package service
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/url"
+	"strings"
+	"time"
+
+	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/mail"
+)
+
+const (
+	TokenKindVerify = "verify_email"
+	TokenKindReset  = "reset_password"
+
+	ResendInterval = 60 * time.Second
+
+	verifyEmailPath   = "/verify-email"
+	resetPasswordPath = "/reset-password"
+)
+
+var ErrEmailNotVerified = errors.New("confirm your email address before signing in")
+
+type EmailTokenStore interface {
+	Create(ctx context.Context, userID uint, kind, tokenHash string, expiresAt time.Time) error
+	LastCreatedAt(ctx context.Context, userID uint, kind string) (*time.Time, error)
+	Discard(ctx context.Context, tokenHash string) error
+	VerifyEmail(ctx context.Context, tokenHash string) (uint, error)
+	ResetPassword(ctx context.Context, tokenHash, passwordHash string) (uint, error)
+}
+
+type EmailUserStore interface {
+	GetByEmail(ctx context.Context, email string) (*domain.User, error)
+	GetByID(ctx context.Context, id uint) (*domain.User, error)
+}
+
+type AccountEmailConfig struct {
+	FrontendURL     string
+	VerificationTTL time.Duration
+	ResetTTL        time.Duration
+}
+
+type AccountEmailService struct {
+	users  EmailUserStore
+	tokens EmailTokenStore
+	sender mail.Sender
+	cfg    AccountEmailConfig
+	now    func() time.Time
+
+	revoker ConnectionRevoker
+}
+
+func (s *AccountEmailService) WithConnectionRevoker(revoker ConnectionRevoker) *AccountEmailService {
+	s.revoker = revoker
+	return s
+}
+
+func NewAccountEmailService(users EmailUserStore, tokens EmailTokenStore, sender mail.Sender, cfg AccountEmailConfig) *AccountEmailService {
+	cfg.FrontendURL = strings.TrimRight(cfg.FrontendURL, "/")
+	return &AccountEmailService{users: users, tokens: tokens, sender: sender, cfg: cfg, now: time.Now}
+}
+
+func newSecretToken() (token, hash string, err error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", fmt.Errorf("generate token: %w", err)
+	}
+	token = base64.RawURLEncoding.EncodeToString(raw)
+	return token, hashSecretToken(token), nil
+}
+
+func hashSecretToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *AccountEmailService) link(path, token string) string {
+	return s.cfg.FrontendURL + path + "?token=" + url.QueryEscape(token)
+}
+
+func (s *AccountEmailService) issue(ctx context.Context, user *domain.User, kind, path string, ttl time.Duration) error {
+	token, hash, err := newSecretToken()
+	if err != nil {
+		return err
+	}
+	locale := localeFrom(ctx)
+	subject, text, html, err := renderMail(locale, kind, mailView{
+		Link: s.link(path, token),
+		TTL:  ttlText(locale, ttl),
+	})
+	if err != nil {
+		return fmt.Errorf("render mail: %w", err)
+	}
+	if err := s.tokens.Create(ctx, user.ID, kind, hash, s.now().Add(ttl)); err != nil {
+		return err
+	}
+	if err := s.sender.Send(ctx, mail.Message{To: user.Email, Subject: subject, Text: text, HTML: html}); err != nil {
+		if discardErr := s.tokens.Discard(context.WithoutCancel(ctx), hash); discardErr != nil {
+			slog.Warn("account email: cannot discard the token of an unsent mail", "user_id", user.ID, "error", discardErr)
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *AccountEmailService) coolingDown(ctx context.Context, userID uint, kind string) bool {
+	last, err := s.tokens.LastCreatedAt(ctx, userID, kind)
+	if err != nil || last == nil {
+		return false
+	}
+	return s.now().Sub(*last) < ResendInterval
+}
+
+func (s *AccountEmailService) SendVerification(ctx context.Context, user *domain.User) error {
+	return s.issue(ctx, user, TokenKindVerify, verifyEmailPath, s.cfg.VerificationTTL)
+}
+
+func (s *AccountEmailService) ResendVerification(ctx context.Context, email string) {
+	user, err := s.users.GetByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
+	if err != nil || user.EmailVerifiedAt != nil {
+		return
+	}
+	if s.coolingDown(ctx, user.ID, TokenKindVerify) {
+		return
+	}
+	if err := s.SendVerification(ctx, user); err != nil {
+		slog.Warn("account email: cannot send a verification mail", "user_id", user.ID, "error", err)
+	}
+}
+
+func (s *AccountEmailService) VerifyEmail(ctx context.Context, token string) error {
+	_, err := s.tokens.VerifyEmail(ctx, hashSecretToken(strings.TrimSpace(token)))
+	return err
+}
+
+func (s *AccountEmailService) ForgotPassword(ctx context.Context, email string) {
+	user, err := s.users.GetByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
+	if err != nil {
+		return
+	}
+	if s.coolingDown(ctx, user.ID, TokenKindReset) {
+		return
+	}
+	if err := s.issue(ctx, user, TokenKindReset, resetPasswordPath, s.cfg.ResetTTL); err != nil {
+		slog.Warn("account email: cannot send a password reset mail", "user_id", user.ID, "error", err)
+	}
+}
+
+func (s *AccountEmailService) ResetPassword(ctx context.Context, token, newPassword string) error {
+	if err := validatePassword(newPassword); err != nil {
+		return err
+	}
+	hash, err := hashPasswordLimited(ctx, newPassword)
+	if err != nil {
+		return err
+	}
+	userID, err := s.tokens.ResetPassword(ctx, hashSecretToken(strings.TrimSpace(token)), hash)
+	if err != nil {
+		return err
+	}
+	disconnectUser(s.revoker, userID)
+	if user, err := s.users.GetByID(ctx, userID); err == nil {
+		s.NotifyPasswordChanged(ctx, user)
+	}
+	return nil
+}
+
+const (
+	noticeKindNewSignIn       = "new_signin_notice"
+	noticeKindPasswordChanged = "password_changed_notice"
+)
+
+// NotifyNewSignIn mails the owner about a sign-in from an unfamiliar device.
+func (s *AccountEmailService) NotifyNewSignIn(ctx context.Context, user *domain.User, device, maskedIP string, at time.Time) {
+	locale := localeFrom(ctx)
+	if maskedIP == "" {
+		maskedIP = "-"
+	}
+	s.notice(ctx, user, noticeKindNewSignIn, mailView{Device: device, IP: maskedIP, When: at.UTC().Format("2006-01-02 15:04 UTC")}, locale)
+}
+
+// NotifyPasswordChanged mails the owner after a password change or reset.
+func (s *AccountEmailService) NotifyPasswordChanged(ctx context.Context, user *domain.User) {
+	s.notice(ctx, user, noticeKindPasswordChanged, mailView{}, localeFrom(ctx))
+}
+
+func (s *AccountEmailService) notice(ctx context.Context, user *domain.User, kind string, view mailView, locale string) {
+	subject, text, html, err := renderMail(locale, kind, view)
+	if err != nil {
+		slog.Warn("account email: cannot render a security notice", "kind", kind, "user_id", user.ID, "error", err)
+		return
+	}
+	if err := s.sender.Send(ctx, mail.Message{To: user.Email, Subject: subject, Text: text, HTML: html}); err != nil {
+		slog.Warn("account email: cannot send a security notice", "kind", kind, "user_id", user.ID, "error", err)
+	}
+}

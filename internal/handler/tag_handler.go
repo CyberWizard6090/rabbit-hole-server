@@ -18,8 +18,6 @@ type TagHandler struct {
 	service service.TagService
 }
 
-const invalidSpaceIDMessage = "invalid space id"
-
 func NewTagHandler(s service.TagService) *TagHandler {
 	return &TagHandler{service: s}
 }
@@ -27,7 +25,7 @@ func NewTagHandler(s service.TagService) *TagHandler {
 func (h *TagHandler) Create(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidSpaceIDMessage)
+		response.InvalidID(c, "space_id")
 		return
 	}
 
@@ -53,12 +51,12 @@ func (h *TagHandler) Create(c *gin.Context) {
 func (h *TagHandler) Get(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidSpaceIDMessage)
+		response.InvalidID(c, "space_id")
 		return
 	}
 	tagID, err := strconv.ParseUint(c.Param("tag_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid tag id")
+		response.InvalidID(c, "tag_id")
 		return
 	}
 
@@ -78,7 +76,7 @@ func (h *TagHandler) Get(c *gin.Context) {
 func (h *TagHandler) List(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidSpaceIDMessage)
+		response.InvalidID(c, "space_id")
 		return
 	}
 
@@ -94,12 +92,12 @@ func (h *TagHandler) List(c *gin.Context) {
 func (h *TagHandler) Update(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidSpaceIDMessage)
+		response.InvalidID(c, "space_id")
 		return
 	}
 	tagID, err := strconv.ParseUint(c.Param("tag_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid tag id")
+		response.InvalidID(c, "tag_id")
 		return
 	}
 
@@ -111,6 +109,14 @@ func (h *TagHandler) Update(c *gin.Context) {
 
 	tag, err := h.service.UpdateTag(c.Request.Context(), uint(spaceID), uint(tagID), service.UpdateTagParams{Name: req.Name, Color: req.Color})
 	if err != nil {
+		if errors.Is(err, domain.ErrTagNameTaken) {
+			response.HandleError(c, httperrors.Conflict("TAG_NAME_TAKEN", "tag with this name already exists", err))
+			return
+		}
+		if errors.Is(err, service.ErrTagNotFound) || errors.Is(err, service.ErrTagSpaceMismatch) {
+			response.HandleError(c, httperrors.NotFound("TAG_NOT_FOUND", "tag not found", err))
+			return
+		}
 		response.HandleError(c, httperrors.Internal("TAG_UPDATE_FAILED", "internal server error", err))
 		return
 	}
@@ -121,12 +127,12 @@ func (h *TagHandler) Update(c *gin.Context) {
 func (h *TagHandler) Delete(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidSpaceIDMessage)
+		response.InvalidID(c, "space_id")
 		return
 	}
 	tagID, err := strconv.ParseUint(c.Param("tag_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, "invalid tag id")
+		response.InvalidID(c, "tag_id")
 		return
 	}
 
@@ -141,7 +147,7 @@ func (h *TagHandler) Delete(c *gin.Context) {
 func (h *TagHandler) Merge(c *gin.Context) {
 	spaceID, err := strconv.ParseUint(c.Param("space_id"), 10, 64)
 	if err != nil {
-		response.BadRequest(c, invalidSpaceIDMessage)
+		response.InvalidID(c, "space_id")
 		return
 	}
 
