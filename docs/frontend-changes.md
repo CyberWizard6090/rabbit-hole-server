@@ -13,7 +13,7 @@
 | `options` и `config` пользовательского поля | иногда `null` | всегда массив и объект | то же |
 | Права роли Admin | не мог менять рабочее пространство | `workspace.update` (имя, описание, аватар) есть у Owner и Admin | показывать форму Admin; удаление пространства только у Owner |
 | `POST /profile/password` | возвращал токен | по-прежнему, но теперь завершает все остальные сеансы и шлёт письмо «Пароль изменён» | ничего, но объяснить пользователю про выход на других устройствах |
-| Расписание проверки доступа в WebSocket | | при завершении сеанса пользователя (см. раздел 3) сервер закрывает его сокеты | уметь переподключаться по билету |
+| WebSocket при завершении сеанса | | при завершении сеанса, выходе везде, смене пароля сервер закрывает все сокеты пользователя (раздел 3) | переподключаться по новому билету, пока пользователь авторизован |
 
 Остальные правки обратно совместимы: поля только добавлены.
 
@@ -36,7 +36,7 @@
 `shared`, `filters` (те же параметры, что у `GET /lists/{id}/tasks`: `q`, `status_id`, `priority`, `tag_id`, `no_tags`, `assignee_id`,
 `unassigned`, `created_*`, `due_*`, `start_*`, `has_due`, `parent_id`, `has_parent`, `has_open_checklist_items`), `sort`. Чтобы применить вид,
 подставьте его `filters` и `sort` в запрос списка задач. Личный вид требует `task.read`, общий `space.update` (403 `VIEW_FORBIDDEN`);
-до 200 видов на пользователя и пространство (409 `VIEW_LIMIT_REACHED`); неизвестный фильтр даёт 400 `INVALID_FILTER` с `filters.<имя>`.
+до 200 видов на пользователя и пространство (409 `VIEW_LIMIT_REACHED`); неизвестный фильтр даёт 400 `INVALID_FILTER` с деталью `filters.<имя>` и кодом `UNKNOWN_FILTER`.
 В списке `is_owner` и `owner` (публичный профиль без почты) показывают, можно ли менять вид.
 
 ### Учёт времени
@@ -69,7 +69,7 @@
 
 `GET /workspaces/{id}/audit-log?action=&page=&limit=` (Owner и Admin; по умолчанию 50, максимум 100). Записи: `workspace.updated`
 (`changes.name` / `changes.description` с `from` и `to`), `workspace.avatar_changed`, `workspace.avatar_removed`, `member.added`,
-`member.role_changed`, `member.removed`; у записи `actor` и `target` (публичные профили, без почты). Повторное переименование в то же имя
+`member.role_changed`, `member.removed`, `member.left`; у записи `actor` и `target` (публичные профили, без почты). Повторное переименование в то же имя
 запись не создаёт.
 
 ### Сеансы и защита аккаунта
@@ -111,9 +111,10 @@
 |---|---|
 | `INVALID_CURRENT_PASSWORD` | неверный пароль (см. раздел 1) |
 | `SESSION_NOT_FOUND`, `SESSION_LIST_FAILED`, `SESSION_REVOKE_FAILED` | сеансы |
-| `VIEW_NOT_FOUND`, `VIEW_FORBIDDEN`, `VIEW_LIMIT_REACHED`, `INVALID_VIEW_ID`, `VIEW_FAILED`, `UNKNOWN_FILTER` | сохранённые виды |
+| `VIEW_NOT_FOUND`, `VIEW_FORBIDDEN`, `VIEW_LIMIT_REACHED`, `INVALID_VIEW_ID`, `VIEW_FAILED` | сохранённые виды |
+| `UNKNOWN_FILTER` | деталь `filters.<имя>` у 400 `INVALID_FILTER` |
 | `TIMER_ALREADY_RUNNING`, `NO_RUNNING_TIMER`, `TIME_ENTRY_NOT_FOUND`, `TIME_ENTRY_FORBIDDEN`, `INVALID_TIME_ENTRY`, `INVALID_TIME_ENTRY_ID`, `TIME_FAILED` | учёт времени |
-| `IN_THE_FUTURE`, `BEFORE_FROM`, `RANGE_TOO_LONG` | детали `VALIDATION_FAILED` в учёте времени и отчёте |
+| `IN_THE_FUTURE`, `BEFORE_FROM`, `RANGE_TOO_LONG` | коды деталей (`started_at`, `to`) у записи времени и отчёта; у `RANGE_TOO_LONG` в `params` есть `max_days` |
 | `RELATION_SELF`, `RELATION_EXISTS`, `RELATION_CYCLE`, `RELATION_LIMIT_REACHED`, `RELATION_NOT_FOUND`, `RELATION_FAILED`, `SAME_TASK` | зависимости |
 | `UNKNOWN_LIST_TEMPLATE` | шаблоны списков |
 | `AUDIT_LOG_FETCH_FAILED` | история изменений |
