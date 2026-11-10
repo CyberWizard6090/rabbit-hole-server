@@ -77,7 +77,8 @@
 - `GET /profile/sessions` → `[{id, device, user_agent, ip, created_at, last_used_at, current}]`. `device` уже читаемый («Chrome on Windows»),
   `current` отмечает устройство этого запроса. `id` непрозрачная строка.
 - `DELETE /profile/sessions/{id}` завершает один сеанс (чужой и несуществующий одинаково 404 `SESSION_NOT_FOUND`); если это текущий, сервер чистит cookie,
-  а клиент должен перейти на вход. `DELETE /profile/sessions` завершает все остальные, ответ `{ended: N}`.
+  а клиент должен перейти на вход. `DELETE /profile/sessions` завершает все остальные, ответ `{ended: N}`; 409 `SESSION_UNKNOWN` значит, что токен выдан до появления сеансов:
+  обновите его (`POST /auth/refresh`) и повторите.
 - Токен доступа завершённого устройства перестаёт работать сразу: ждите 401 и обрабатывайте как «войти заново». Новые права `Authorization` не нужны.
 - Письма: «Новый вход» (вход с устройства, которого раньше не было; адрес в письме без последнего октета) и «Пароль изменён» (смена и сброс). Язык по
   `Accept-Language` запроса, поэтому отправляйте заголовок и при входе и при смене пароля.
@@ -110,7 +111,7 @@
 | Код | Где |
 |---|---|
 | `INVALID_CURRENT_PASSWORD` | неверный пароль (см. раздел 1) |
-| `SESSION_NOT_FOUND`, `SESSION_LIST_FAILED`, `SESSION_REVOKE_FAILED` | сеансы |
+| `SESSION_NOT_FOUND`, `SESSION_UNKNOWN`, `SESSION_LIST_FAILED`, `SESSION_REVOKE_FAILED` | сеансы |
 | `VIEW_NOT_FOUND`, `VIEW_FORBIDDEN`, `VIEW_LIMIT_REACHED`, `INVALID_VIEW_ID`, `VIEW_FAILED` | сохранённые виды |
 | `UNKNOWN_FILTER` | деталь `filters.<имя>` у 400 `INVALID_FILTER` |
 | `TIMER_ALREADY_RUNNING`, `NO_RUNNING_TIMER`, `TIME_ENTRY_NOT_FOUND`, `TIME_ENTRY_FORBIDDEN`, `INVALID_TIME_ENTRY`, `INVALID_TIME_ENTRY_ID`, `TIME_FAILED` | учёт времени |
