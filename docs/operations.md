@@ -198,6 +198,13 @@ SELECT id, event_type, attempts, last_error, dead_at FROM outbox_events WHERE de
   и `login_lockouts` отдельное (каждые 10 минут).
 - Результат пишется в журнал: `retention: removed old technical data`.
 
+## Тесты в CI
+
+Интеграционные тесты идут тремя параллельными заданиями (`Integration Tests (shard N/3)`): `scripts/shard-tests.sh` раздаёт тесты
+по очереди из отсортированного списка имён, у каждого задания свой раннер и своя база, поэтому они не мешают друг другу. Запустить
+одну долю локально: `go test -run "$(scripts/shard-tests.sh ./tests/integration 2 3)" ./tests/integration`. Число долей меняется в матрице
+`strategy.matrix` файла `.github/workflows/go.yml`. Новые тесты попадают в доли сами. Итоговый `CI Status` ждёт все три.
+
 ## Типовые сбои
 
 | Симптом | Причина и действие |
