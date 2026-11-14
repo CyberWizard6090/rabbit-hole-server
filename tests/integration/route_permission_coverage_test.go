@@ -26,6 +26,7 @@ var (
 		"GET /api/v1/notifications/events":            "authenticated by a single-use ticket issued to the signed-in user for their own feed",
 		"GET /api/v1/lists/:list_id/events":           "authenticated by a single-use ticket issued after a permission check",
 		"GET /api/v1/spaces/:space_id/events":         "authenticated by a single-use ticket issued after a permission check",
+		"GET /api/v1/documents/:document_id/events":   "authenticated by a single-use ticket issued after a permission check",
 		"GET /api/v1/images/:public_id":               "editor images and avatars are public by design; the id is a random 128-bit value",
 		"GET /api/v1/public/forms/:slug":              "published form schema is public",
 		"POST /api/v1/public/forms/:slug/submissions": "published form submission is public and rate limited",

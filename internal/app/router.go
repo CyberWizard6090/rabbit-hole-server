@@ -166,6 +166,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 			v1.GET("/notifications/events", deps.RealtimeHandler.ConnectNotifications)
 			v1.GET("/lists/:list_id/events", deps.RealtimeHandler.ConnectList)
 			v1.GET("/spaces/:space_id/events", deps.RealtimeHandler.ConnectSpace)
+			v1.GET("/documents/:document_id/events", deps.DocumentCollab.Connect)
 
 			protected := v1.Group("/")
 			protected.Use(middleware.AuthMiddleware(deps.AuthService))
@@ -477,6 +478,12 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					documents.POST("/snapshot",
 						inDocument(domain.PermDocUpdate),
 						documentSnapshotLimiter, deps.DocumentHandler.ReplaceSnapshot)
+					documents.POST("/events/ticket",
+						inDocument(domain.PermDocRead),
+						ticketLimiter, deps.DocumentCollab.IssueTicket)
+					documents.GET("/presence",
+						inDocument(domain.PermDocRead),
+						deps.DocumentCollab.Presence)
 					documents.GET("/blocks/activity",
 						inDocument(domain.PermDocRead),
 						deps.DocumentHandler.BlockActivity)

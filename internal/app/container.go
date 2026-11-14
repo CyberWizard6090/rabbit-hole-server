@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"rabbit-hole-server/internal/collab"
 	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/database"
 	"rabbit-hole-server/internal/domain"
@@ -73,6 +74,8 @@ type Container struct {
 	Realtime        *realtime.Hub
 	Metrics         *metrics.Metrics
 	RealtimeHandler *handler.RealtimeHandler
+	Collab          *collab.Manager
+	DocumentCollab  *handler.DocumentCollabHandler
 }
 
 func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
@@ -123,6 +126,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		opt(&options)
 	}
 	hub := realtime.NewHub(realtime.DefaultMaxConnectionsPerUser, slog.Default())
+	collabManager := collab.NewManager(collab.Limits{})
 	secretBox, err := service.NewSecretBox(cfg.JWT.Secret)
 	if err != nil {
 		return nil, fmt.Errorf("create secret box: %w", err)
@@ -250,14 +254,15 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 	if cfg.Metrics.Enabled {
 		instruments = metrics.New()
 		instruments.RegisterDB(sqlDB)
-		instruments.RegisterConnections(hub.Connections)
+		instruments.RegisterConnections(func() int { return hub.Connections() + collabManager.Connections() })
 		instruments.RegisterOutbox(outboxRepo, metricsQueueTTL)
 		eventWorker.WithObserver(instruments)
 		deliveryWorker.WithObserver(instruments)
 	}
 
 	notebookService := service.NewNotebookService(repository.NewNotebookRepository(db))
-	documentService := service.NewDocumentService(repository.NewDocumentRepository(db))
+	documentService := service.NewDocumentService(repository.NewDocumentRepository(db)).WithPublisher(collabManager)
+	realtimeHandler := handler.NewRealtimeHandler(hub, tickets, permissionChecker, cfg.AllowedOrigins).WithTokenVersions(authServ)
 
 	return &Container{
 		Metrics:             instruments,
@@ -312,7 +317,9 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		Ready:               sqlDB.PingContext,
 
 		Realtime:        hub,
-		RealtimeHandler: handler.NewRealtimeHandler(hub, tickets, permissionChecker, cfg.AllowedOrigins).WithTokenVersions(authServ),
+		RealtimeHandler: realtimeHandler,
+		Collab:          collabManager,
+		DocumentCollab:  handler.NewDocumentCollabHandler(realtimeHandler, collabManager, documentService, permissionChecker),
 	}, nil
 }
 

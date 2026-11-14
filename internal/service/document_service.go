@@ -3,18 +3,31 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"rabbit-hole-server/internal/collab"
 	"rabbit-hole-server/internal/domain"
 )
 
+// DocumentPublisher delivers stored updates to open connections of the document (the WebSocket rooms).
+type DocumentPublisher interface {
+	PublishUpdate(documentID uint, event collab.UpdateEvent)
+}
+
 type DocumentService struct {
-	repo domain.DocumentRepository
+	repo      domain.DocumentRepository
+	publisher DocumentPublisher
 }
 
 func NewDocumentService(repo domain.DocumentRepository) *DocumentService {
 	return &DocumentService{repo: repo}
+}
+
+// WithPublisher sets where stored updates are announced. Without it updates are only stored.
+func (s *DocumentService) WithPublisher(publisher DocumentPublisher) *DocumentService {
+	s.publisher = publisher
+	return s
 }
 
 type DocumentPatch struct {
@@ -101,7 +114,39 @@ func (s *DocumentService) AppendUpdate(ctx context.Context, id, userID uint, upd
 	if err != nil {
 		return 0, err
 	}
-	return s.repo.AppendUpdate(ctx, id, userID, update, blocks)
+	seq, err := s.repo.AppendUpdate(ctx, id, userID, update, blocks)
+	if err != nil {
+		return 0, err
+	}
+	// The update is committed: announce it to the open connections. The sender (collab.OriginFrom) gets an ack instead.
+	if s.publisher != nil {
+		s.publisher.PublishUpdate(id, collab.UpdateEvent{
+			Seq: seq, UserID: userID, Update: update, Origin: collab.OriginFrom(ctx), At: time.Now(),
+		})
+	}
+	return seq, nil
+}
+
+// Since returns the updates after `since`, or says that the history was compacted past it.
+func (s *DocumentService) Since(ctx context.Context, id uint, since int64) (collab.SyncResult, error) {
+	state, err := s.repo.State(ctx, id)
+	if err != nil {
+		return collab.SyncResult{}, err
+	}
+	if since < state.SnapshotSeq {
+		return collab.SyncResult{Resync: true, LastSeq: state.LastSeq}, nil
+	}
+	result := collab.SyncResult{LastSeq: state.LastSeq}
+	for _, change := range state.Updates {
+		if change.Seq > since {
+			result.Updates = append(result.Updates, collab.Change{Seq: change.Seq, UserID: change.UserID, Update: change.Update})
+		}
+	}
+	return result, nil
+}
+
+func (s *DocumentService) PublicUser(ctx context.Context, userID uint) (*domain.CommentUser, error) {
+	return s.repo.PublicUser(ctx, userID)
 }
 
 // ReplaceSnapshot stores a compacted state that already contains the updates up to uptoSeq.

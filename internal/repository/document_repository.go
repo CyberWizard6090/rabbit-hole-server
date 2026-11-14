@@ -386,3 +386,15 @@ func (r *documentRepository) BlockActivity(ctx context.Context, documentID uint,
 	}
 	return out, nil
 }
+
+func (r *documentRepository) PublicUser(ctx context.Context, userID uint) (*domain.CommentUser, error) {
+	users, err := loadPublicUsers(database.DBFromContext(ctx, r.db), []uint{userID})
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	user, ok := users[userID]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	return &user, nil
+}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"rabbit-hole-server/internal/collab"
 	"rabbit-hole-server/internal/config"
 	"rabbit-hole-server/internal/domain"
 	"rabbit-hole-server/internal/realtime"
@@ -21,6 +22,7 @@ import (
 type App struct {
 	router   *gin.Engine
 	realtime *realtime.Hub
+	collab   *collab.Manager
 
 	stopWorkers context.CancelFunc
 	running     sync.WaitGroup
@@ -44,7 +46,7 @@ func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 	r := SetupRouter(container, cfg)
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	a := &App{
-		router: r, realtime: container.Realtime, stopWorkers: stopWorkers,
+		router: r, realtime: container.Realtime, collab: container.Collab, stopWorkers: stopWorkers,
 	}
 	for _, worker := range container.Workers {
 		a.running.Add(1)
@@ -149,6 +151,9 @@ func (a *App) Close(ctx context.Context) error {
 	}
 	if a.realtime != nil {
 		a.realtime.Close()
+	}
+	if a.collab != nil {
+		a.collab.Close()
 	}
 	return closeErr
 }

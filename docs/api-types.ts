@@ -691,6 +691,13 @@ export interface Pagination {
   total: number;
 }
 
+export interface PresenceUser {
+  can_write: boolean;
+  /** Open tabs of this person. */
+  connections: number;
+  user: CommentUser;
+}
+
 export interface PublicForm {
   closed: boolean;
   description: string;
@@ -1346,6 +1353,15 @@ export interface Endpoints {
     status: 200;
     data: BlockActivity[];
   };
+  "GET /documents/{document_id}/events": {
+    params: { document_id: number };
+    query?: { since?: number; ticket: string };
+  };
+  "GET /documents/{document_id}/presence": {
+    params: { document_id: number };
+    status: 200;
+    data: PresenceUser[];
+  };
   "GET /documents/{document_id}/state": {
     params: { document_id: number };
     status: 200;
@@ -1815,6 +1831,11 @@ export interface Endpoints {
     params: { user_id: number };
     status: 200;
     data: Message;
+  };
+  "POST /documents/{document_id}/events/ticket": {
+    params: { document_id: number };
+    status: 200;
+    data: EventTicket;
   };
   "POST /documents/{document_id}/snapshot": {
     params: { document_id: number };

@@ -145,6 +145,8 @@ type DocumentRepository interface {
 	// ReplaceSnapshot stores a compacted state that covers updates up to uptoSeq and drops them.
 	ReplaceSnapshot(ctx context.Context, documentID uint, uptoSeq int64, state []byte) error
 	BlockActivity(ctx context.Context, documentID uint, blockID string, limit int) ([]BlockActivity, error)
+	// PublicUser returns the public fields of a user (never the e-mail address).
+	PublicUser(ctx context.Context, userID uint) (*CommentUser, error)
 }
 
 // DocumentEditingStats is for tests and metrics.

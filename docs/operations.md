@@ -105,7 +105,7 @@ scrape_configs:
 | `rabbit_hole_outbox_events_processed_total{event_type,result}` | исходы обработки этим процессом: `ok`, `retry`, `dead` |
 | `rabbit_hole_outbox_stats_up` | 1, если состояние очереди удалось прочитать |
 | `go_sql_*{db_name="main"}` | пул соединений: открыто, занято, ожидания (`go_sql_wait_count_total`) |
-| `rabbit_hole_websocket_connections` | открытые WebSocket этого процесса |
+| `rabbit_hole_websocket_connections` | открытые WebSocket этого процесса: ленты задач и комнаты документов вместе |
 | `go_*`, `process_*` | рантайм Go и процесс |
 
 Состояние очереди читается из базы не чаще раза в 10 секунд, сколько бы ни было сборщиков. Счётчики исходов и соединений считаются

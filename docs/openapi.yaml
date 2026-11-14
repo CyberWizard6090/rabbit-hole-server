@@ -912,6 +912,57 @@ paths:
         '409': {$ref: '#/components/responses/Error'}
         '413': {$ref: '#/components/responses/Error'}
         '429': {$ref: '#/components/responses/Error'}
+  /documents/{document_id}/events/ticket:
+    post:
+      tags: [realtime]
+      summary: "Issue a single-use WebSocket ticket for a document room"
+      description: Valid for about 30 seconds, for this document only. Rate limited to 60 requests per minute.
+      x-permission: doc.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: document_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/EventTicket'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /documents/{document_id}/events:
+    get:
+      tags: [realtime]
+      summary: "Edit a document together over WebSocket"
+      description: |
+        Upgrades to a WebSocket. Authenticated by the single-use ticket instead of a bearer token. Frames are JSON text messages;
+        the protocol is described in `docs/notebooks.md`. `since` is the number of the last update the client already has: the
+        server sends the updates after it right after `ready`, then `synced`. Whoever has `doc.update` may send `update`
+        frames; everyone with `doc.read` receives updates and presence. At most 100 connections per document and 20 per user.
+      security: []
+      parameters:
+        - {name: document_id, in: path, required: true, schema: {type: integer}}
+        - {name: ticket, in: query, required: true, schema: {type: string}}
+        - {name: since, in: query, required: false, schema: {type: integer, format: int64, minimum: 0}}
+      responses:
+        '101': {description: Switching Protocols}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /documents/{document_id}/presence:
+    get:
+      tags: [notebooks]
+      summary: "Who has the document open right now"
+      description: One entry per person, even with several tabs. Kept in memory of the server process; it is empty when nobody is connected.
+      x-permission: doc.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: document_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/PresenceArray'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
   /documents/{document_id}/blocks/activity:
     get:
       tags: [notebooks]
@@ -3693,6 +3744,15 @@ components:
             required: [data]
             properties:
               data: {type: array, items: {$ref: '#/components/schemas/BlockActivity'}}
+    PresenceArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/PresenceUser'}}
     SavedView:
       description: Success envelope
       content:
@@ -5302,6 +5362,13 @@ components:
       required: [upto_seq]
       properties:
         upto_seq: {type: integer, format: int64}
+    PresenceUser:
+      type: object
+      required: [user, connections, can_write]
+      properties:
+        user: {$ref: '#/components/schemas/CommentUser'}
+        connections: {type: integer, description: "Open tabs of this person."}
+        can_write: {type: boolean}
     BlockActivity:
       type: object
       required: [block_id, created_by, created_at, last_edited_by, last_edited_at]

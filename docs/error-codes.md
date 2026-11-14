@@ -275,6 +275,7 @@ list is stale. Regenerate it with `UPDATE_ERROR_CODES=1 go test ./internal/archi
 - `INVALID_ROLE`
 - `INVALID_SCHEME`
 - `INVALID_SEARCH_TYPES`
+- `INVALID_SINCE`
 - `INVALID_SLUG`
 - `INVALID_SORT`
 - `INVALID_SPACE_ID`
