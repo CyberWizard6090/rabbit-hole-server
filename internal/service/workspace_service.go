@@ -264,6 +264,10 @@ func (s *workspaceService) ChangeMemberRole(ctx context.Context, workspaceID, ac
 	if errors.Is(err, domain.ErrMemberNotFound) {
 		return ErrMemberTargetNotFound
 	}
+	if err == nil {
+		// Open feeds and document connections reconnect and are checked against the new role.
+		disconnectUserFeeds(s.revoker, targetID)
+	}
 	return err
 }
 

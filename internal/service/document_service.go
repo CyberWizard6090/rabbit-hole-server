@@ -13,6 +13,8 @@ import (
 // DocumentPublisher delivers stored updates to open connections of the document (the WebSocket rooms).
 type DocumentPublisher interface {
 	PublishUpdate(documentID uint, event collab.UpdateEvent)
+	// CloseDocument disconnects everyone who has the document open (it was deleted).
+	CloseDocument(documentID uint, reason string) int
 }
 
 type DocumentService struct {
@@ -72,7 +74,14 @@ func (s *DocumentService) Update(ctx context.Context, id uint, patch DocumentPat
 }
 
 func (s *DocumentService) Delete(ctx context.Context, id uint) error {
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	// Open connections learn it now, not at their next edit.
+	if s.publisher != nil {
+		s.publisher.CloseDocument(id, collab.ReasonDocumentClosed)
+	}
+	return nil
 }
 
 func (s *DocumentService) State(ctx context.Context, id uint) (*domain.DocumentState, error) {

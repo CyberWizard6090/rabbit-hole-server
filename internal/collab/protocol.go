@@ -59,8 +59,10 @@ const (
 	// MaxFrameBytes bounds one client frame: a 512 KiB update in base64 plus the envelope.
 	MaxFrameBytes = 1 << 20
 
-	ReasonSlowClient     = "client too slow"
-	ReasonAccessRevoked  = "access revoked"
+	ReasonSlowClient    = "client too slow"
+	ReasonAccessRevoked = "access revoked"
+	// ReasonAccessChanged closes a connection so that the client reconnects and its rights are checked again.
+	ReasonAccessChanged  = "access changed"
 	ReasonShuttingDown   = "server shutting down"
 	ReasonDocumentClosed = "document deleted"
 )

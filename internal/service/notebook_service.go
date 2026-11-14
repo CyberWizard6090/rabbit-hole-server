@@ -5,15 +5,23 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"rabbit-hole-server/internal/collab"
 	"rabbit-hole-server/internal/domain"
 )
 
 type NotebookService struct {
-	repo domain.NotebookRepository
+	repo      domain.NotebookRepository
+	publisher DocumentPublisher
 }
 
 func NewNotebookService(repo domain.NotebookRepository) *NotebookService {
 	return &NotebookService{repo: repo}
+}
+
+// WithPublisher sets where the closing of documents is announced (the WebSocket rooms).
+func (s *NotebookService) WithPublisher(publisher DocumentPublisher) *NotebookService {
+	s.publisher = publisher
+	return s
 }
 
 type NotebookInput struct {
@@ -104,5 +112,15 @@ func (s *NotebookService) Update(ctx context.Context, id uint, patch NotebookPat
 }
 
 func (s *NotebookService) Delete(ctx context.Context, id uint) error {
-	return s.repo.Delete(ctx, id)
+	deleted, err := s.repo.Delete(ctx, id)
+	if err != nil {
+		return err
+	}
+	// Everyone who has one of its documents open is disconnected at once.
+	if s.publisher != nil {
+		for _, documentID := range deleted {
+			s.publisher.CloseDocument(documentID, collab.ReasonDocumentClosed)
+		}
+	}
+	return nil
 }

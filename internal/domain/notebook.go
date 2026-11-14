@@ -124,7 +124,8 @@ type NotebookRepository interface {
 	Get(ctx context.Context, id uint) (*Notebook, error)
 	List(ctx context.Context, workspaceID uint) ([]Notebook, error)
 	Update(ctx context.Context, id uint, update NotebookUpdate) (*Notebook, error)
-	Delete(ctx context.Context, id uint) error
+	// Delete marks the notebook and its documents deleted and returns the ids of those documents.
+	Delete(ctx context.Context, id uint) ([]uint, error)
 	CountInWorkspace(ctx context.Context, workspaceID uint) (int64, error)
 }
 

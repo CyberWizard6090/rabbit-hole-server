@@ -127,6 +127,8 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 	}
 	hub := realtime.NewHub(realtime.DefaultMaxConnectionsPerUser, slog.Default())
 	collabManager := collab.NewManager(collab.Limits{})
+	// Sign-out, a removed member or a deleted workspace close both the task feeds and the document rooms.
+	revoker := connectionRevokers{hub, collabManager}
 	secretBox, err := service.NewSecretBox(cfg.JWT.Secret)
 	if err != nil {
 		return nil, fmt.Errorf("create secret box: %w", err)
@@ -163,12 +165,12 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 
 	accountEmail := service.NewAccountEmailService(userRepo, repository.NewEmailTokenRepository(db), sender, service.AccountEmailConfig{
 		FrontendURL: cfg.Mail.FrontendURL, VerificationTTL: cfg.Mail.VerificationTTL, ResetTTL: cfg.Mail.ResetTTL,
-	}).WithConnectionRevoker(hub)
+	}).WithConnectionRevoker(revoker)
 	emailChange := service.NewEmailChangeService(userRepo, repository.NewEmailChangeRepository(db), sender, cfg.Mail.FrontendURL)
 	authServ := service.NewAuthService(userRepo, cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL).
 		WithVerificationSender(accountEmail).
 		WithRequireVerifiedEmail(cfg.Mail.RequireVerifiedEmail).
-		WithConnectionRevoker(hub).
+		WithConnectionRevoker(revoker).
 		WithLoginBackoff(lockout).
 		WithSecurityNotifier(accountEmail)
 	authHandler := handler.NewAuthHandler(authServ, cfg.SecureCookies())
@@ -239,7 +241,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 	).WithTransactions(transactions).WithWorkspaceAudit(repository.NewWorkspaceAuditRepository(db))
 	authServ.WithAvatarRemover(fileService)
 	workspaceAudit := repository.NewWorkspaceAuditRepository(db)
-	workspaceService := service.NewWorkspaceServiceWithAvatars(workspaceRepo, hub, permissionChecker, fileService).
+	workspaceService := service.NewWorkspaceServiceWithAvatars(workspaceRepo, revoker, permissionChecker, fileService).
 		WithAudit(workspaceAudit, transactions)
 	formUploadService := service.NewFormUploadService(
 		formRepo, formUploadRepo, store, cfg.Forms.UploadMaxBytes, cfg.Forms.UploadTTL,
@@ -260,7 +262,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		deliveryWorker.WithObserver(instruments)
 	}
 
-	notebookService := service.NewNotebookService(repository.NewNotebookRepository(db))
+	notebookService := service.NewNotebookService(repository.NewNotebookRepository(db)).WithPublisher(collabManager)
 	documentService := service.NewDocumentService(repository.NewDocumentRepository(db)).WithPublisher(collabManager)
 	realtimeHandler := handler.NewRealtimeHandler(hub, tickets, permissionChecker, cfg.AllowedOrigins).WithTokenVersions(authServ)
 
@@ -377,4 +379,23 @@ func newNotifications(
 			service.NewNotificationChannelService(channelRepo, source, registry),
 		),
 	}, nil
+}
+
+// connectionRevokers disconnects a user from every kind of realtime connection.
+type connectionRevokers []service.ConnectionRevoker
+
+func (all connectionRevokers) DisconnectUser(userID uint) int {
+	total := 0
+	for _, revoker := range all {
+		total += revoker.DisconnectUser(userID)
+	}
+	return total
+}
+
+func (all connectionRevokers) DisconnectUserFeeds(userID uint) int {
+	total := 0
+	for _, revoker := range all {
+		total += revoker.DisconnectUserFeeds(userID)
+	}
+	return total
 }

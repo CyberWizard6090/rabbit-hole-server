@@ -291,3 +291,76 @@ func TestBucketLimitsBursts(t *testing.T) {
 		t.Fatalf("a burst of 2x the rate should pass, got %d", allowed)
 	}
 }
+
+func TestCloseDocumentDisconnectsOnlyThatRoom(t *testing.T) {
+	m := NewManager(Limits{})
+	a := join(t, m, 1, user(1, "ann"), true)
+	b := join(t, m, 1, user(2, "bob"), true)
+	other := join(t, m, 2, user(3, "cy"), true)
+
+	if closed := m.CloseDocument(1, ReasonDocumentClosed); closed != 2 {
+		t.Fatalf("closed %d connections, want 2", closed)
+	}
+
+	for _, p := range []*Peer{a, b} {
+		<-p.Done()
+
+		if p.Reason() != ReasonDocumentClosed {
+			t.Fatalf("reason = %q", p.Reason())
+		}
+	}
+
+	select {
+	case <-other.Done():
+		t.Fatal("another document must stay open")
+	default:
+	}
+
+	if m.CloseDocument(99, ReasonDocumentClosed) != 0 {
+		t.Fatal("a document nobody has open has nothing to close")
+	}
+}
+
+func TestDisconnectUserClosesEveryRoomOfThatUserOnly(t *testing.T) {
+	m := NewManager(Limits{})
+	one := join(t, m, 1, user(1, "ann"), true)
+	two := join(t, m, 2, user(1, "ann"), true)
+	bob := join(t, m, 1, user(2, "bob"), true)
+
+	if m.DisconnectUserFeeds(1) != 2 {
+		t.Fatal("ann has two connections")
+	}
+
+	for _, p := range []*Peer{one, two} {
+		<-p.Done()
+
+		if p.Reason() != ReasonAccessChanged {
+			t.Fatalf("reason = %q: the client must reconnect and be checked again", p.Reason())
+		}
+	}
+
+	select {
+	case <-bob.Done():
+		t.Fatal("other people stay connected")
+	default:
+	}
+
+	if m.DisconnectUser(1) != 2 || m.DisconnectUser(9) != 0 {
+		t.Fatal("DisconnectUser counts the user's open connections")
+	}
+}
+
+func TestPerUserLimitFollowsJoinsAndLeaves(t *testing.T) {
+	m := NewManager(Limits{PeersPerUser: 2})
+	a := join(t, m, 1, user(1, "ann"), true)
+	b := join(t, m, 2, user(1, "ann"), true)
+
+	if _, err := m.Join(3, user(1, "ann"), true); err != ErrTooManyConnections {
+		t.Fatalf("third connection: %v", err)
+	}
+
+	m.Leave(a)
+	m.Leave(a)
+	join(t, m, 3, user(1, "ann"), true)
+	m.Leave(b)
+}

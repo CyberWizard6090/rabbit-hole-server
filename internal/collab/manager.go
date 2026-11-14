@@ -119,7 +119,7 @@ type Manager struct {
 
 	mu      sync.Mutex
 	rooms   map[uint]*room
-	perUser map[uint]int
+	perUser map[uint]map[*Peer]struct{}
 	closed  bool
 	nextID  atomic.Uint64
 	now     func() time.Time
@@ -129,7 +129,7 @@ func NewManager(limits Limits) *Manager {
 	return &Manager{
 		limits:  limits.withDefaults(),
 		rooms:   make(map[uint]*room),
-		perUser: make(map[uint]int),
+		perUser: make(map[uint]map[*Peer]struct{}),
 		now:     time.Now,
 	}
 }
@@ -154,7 +154,7 @@ func (m *Manager) Join(documentID uint, user domain.CommentUser, canWrite bool) 
 		return nil, ErrManagerClosed
 	}
 
-	if m.perUser[user.ID] >= m.limits.PeersPerUser {
+	if len(m.perUser[user.ID]) >= m.limits.PeersPerUser {
 		return nil, ErrTooManyConnections
 	}
 
@@ -197,7 +197,11 @@ func (m *Manager) Join(documentID uint, user domain.CommentUser, canWrite bool) 
 	}
 
 	r.peers[peer] = struct{}{}
-	m.perUser[user.ID]++
+	if m.perUser[user.ID] == nil {
+		m.perUser[user.ID] = make(map[*Peer]struct{})
+	}
+
+	m.perUser[user.ID][peer] = struct{}{}
 
 	return peer, nil
 }
@@ -223,10 +227,10 @@ func (m *Manager) Leave(peer *Peer) {
 
 	peer.mu.Unlock()
 
-	if m.perUser[peer.User.ID] <= 1 {
+	delete(m.perUser[peer.User.ID], peer)
+
+	if len(m.perUser[peer.User.ID]) == 0 {
 		delete(m.perUser, peer.User.ID)
-	} else {
-		m.perUser[peer.User.ID]--
 	}
 
 	if len(r.peers) == 0 {
@@ -370,6 +374,50 @@ func (m *Manager) Kick(documentID, userID uint, reason string) int {
 	}
 
 	return count
+}
+
+// CloseDocument disconnects everyone in a document (it was deleted). Clients that get ReasonDocumentClosed do not
+// reconnect. It returns how many connections were closed.
+func (m *Manager) CloseDocument(documentID uint, reason string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	r := m.rooms[documentID]
+
+	if r == nil {
+		return 0
+	}
+
+	for peer := range r.peers {
+		peer.kick(reason)
+	}
+
+	return len(r.peers)
+}
+
+// DisconnectUser disconnects every connection of a user in every document (sign-out everywhere, password change).
+// The client reconnects with a new ticket, which is refused when the session is gone. It implements
+// service.ConnectionRevoker.
+func (m *Manager) DisconnectUser(userID uint) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	count := 0
+
+	for peer := range m.perUser[userID] {
+		peer.kick(ReasonAccessChanged)
+
+		count++
+	}
+
+	return count
+}
+
+// DisconnectUserFeeds is called when a user's access to workspaces changed (removed, role changed, workspace deleted):
+// their document connections are closed and reconnect, which checks their rights again. It implements
+// service.ConnectionRevoker.
+func (m *Manager) DisconnectUserFeeds(userID uint) int {
+	return m.DisconnectUser(userID)
 }
 
 // Connections is the number of open connections, for metrics.

@@ -129,9 +129,11 @@ func (r *notebookRepository) Update(ctx context.Context, id uint, update domain.
 	return r.Get(ctx, id)
 }
 
-// Delete marks the notebook and its documents deleted with one transaction, like a list and its tasks.
-func (r *notebookRepository) Delete(ctx context.Context, id uint) error {
-	return database.WithTransaction(ctx, r.db, func(txCtx context.Context) error {
+// Delete marks the notebook and its documents deleted with one transaction, like a list and its tasks. It returns
+// the ids of the documents it deleted, so that open connections to them can be closed.
+func (r *notebookRepository) Delete(ctx context.Context, id uint) ([]uint, error) {
+	var documents []uint
+	err := database.WithTransaction(ctx, r.db, func(txCtx context.Context) error {
 		tx := database.DBFromContext(txCtx, r.db)
 		res := tx.Exec("UPDATE notebooks SET deleted_at = now() WHERE id = ? AND deleted_at IS NULL", id)
 		if res.Error != nil {
@@ -140,8 +142,14 @@ func (r *notebookRepository) Delete(ctx context.Context, id uint) error {
 		if res.RowsAffected == 0 {
 			return domain.ErrNotebookNotFound
 		}
-		return mapErr(tx.Exec("UPDATE documents SET deleted_at = now() WHERE notebook_id = ? AND deleted_at IS NULL", id).Error)
+		return mapErr(tx.Raw(
+			"UPDATE documents SET deleted_at = now() WHERE notebook_id = ? AND deleted_at IS NULL RETURNING id", id,
+		).Scan(&documents).Error)
 	})
+	if err != nil {
+		return nil, err
+	}
+	return documents, nil
 }
 
 func (r *notebookRepository) CountInWorkspace(ctx context.Context, workspaceID uint) (int64, error) {

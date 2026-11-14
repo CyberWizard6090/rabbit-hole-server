@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -340,7 +341,8 @@ func TestDocumentRoom_BadFramesAreRefusedWithoutClosing(t *testing.T) {
 	client.send(t, map[string]any{"type": "awareness", "state": map[string]any{"still": "open"}})
 }
 
-func TestDocumentRoom_RevokedAccessClosesTheConnection(t *testing.T) {
+func TestDocumentRoom_RecheckClosesAConnectionWhoseAccessWasRevokedWithoutANotice(t *testing.T) {
+	// The membership is removed straight in the database, so nothing tells the room: only the periodic recheck can.
 	e := newRoomEnv(t, collab.Options{RecheckInterval: 100 * time.Millisecond})
 	guest := e.dial(t, e.guest, nil)
 	guest.expect(t, "ready")
@@ -349,12 +351,136 @@ func TestDocumentRoom_RevokedAccessClosesTheConnection(t *testing.T) {
 	if err := e.tc.DB.Raw("SELECT id FROM users WHERE email = ?", "nb-guest@example.test").Scan(&guestID).Error; err != nil || guestID == 0 {
 		t.Fatalf("find the guest: %v", err)
 	}
-	e.call(t, http.MethodDelete, membersPath(e.owner.workspaceID, "/"+itoa(guestID)), e.owner.token, nil, http.StatusOK)
+	if err := e.tc.DB.Exec("UPDATE workspace_members SET deleted_at = now() WHERE user_id = ? AND workspace_id = ?", guestID, e.owner.workspaceID).Error; err != nil {
+		t.Fatal(err)
+	}
 
+	code, reason := guest.closedWith(t)
+	if code != websocket.StatusPolicyViolation || reason != "access revoked" {
+		t.Fatalf("got %d %q, want a policy violation with the reason that stops clients from reconnecting", code, reason)
+	}
+}
+
+// closedWith waits for the server to close the connection and returns the close status and reason.
+func (c *roomClient) closedWith(t *testing.T) (websocket.StatusCode, string) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_, _, err := guest.conn.Read(ctx)
-	if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
-		t.Fatalf("a removed member must be disconnected with a policy violation, got %v", err)
+	for {
+		_, _, err := c.conn.Read(ctx)
+		if err == nil {
+			continue // frames queued before the close (presence, ...)
+		}
+		var closed websocket.CloseError
+		if errors.As(err, &closed) {
+			return closed.Code, closed.Reason
+		}
+		t.Fatalf("the connection should be closed by the server, got %v", err)
 	}
+}
+
+func TestDocumentRoom_DeletingTheDocumentClosesTheRoomAtOnce(t *testing.T) {
+	e := newRoomEnv(t, collab.Options{})
+	member := e.dial(t, e.member, nil)
+	member.expect(t, "ready")
+	owner := e.dial(t, e.owner.token, nil)
+	owner.expect(t, "ready")
+
+	e.call(t, http.MethodDelete, "/api/v1/documents/"+itoa(e.docID), e.member, nil, http.StatusOK)
+
+	for _, client := range []*roomClient{member, owner} {
+		if _, reason := client.closedWith(t); reason != "document deleted" {
+			t.Fatalf("reason = %q, want the reason that tells clients not to reconnect", reason)
+		}
+	}
+	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/events/ticket", e.member, nil, http.StatusForbidden)
+}
+
+func TestDocumentRoom_DeletingTheNotebookClosesEveryDocumentOfIt(t *testing.T) {
+	e := newRoomEnv(t, collab.Options{})
+	var notebookID uint
+	if err := e.tc.DB.Raw("SELECT notebook_id FROM documents WHERE id = ?", e.docID).Scan(&notebookID).Error; err != nil || notebookID == 0 {
+		t.Fatalf("find the notebook: %v", err)
+	}
+	first := e.dial(t, e.member, nil)
+	first.expect(t, "ready")
+
+	elsewhereNotebook := e.newNotebook(t, "elsewhere")
+	elsewhere := e.newDocument(t, elsewhereNotebook, "stays")
+	staying := &roomEnv{notebookEnv: e.notebookEnv, rt: e.rt, docID: elsewhere}
+	stay := staying.dial(t, e.member, nil)
+	stay.expect(t, "ready")
+
+	e.call(t, http.MethodDelete, "/api/v1/notebooks/"+itoa(notebookID), e.owner.token, nil, http.StatusOK)
+
+	if _, reason := first.closedWith(t); reason != "document deleted" {
+		t.Fatalf("reason = %q", reason)
+	}
+	// A document of another notebook is not affected.
+	stay.send(t, map[string]any{"type": "update", "update": b64("still open"), "ref": "s"})
+	if ack := stay.expect(t, "ack"); ack["seq"].(float64) != 1 {
+		t.Fatalf("ack: %v", ack)
+	}
+}
+
+func TestDocumentRoom_RemovingAMemberDisconnectsThemAtOnce(t *testing.T) {
+	// The periodic recheck is two minutes by default: closing must not wait for it.
+	e := newRoomEnv(t, collab.Options{})
+	member := e.dial(t, e.member, nil)
+	member.expect(t, "ready")
+	owner := e.dial(t, e.owner.token, nil)
+	owner.expect(t, "ready")
+	member.expect(t, "peer_joined")
+
+	e.call(t, http.MethodDelete, membersPath(e.owner.workspaceID, "/"+itoa(e.memberID)), e.owner.token, nil, http.StatusOK)
+
+	if _, reason := member.closedWith(t); reason != "access changed" {
+		t.Fatalf("reason = %q: the client reconnects and is refused by the ticket", reason)
+	}
+	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/events/ticket", e.member, nil, http.StatusForbidden)
+
+	// Everyone else stays.
+	if left := owner.expect(t, "peer_left"); left["type"] != "peer_left" {
+		t.Fatalf("the owner is told that the member left: %v", left)
+	}
+	owner.send(t, map[string]any{"type": "update", "update": b64("owner goes on"), "ref": "o"})
+	owner.expect(t, "ack")
+}
+
+func TestDocumentRoom_ChangingARoleReconnectsThemWithTheNewRights(t *testing.T) {
+	e := newRoomEnv(t, collab.Options{})
+	member := e.dial(t, e.member, nil)
+	if ready := member.expect(t, "ready"); ready["can_write"] != true {
+		t.Fatalf("a member may write: %v", ready)
+	}
+
+	e.call(t, http.MethodPatch, membersPath(e.owner.workspaceID, "/"+itoa(e.memberID)), e.owner.token, map[string]any{"role": "Guest"}, http.StatusOK)
+
+	if _, reason := member.closedWith(t); reason != "access changed" {
+		t.Fatalf("reason = %q", reason)
+	}
+	again := e.dial(t, e.member, nil)
+	if ready := again.expect(t, "ready"); ready["can_write"] != false {
+		t.Fatalf("after becoming a guest the member only reads: %v", ready)
+	}
+}
+
+func TestDocumentRoom_DeletingTheWorkspaceAndSigningOutEverywhereDisconnect(t *testing.T) {
+	e := newRoomEnv(t, collab.Options{})
+	guest := e.dial(t, e.guest, nil)
+	guest.expect(t, "ready")
+	member := e.dial(t, e.member, nil)
+	member.expect(t, "ready")
+
+	e.call(t, http.MethodPost, "/api/v1/auth/logout-all", e.member, nil, http.StatusOK)
+	if _, reason := member.closedWith(t); reason != "access changed" {
+		t.Fatalf("sign-out reason = %q", reason)
+	}
+	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/events/ticket", e.member, nil, http.StatusUnauthorized)
+
+	e.call(t, http.MethodDelete, "/api/v1/workspaces/"+itoa(e.owner.workspaceID), e.owner.token, nil, http.StatusOK)
+	if _, reason := guest.closedWith(t); reason != "access changed" {
+		t.Fatalf("workspace deletion reason = %q", reason)
+	}
+	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/events/ticket", e.guest, nil, http.StatusForbidden)
 }
