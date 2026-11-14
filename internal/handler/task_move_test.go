@@ -27,6 +27,14 @@ func (p *permissionCheckerStub) HasSpacePermission(context.Context, uint, uint, 
 func (p *permissionCheckerStub) HasFolderPermission(context.Context, uint, uint, string) (bool, error) {
 	return true, nil
 }
+
+func (p *permissionCheckerStub) HasNotebookPermission(ctx context.Context, userID, resourceID uint, code string) (bool, error) {
+	return p.HasFolderPermission(ctx, userID, resourceID, code)
+}
+
+func (p *permissionCheckerStub) HasDocumentPermission(ctx context.Context, userID, resourceID uint, code string) (bool, error) {
+	return p.HasFolderPermission(ctx, userID, resourceID, code)
+}
 func (p *permissionCheckerStub) HasListPermission(_ context.Context, _ uint, listID uint, code string) (bool, error) {
 	p.listCalls = append(p.listCalls, listID)
 	p.code = code

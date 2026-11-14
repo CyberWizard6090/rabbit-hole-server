@@ -35,6 +35,7 @@ wrong, how to fix it); secret values are never printed. `go run ./cmd/migrate` c
 - [`docs/architecture.md`](docs/architecture.md): layers, request flow, transactions, soft delete, schema map
 - [`docs/permissions.md`](docs/permissions.md): roles, permission codes, tokens and sign-in protection
 - [`docs/forms.md`](docs/forms.md): forms, public submissions, task creation, templates, custom fields
+- [`docs/notebooks.md`](docs/notebooks.md): notebooks and collaborative documents (Yjs), update intake, who edited a block
 - [`docs/notifications.md`](docs/notifications.md): events, channels, webhook signing, preferences
 - [`docs/operations.md`](docs/operations.md): runbook, migrations, limits, failures, release checklist
 - [`docs/performance.md`](docs/performance.md): load test results, findings and how to repeat the run (`make loadtest`)

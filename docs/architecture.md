@@ -96,6 +96,7 @@ handler  ->  service  ->  repository  ->  PostgreSQL
 | Структура | `spaces`, `folders`, `lists`, `task_statuses` |
 | Задачи | `tasks`, `tags`, `task_tags`, `task_assignees`, `task_comments`, `task_checklists`, `task_activities`, `files` |
 | Поля и шаблоны | `custom_fields`, `custom_field_options`, `task_custom_field_values`, `task_templates`, `task_template_versions` |
+| Блокноты | `notebooks`, `documents`, `document_snapshots`, `document_updates`, `document_block_activity` |
 | Формы | `forms`, `form_slug_aliases`, `form_versions`, `form_questions`, `form_question_options`, `form_submissions`, `submission_answers`, `form_task_configs`, `form_submission_tasks`, `form_uploads`, `form_idempotency_keys` |
 | Уведомления | `notifications`, `notification_preferences`, `notification_settings`, `notification_channels`, `channel_confirmations`, `task_watchers` |
 | Очередь и служебное | `outbox_events` (надёжная доставка), `rate_limit_windows`, `login_lockouts`, `login_devices`, поисковые индексы `pg_trgm` |

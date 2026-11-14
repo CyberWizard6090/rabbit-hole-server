@@ -31,3 +31,15 @@ func liveTaskPredicate(task string) string {
 func liveWorkspacePredicate(workspaceID string) string {
 	return "EXISTS (SELECT 1 FROM workspaces lw WHERE lw.id = " + workspaceID + " AND lw.deleted_at IS NULL)"
 }
+
+const liveNotebookSQL = "EXISTS (SELECT 1 FROM notebooks nv " +
+	"JOIN workspaces wn ON wn.id = nv.workspace_id AND wn.deleted_at IS NULL " +
+	"WHERE nv.id = %s AND nv.deleted_at IS NULL)"
+
+func liveNotebookPredicate(notebookID string) string {
+	return fmt.Sprintf(liveNotebookSQL, notebookID)
+}
+
+func liveDocumentPredicate(document string) string {
+	return "(" + document + ".deleted_at IS NULL AND " + liveNotebookPredicate(document+".notebook_id") + ")"
+}

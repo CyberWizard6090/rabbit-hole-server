@@ -80,6 +80,7 @@ tags:
   - name: profile
   - name: contacts
   - name: workspaces
+  - name: notebooks
   - name: forms
   - name: task-templates
   - name: custom-fields
@@ -661,6 +662,272 @@ paths:
         - {name: view_id, in: path, required: true, schema: {type: integer}}
       responses:
         '200': {$ref: '#/components/responses/Message'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /workspaces/{workspace_id}/notebooks:
+    get:
+      tags: [notebooks]
+      summary: "Notebooks of a workspace"
+      description: |
+        In creation order (then by `position`). `document_count` counts live documents. Notebooks live at workspace level, next to spaces.
+      x-permission: doc.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/NotebookArray'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [notebooks]
+      summary: "Create a notebook"
+      description: |
+        `name` (up to 255 characters) and an optional `description` (up to 2 000). At most 200 notebooks per workspace (409 `NOTEBOOK_LIMIT_REACHED`).
+      x-permission: doc.create
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: workspace_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateNotebookRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Notebook'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /notebooks/{notebook_id}:
+    get:
+      tags: [notebooks]
+      summary: "A notebook"
+      x-permission: doc.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: notebook_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Notebook'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [notebooks]
+      summary: "Change a notebook"
+      description: |
+        `name`, `description` (`null` clears it) and `position` (smaller values come first).
+      x-permission: doc.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: notebook_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateNotebookRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Notebook'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [notebooks]
+      summary: "Delete a notebook with its documents"
+      description: |
+        The notebook and all its documents are marked deleted in one transaction; afterwards every route of them answers 403.
+      x-permission: doc.delete
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: notebook_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Message'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /notebooks/{notebook_id}/documents:
+    get:
+      tags: [notebooks]
+      summary: "Documents of a notebook"
+      description: |
+        Ordered by `position`, then creation. `page`/`limit` as in other lists.
+      x-permission: doc.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: notebook_id, in: path, required: true, schema: {type: integer}}
+        - {name: page, in: query, required: false, schema: {type: integer}}
+        - {name: limit, in: query, required: false, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/DocumentPage'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+    post:
+      tags: [notebooks]
+      summary: "Create a document"
+      description: |
+        `title` (up to 255 characters). The server creates the initial Yjs state (a page with one note and one empty paragraph); the first client never creates it. At most 5 000 documents per notebook (409 `DOCUMENT_LIMIT_REACHED`).
+      x-permission: doc.create
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: notebook_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateDocumentRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/Document'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+  /documents/{document_id}:
+    get:
+      tags: [notebooks]
+      summary: "A document (metadata only)"
+      description: |
+        `last_seq` is the number of the last stored update; `last_edited_by` and `last_edited_at` show who changed the content last.
+      x-permission: doc.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: document_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Document'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    patch:
+      tags: [notebooks]
+      summary: "Rename, reorder or move a document"
+      description: |
+        `notebook_id` moves the document to another live notebook of the same workspace (404 `NOTEBOOK_NOT_FOUND` otherwise); it goes to the end unless `position` is given.
+      x-permission: doc.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: document_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateDocumentRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Document'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+    delete:
+      tags: [notebooks]
+      summary: "Delete a document"
+      x-permission: doc.delete
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: document_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/Message'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /documents/{document_id}/state:
+    get:
+      tags: [notebooks]
+      summary: "What a client needs to open a document"
+      description: |
+        The compacted Yjs state (`snapshot`, base64) and the updates after it, oldest first. A client applies the snapshot and then each update
+        (`Y.applyUpdate`) to get the current document. `needs_compaction` is true when many updates follow the snapshot: the client should then send
+        a snapshot (`POST /documents/{id}/snapshot`). The server stores the bytes and never decodes them.
+      x-permission: doc.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: document_id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/DocumentState'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+  /documents/{document_id}/updates:
+    post:
+      tags: [notebooks]
+      summary: "Append one collaborative edit"
+      description: |
+        `update` is one Yjs update (base64, up to 512 KiB; 413 `DOCUMENT_UPDATE_TOO_LARGE`). `touched` lists the ids of the blocks it changed (up to 200, each up to 100
+        characters); they feed the per-block record of who created and who last edited a block. The author is always the authenticated user.
+        Updates of one document get consecutive numbers `seq` (1, 2, 3, ...) in the order the server stored them. Limited to 600 per minute per user.
+      x-permission: doc.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: document_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DocumentUpdateRequest'}
+      responses:
+        '201': {$ref: '#/components/responses/DocumentUpdateResult'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '413': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /documents/{document_id}/snapshot:
+    post:
+      tags: [notebooks]
+      summary: "Replace the history up to an update with a compacted state"
+      description: |
+        `state` is the whole document state (base64, up to 8 MiB) that already contains every update up to `upto_seq`. The server stores it and drops those updates.
+        `upto_seq` must be larger than the current snapshot number and not larger than `last_seq` (409 `DOCUMENT_SNAPSHOT_CONFLICT`). The server does not decode the state:
+        only send a snapshot you built from `/state` plus the updates you applied.
+      x-permission: doc.update
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: document_id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DocumentSnapshotRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/DocumentSnapshotResult'}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '413': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /documents/{document_id}/blocks/activity:
+    get:
+      tags: [notebooks]
+      summary: "Who created and who last edited blocks"
+      description: |
+        Newest edit first. `block_id` limits the answer to one block; `limit` is 1..500 (default 500). Users are shown with public fields only.
+      x-permission: doc.read
+      security:
+        - bearerAuth: []
+      parameters:
+        - {name: document_id, in: path, required: true, schema: {type: integer}}
+        - {name: block_id, in: query, required: false, schema: {type: string}}
+        - {name: limit, in: query, required: false, schema: {type: integer}}
+      responses:
+        '200': {$ref: '#/components/responses/BlockActivityArray'}
+        '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -3353,6 +3620,79 @@ components:
             properties:
               data: {type: array, items: {$ref: '#/components/schemas/WorkspaceSummary'}}
               pagination: {$ref: '#/components/schemas/Pagination'}
+    Notebook:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Notebook'}
+    NotebookArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Notebook'}}
+    Document:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/Document'}
+    DocumentPage:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, pagination]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/Document'}}
+              pagination: {$ref: '#/components/schemas/Pagination'}
+    DocumentState:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/DocumentState'}
+    DocumentUpdateResult:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/DocumentUpdateResult'}
+    DocumentSnapshotResult:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {$ref: '#/components/schemas/DocumentSnapshotResult'}
+    BlockActivityArray:
+      description: Success envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {type: array, items: {$ref: '#/components/schemas/BlockActivity'}}
     SavedView:
       description: Success envelope
       content:
@@ -4906,6 +5246,106 @@ components:
         sort: {type: string}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
+    Notebook:
+      type: object
+      required: [id, workspace_id, name, description, position, document_count, created_by, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        workspace_id: {type: integer}
+        name: {type: string}
+        description: {type: string, nullable: true}
+        position: {type: integer, format: int64}
+        document_count: {type: integer, format: int64}
+        created_by: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    Document:
+      type: object
+      required: [id, workspace_id, notebook_id, title, position, last_seq, created_by, last_edited_by, last_edited_at, created_at, updated_at]
+      properties:
+        id: {type: integer}
+        workspace_id: {type: integer}
+        notebook_id: {type: integer}
+        title: {type: string}
+        position: {type: integer, format: int64}
+        last_seq: {type: integer, format: int64}
+        created_by: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+        last_edited_by: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+        last_edited_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    DocumentChange:
+      type: object
+      required: [seq, update, created_at, author]
+      properties:
+        seq: {type: integer, format: int64}
+        update: {type: string, format: byte, description: "One Yjs update, base64."}
+        created_at: {type: string, format: date-time}
+        author: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+    DocumentState:
+      type: object
+      required: [format, snapshot_seq, snapshot, updates, last_seq, needs_compaction]
+      properties:
+        format: {type: integer, description: "Version of the inkbrick-yjs document format."}
+        snapshot_seq: {type: integer, format: int64, description: "Updates up to this number are already merged into `snapshot`."}
+        snapshot: {type: string, format: byte, description: "Compacted Yjs state, base64."}
+        updates: {type: array, items: {$ref: '#/components/schemas/DocumentChange'}}
+        last_seq: {type: integer, format: int64}
+        needs_compaction: {type: boolean}
+    DocumentUpdateResult:
+      type: object
+      required: [seq]
+      properties:
+        seq: {type: integer, format: int64}
+    DocumentSnapshotResult:
+      type: object
+      required: [upto_seq]
+      properties:
+        upto_seq: {type: integer, format: int64}
+    BlockActivity:
+      type: object
+      required: [block_id, created_by, created_at, last_edited_by, last_edited_at]
+      properties:
+        block_id: {type: string}
+        created_by: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+        created_at: {type: string, format: date-time}
+        last_edited_by: {allOf: [{$ref: '#/components/schemas/CommentUser'}], nullable: true}
+        last_edited_at: {type: string, format: date-time}
+    CreateNotebookRequest:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string, maxLength: 255}
+        description: {type: string, maxLength: 2000, nullable: true}
+    UpdateNotebookRequest:
+      type: object
+      properties:
+        name: {type: string, maxLength: 255}
+        description: {type: string, maxLength: 2000, nullable: true}
+        position: {type: integer, format: int64, minimum: 0}
+    CreateDocumentRequest:
+      type: object
+      required: [title]
+      properties:
+        title: {type: string, maxLength: 255}
+    UpdateDocumentRequest:
+      type: object
+      properties:
+        title: {type: string, maxLength: 255}
+        position: {type: integer, format: int64, minimum: 0}
+        notebook_id: {type: integer, minimum: 1}
+    DocumentUpdateRequest:
+      type: object
+      required: [update]
+      properties:
+        update: {type: string, format: byte, description: "One Yjs update, base64, up to 512 KiB."}
+        touched: {type: array, maxItems: 200, items: {type: string, maxLength: 100}}
+    DocumentSnapshotRequest:
+      type: object
+      required: [upto_seq, state]
+      properties:
+        upto_seq: {type: integer, format: int64, minimum: 1}
+        state: {type: string, format: byte, description: "Whole document state, base64, up to 8 MiB."}
     AuditEntry:
       type: object
       required: [id, action, actor, target, changes, created_at]

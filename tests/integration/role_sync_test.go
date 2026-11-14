@@ -51,8 +51,8 @@ func TestRoleSync_RestoresDefaultRolesInExistingWorkspaces(t *testing.T) {
 		t.Fatal("a permission that is not part of the Guest role was left in place")
 	}
 	if n := countRows(t, tc, `SELECT count(*) FROM role_permissions rp JOIN roles r ON r.id = rp.role_id
-		WHERE r.workspace_id = ? AND r.name = 'Member' AND rp.deleted_at IS NULL`, owner.workspaceID); n != 8 {
-		t.Fatalf("Member permissions = %d, want the 8 defaults", n)
+		WHERE r.workspace_id = ? AND r.name = 'Member' AND rp.deleted_at IS NULL`, owner.workspaceID); n != 12 {
+		t.Fatalf("Member permissions = %d, want the 12 defaults", n)
 	}
 
 	again, err := container.SyncAccess(context.Background())

@@ -28,6 +28,12 @@ func (ownerOnlyAdminManagement) HasListPermission(context.Context, uint, uint, s
 func (ownerOnlyAdminManagement) HasTaskPermission(context.Context, uint, uint, string) (bool, error) {
 	return false, nil
 }
+func (ownerOnlyAdminManagement) HasNotebookPermission(context.Context, uint, uint, string) (bool, error) {
+	return false, nil
+}
+func (ownerOnlyAdminManagement) HasDocumentPermission(context.Context, uint, uint, string) (bool, error) {
+	return false, nil
+}
 
 type memberRepoStub struct {
 	workspaceRepositoryMock

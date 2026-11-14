@@ -77,6 +77,14 @@ export interface AvatarUrl {
   avatar_url: string;
 }
 
+export interface BlockActivity {
+  block_id: string;
+  created_at: string;
+  created_by: CommentUser | null;
+  last_edited_at: string;
+  last_edited_by: CommentUser | null;
+}
+
 export interface BulkTaskResult {
   failed: number;
   results: ({
@@ -161,6 +169,10 @@ export interface CreateCommentRequest {
   mention_user_ids?: number[];
 }
 
+export interface CreateDocumentRequest {
+  title: string;
+}
+
 export interface CreateFolderRequest {
   name: string;
 }
@@ -169,6 +181,11 @@ export interface CreateListRequest {
   name: string;
   /** Must be a status of the same space; otherwise 400 VALIDATION_FAILED with details[].field parent_status_id and code NOT_FOUND. */
   parent_status_id?: number | null;
+}
+
+export interface CreateNotebookRequest {
+  description?: string | null;
+  name: string;
 }
 
 export interface CreateSpaceRequest {
@@ -257,6 +274,60 @@ export type CustomFieldValues = Record<string, unknown>;
 
 export interface DeleteAccountRequest {
   password: string;
+}
+
+export interface Document {
+  created_at: string;
+  created_by: CommentUser | null;
+  id: number;
+  last_edited_at: string | null;
+  last_edited_by: CommentUser | null;
+  last_seq: number;
+  notebook_id: number;
+  position: number;
+  title: string;
+  updated_at: string;
+  workspace_id: number;
+}
+
+export interface DocumentChange {
+  author: CommentUser | null;
+  created_at: string;
+  seq: number;
+  /** One Yjs update, base64. */
+  update: string;
+}
+
+export interface DocumentSnapshotRequest {
+  /** Whole document state, base64, up to 8 MiB. */
+  state: string;
+  upto_seq: number;
+}
+
+export interface DocumentSnapshotResult {
+  upto_seq: number;
+}
+
+export interface DocumentState {
+  /** Version of the inkbrick-yjs document format. */
+  format: number;
+  last_seq: number;
+  needs_compaction: boolean;
+  /** Compacted Yjs state, base64. */
+  snapshot: string;
+  /** Updates up to this number are already merged into `snapshot`. */
+  snapshot_seq: number;
+  updates: DocumentChange[];
+}
+
+export interface DocumentUpdateRequest {
+  touched?: string[];
+  /** One Yjs update, base64, up to 512 KiB. */
+  update: string;
+}
+
+export interface DocumentUpdateResult {
+  seq: number;
 }
 
 export interface EmailRequest {
@@ -562,6 +633,18 @@ export interface MoveTaskRequest {
   list_id?: number;
   /** Target status; required when list_id changes the list. */
   status_id?: number;
+}
+
+export interface Notebook {
+  created_at: string;
+  created_by: CommentUser | null;
+  description: string | null;
+  document_count: number;
+  id: number;
+  name: string;
+  position: number;
+  updated_at: string;
+  workspace_id: number;
 }
 
 export interface Notification {
@@ -931,6 +1014,12 @@ export interface UpdateCommentRequest {
   mention_user_ids?: number[];
 }
 
+export interface UpdateDocumentRequest {
+  notebook_id?: number;
+  position?: number;
+  title?: string;
+}
+
 export interface UpdateFolderRequest {
   name?: string;
 }
@@ -943,6 +1032,12 @@ export interface UpdateListRequest {
 
 export interface UpdateMemberRoleRequest {
   role: "Admin" | "Member" | "Guest";
+}
+
+export interface UpdateNotebookRequest {
+  description?: string | null;
+  name?: string;
+  position?: number;
 }
 
 export interface UpdateProfileRequest {
@@ -1066,6 +1161,11 @@ export interface Endpoints {
     status: 200;
     data: Message;
   };
+  "DELETE /documents/{document_id}": {
+    params: { document_id: number };
+    status: 200;
+    data: Message;
+  };
   "DELETE /folders/{folder_id}": {
     params: { folder_id: number };
     status: 200;
@@ -1079,6 +1179,11 @@ export interface Endpoints {
   "DELETE /lists/{list_id}/statuses/{status_id}": {
     params: { list_id: number; status_id: number };
     query?: { replacement_status_id?: number };
+    status: 200;
+    data: Message;
+  };
+  "DELETE /notebooks/{notebook_id}": {
+    params: { notebook_id: number };
     status: 200;
     data: Message;
   };
@@ -1230,6 +1335,22 @@ export interface Endpoints {
     data: ContactEntry[];
     pagination: Pagination;
   };
+  "GET /documents/{document_id}": {
+    params: { document_id: number };
+    status: 200;
+    data: Document;
+  };
+  "GET /documents/{document_id}/blocks/activity": {
+    params: { document_id: number };
+    query?: { block_id?: string; limit?: number };
+    status: 200;
+    data: BlockActivity[];
+  };
+  "GET /documents/{document_id}/state": {
+    params: { document_id: number };
+    status: 200;
+    data: DocumentState;
+  };
   "GET /folders/{folder_id}/lists": {
     params: { folder_id: number };
     status: 200;
@@ -1262,6 +1383,18 @@ export interface Endpoints {
     query?: { assignee_id?: string; created_from?: string; created_to?: string; cursor?: string; due_from?: string; due_to?: string; has_due?: boolean; has_open_checklist_items?: boolean; has_parent?: boolean; limit?: number; no_tags?: boolean; parent_id?: string; priority?: string; q?: string; sort?: string; start_from?: string; start_to?: string; status_id?: string; tag_id?: string; unassigned?: boolean; with_total?: boolean };
     status: 200;
     data: TaskPage;
+  };
+  "GET /notebooks/{notebook_id}": {
+    params: { notebook_id: number };
+    status: 200;
+    data: Notebook;
+  };
+  "GET /notebooks/{notebook_id}/documents": {
+    params: { notebook_id: number };
+    query?: { limit?: number; page?: number };
+    status: 200;
+    data: Document[];
+    pagination: Pagination;
   };
   "GET /notifications": {
     query?: { limit?: number; page?: number; type?: string; unread?: boolean };
@@ -1471,6 +1604,11 @@ export interface Endpoints {
     status: 200;
     data: Member[];
   };
+  "GET /workspaces/{workspace_id}/notebooks": {
+    params: { workspace_id: number };
+    status: 200;
+    data: Notebook[];
+  };
   "GET /workspaces/{workspace_id}/search": {
     params: { workspace_id: number };
     query?: { limit?: number; page?: number; q: string; space_id?: number; types?: string };
@@ -1511,6 +1649,12 @@ export interface Endpoints {
     status: 200;
     data: SavedView[];
   };
+  "PATCH /documents/{document_id}": {
+    params: { document_id: number };
+    body: UpdateDocumentRequest;
+    status: 200;
+    data: Document;
+  };
   "PATCH /folders/{folder_id}": {
     params: { folder_id: number };
     body: UpdateFolderRequest;
@@ -1522,6 +1666,12 @@ export interface Endpoints {
     body: UpdateListRequest;
     status: 200;
     data: List;
+  };
+  "PATCH /notebooks/{notebook_id}": {
+    params: { notebook_id: number };
+    body: UpdateNotebookRequest;
+    status: 200;
+    data: Notebook;
   };
   "PATCH /profile": {
     body: UpdateProfileRequest;
@@ -1666,6 +1816,18 @@ export interface Endpoints {
     status: 200;
     data: Message;
   };
+  "POST /documents/{document_id}/snapshot": {
+    params: { document_id: number };
+    body: DocumentSnapshotRequest;
+    status: 200;
+    data: DocumentSnapshotResult;
+  };
+  "POST /documents/{document_id}/updates": {
+    params: { document_id: number };
+    body: DocumentUpdateRequest;
+    status: 201;
+    data: DocumentUpdateResult;
+  };
   "POST /folders/{folder_id}/lists": {
     params: { folder_id: number };
     body: CreateListRequest;
@@ -1688,6 +1850,12 @@ export interface Endpoints {
     body: CreateTaskRequest;
     status: 201;
     data: Task;
+  };
+  "POST /notebooks/{notebook_id}/documents": {
+    params: { notebook_id: number };
+    body: CreateDocumentRequest;
+    status: 201;
+    data: Document;
   };
   "POST /notifications/channels": {
     status: 201;
@@ -1896,6 +2064,12 @@ export interface Endpoints {
     body: AddMemberRequest;
     status: 201;
     data: Message;
+  };
+  "POST /workspaces/{workspace_id}/notebooks": {
+    params: { workspace_id: number };
+    body: CreateNotebookRequest;
+    status: 201;
+    data: Notebook;
   };
   "POST /workspaces/{workspace_id}/spaces": {
     params: { workspace_id: number };

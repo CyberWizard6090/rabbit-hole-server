@@ -75,3 +75,21 @@ func (p *permissionChecker) HasTaskPermission(ctx context.Context, userID, taskI
 		Count(&count).Error
 	return count > 0, err
 }
+
+func (p *permissionChecker) HasNotebookPermission(ctx context.Context, userID, notebookID uint, code string) (bool, error) {
+	var count int64
+	err := p.baseQuery(ctx, userID, code).
+		Joins("JOIN notebooks ON notebooks.workspace_id = workspace_members.workspace_id").
+		Where("notebooks.id = ? AND "+liveNotebookPredicate("notebooks.id"), notebookID).
+		Count(&count).Error
+	return count > 0, err
+}
+
+func (p *permissionChecker) HasDocumentPermission(ctx context.Context, userID, documentID uint, code string) (bool, error) {
+	var count int64
+	err := p.baseQuery(ctx, userID, code).
+		Joins("JOIN documents ON documents.workspace_id = workspace_members.workspace_id").
+		Where("documents.id = ? AND "+liveDocumentPredicate("documents"), documentID).
+		Count(&count).Error
+	return count > 0, err
+}

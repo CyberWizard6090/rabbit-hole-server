@@ -64,6 +64,8 @@ type Container struct {
 	TimeHandler         *handler.TimeHandler
 	TaskRelationHandler *handler.TaskRelationHandler
 	SavedViewHandler    *handler.SavedViewHandler
+	NotebookHandler     *handler.NotebookHandler
+	DocumentHandler     *handler.DocumentHandler
 
 	PermissionChecker service.PermissionChecker
 
@@ -254,6 +256,9 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		deliveryWorker.WithObserver(instruments)
 	}
 
+	notebookService := service.NewNotebookService(repository.NewNotebookRepository(db))
+	documentService := service.NewDocumentService(repository.NewDocumentRepository(db))
+
 	return &Container{
 		Metrics:             instruments,
 		AuthService:         authServ,
@@ -298,6 +303,8 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		TaskRelationHandler: handler.NewTaskRelationHandler(service.NewTaskRelationService(repository.NewTaskRelationRepository(db), activityRecorder, transactions)),
 		TimeHandler:         handler.NewTimeHandler(service.NewTimeService(repository.NewTimeEntryRepository(db)), taskService, permissionChecker).WithPublisher(hub),
 		SavedViewHandler:    handler.NewSavedViewHandler(service.NewSavedViewService(repository.NewSavedViewRepository(db), permissionChecker)),
+		NotebookHandler:     handler.NewNotebookHandler(notebookService, documentService),
+		DocumentHandler:     handler.NewDocumentHandler(documentService),
 		WorkspaceHandler:    handler.NewWorkspaceHandler(workspaceService),
 		FolderHandler:       handler.NewFolderHandler(folderService),
 		ListHandler:         handler.NewListHandler(spaceServ, folderService),

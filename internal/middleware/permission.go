@@ -18,6 +18,8 @@ const (
 	ResourceFolder    Resource = "folder_id"
 	ResourceList      Resource = "list_id"
 	ResourceTask      Resource = "task_id"
+	ResourceNotebook  Resource = "notebook_id"
+	ResourceDocument  Resource = "document_id"
 )
 
 func RequirePermission(checker service.PermissionChecker, resource Resource, code string) gin.HandlerFunc {
@@ -50,6 +52,10 @@ func RequirePermission(checker service.PermissionChecker, resource Resource, cod
 			ok, checkErr = checker.HasListPermission(c.Request.Context(), uid, uint(id), code)
 		case ResourceTask:
 			ok, checkErr = checker.HasTaskPermission(c.Request.Context(), uid, uint(id), code)
+		case ResourceNotebook:
+			ok, checkErr = checker.HasNotebookPermission(c.Request.Context(), uid, uint(id), code)
+		case ResourceDocument:
+			ok, checkErr = checker.HasDocumentPermission(c.Request.Context(), uid, uint(id), code)
 		}
 
 		if checkErr != nil {

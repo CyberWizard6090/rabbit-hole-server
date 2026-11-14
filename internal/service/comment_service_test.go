@@ -57,6 +57,14 @@ func (p *taskPermissionStub) HasSpacePermission(context.Context, uint, uint, str
 func (p *taskPermissionStub) HasFolderPermission(context.Context, uint, uint, string) (bool, error) {
 	return false, nil
 }
+
+func (p *taskPermissionStub) HasNotebookPermission(ctx context.Context, userID, resourceID uint, code string) (bool, error) {
+	return p.HasFolderPermission(ctx, userID, resourceID, code)
+}
+
+func (p *taskPermissionStub) HasDocumentPermission(ctx context.Context, userID, resourceID uint, code string) (bool, error) {
+	return p.HasFolderPermission(ctx, userID, resourceID, code)
+}
 func (p *taskPermissionStub) HasListPermission(context.Context, uint, uint, string) (bool, error) {
 	return false, nil
 }

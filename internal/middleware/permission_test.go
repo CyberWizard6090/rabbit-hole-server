@@ -42,6 +42,14 @@ func (s *permissionCheckerStub) HasFolderPermission(_ context.Context, userID, r
 	return s.allowed, s.err
 }
 
+func (s *permissionCheckerStub) HasNotebookPermission(ctx context.Context, userID, resourceID uint, code string) (bool, error) {
+	return s.HasFolderPermission(ctx, userID, resourceID, code)
+}
+
+func (s *permissionCheckerStub) HasDocumentPermission(ctx context.Context, userID, resourceID uint, code string) (bool, error) {
+	return s.HasFolderPermission(ctx, userID, resourceID, code)
+}
+
 func (s *permissionCheckerStub) HasListPermission(_ context.Context, userID, resourceID uint, code string) (bool, error) {
 	s.record(ResourceList, userID, resourceID, code)
 	return s.allowed, s.err

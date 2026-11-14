@@ -28,8 +28,8 @@ func TestMigrationLifecycleLeavesCurrentSchema(t *testing.T) {
 	if err := tc.DB.Raw("SELECT version, dirty FROM schema_migrations").Row().Scan(&version, &dirty); err != nil {
 		t.Fatalf("read migration state: %v", err)
 	}
-	if version != 2 || dirty {
-		t.Fatalf("migration state = (%d, dirty=%t), want (2, dirty=false)", version, dirty)
+	if version != 3 || dirty {
+		t.Fatalf("migration state = (%d, dirty=%t), want (3, dirty=false)", version, dirty)
 	}
 }
 
@@ -190,8 +190,8 @@ func TestIntegrationResetPreservesPermissions(t *testing.T) {
 	if userCount != 0 {
 		t.Fatalf("users after reset = %d, want 0", userCount)
 	}
-	if permissionCount != 18 {
-		t.Fatalf("permissions after reset = %d, want 18", permissionCount)
+	if permissionCount != 22 {
+		t.Fatalf("permissions after reset = %d, want 22", permissionCount)
 	}
 }
 

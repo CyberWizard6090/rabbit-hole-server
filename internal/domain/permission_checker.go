@@ -8,4 +8,6 @@ type PermissionChecker interface {
 	HasFolderPermission(ctx context.Context, userID, folderID uint, code string) (bool, error)
 	HasListPermission(ctx context.Context, userID, listID uint, code string) (bool, error)
 	HasTaskPermission(ctx context.Context, userID, taskID uint, code string) (bool, error)
+	HasNotebookPermission(ctx context.Context, userID, notebookID uint, code string) (bool, error)
+	HasDocumentPermission(ctx context.Context, userID, documentID uint, code string) (bool, error)
 }

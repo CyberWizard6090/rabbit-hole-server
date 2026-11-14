@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"io/fs"
 	"regexp"
 	"sort"
 	"testing"
@@ -26,18 +27,35 @@ func equalStrings(a, b []string) bool {
 	return true
 }
 
-func TestPermissionCodesMatchSeedMigration(t *testing.T) {
-	sql, err := migrations.FS.ReadFile("000002_seed_permissions.up.sql")
+// Permission codes are seeded by the migrations that introduce them: the first by 000002, later ones by the
+// migration of the feature (for example notebooks add doc.*). Together they must equal AllPermissions().
+func TestPermissionCodesMatchSeedMigrations(t *testing.T) {
+	files, err := fs.Glob(migrations.FS, "*.up.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
+	insert := regexp.MustCompile(`(?s)INSERT INTO permissions \(code\) VALUES(.*?)ON CONFLICT`)
+	code := regexp.MustCompile(`\('([a-z_.]+)'\)`)
+	seen := map[string]bool{}
 	var seeded []string
-	for _, m := range regexp.MustCompile(`\('([a-z_.]+)'\)`).FindAllStringSubmatch(string(sql), -1) {
-		seeded = append(seeded, m[1])
+	for _, file := range files {
+		sql, err := migrations.FS.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, block := range insert.FindAllStringSubmatch(string(sql), -1) {
+			for _, m := range code.FindAllStringSubmatch(block[1], -1) {
+				if seen[m[1]] {
+					t.Errorf("permission %q is seeded twice (%s)", m[1], file)
+				}
+				seen[m[1]] = true
+				seeded = append(seeded, m[1])
+			}
+		}
 	}
 
 	if got, want := sortedCopy(AllPermissions()), sortedCopy(seeded); !equalStrings(got, want) {
-		t.Fatalf("AllPermissions() = %v\nseeded in migration = %v", got, want)
+		t.Fatalf("AllPermissions() = %v\nseeded in migrations = %v", got, want)
 	}
 }
 

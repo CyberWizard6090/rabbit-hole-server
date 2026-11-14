@@ -217,6 +217,14 @@ func (a allowPerms) HasSpacePermission(context.Context, uint, uint, string) (boo
 func (a allowPerms) HasFolderPermission(context.Context, uint, uint, string) (bool, error) {
 	return true, nil
 }
+
+func (a allowPerms) HasNotebookPermission(ctx context.Context, userID, resourceID uint, code string) (bool, error) {
+	return a.HasFolderPermission(ctx, userID, resourceID, code)
+}
+
+func (a allowPerms) HasDocumentPermission(ctx context.Context, userID, resourceID uint, code string) (bool, error) {
+	return a.HasFolderPermission(ctx, userID, resourceID, code)
+}
 func (a allowPerms) HasListPermission(context.Context, uint, uint, string) (bool, error) {
 	return true, nil
 }

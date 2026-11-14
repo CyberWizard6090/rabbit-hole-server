@@ -28,6 +28,8 @@ const (
 const (
 	multipartOverhead   int64 = 1 << 20
 	publicFormBodyLimit int64 = 128 << 10
+	// snapshotBodyLimit fits domain.MaxDocumentStateBytes after base64 encoding plus the JSON envelope.
+	snapshotBodyLimit int64 = domain.MaxDocumentStateBytes*4/3 + 4096
 )
 
 var multipartRoutes = map[string]bool{
@@ -46,6 +48,8 @@ func BodyLimitOverrides(cfg *config.Config) map[string]int64 {
 		"POST /api/v1/workspaces/:workspace_id/avatar": cfg.Storage.MaxAvatarBytes + multipartOverhead,
 		"POST /api/v1/public/forms/:slug/submissions":  publicFormBodyLimit,
 		"POST /api/v1/public/forms/:slug/uploads":      cfg.Forms.UploadMaxBytes + multipartOverhead,
+		// A snapshot is the whole document state in base64, so it needs more than the default body limit.
+		"POST /api/v1/documents/:document_id/snapshot": snapshotBodyLimit,
 	}
 }
 
@@ -112,6 +116,8 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 		inFolder    = require(middleware.ResourceFolder)
 		inList      = require(middleware.ResourceList)
 		inTask      = require(middleware.ResourceTask)
+		inNotebook  = require(middleware.ResourceNotebook)
+		inDocument  = require(middleware.ResourceDocument)
 	)
 	limit := func(bucket string, max int, period time.Duration) gin.HandlerFunc {
 		return middleware.RateLimiter(deps.RateLimiter, bucket, max, period)
@@ -123,6 +129,8 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 	userSearchLimiter := limit("user-search", 30, time.Minute)
 	rehostLimiter := limit("image-rehost", 30, time.Minute)
 	formUploadLimiter := limit("form-uploads", 30, time.Minute)
+	documentUpdateLimiter := limit("document-updates", 600, time.Minute)
+	documentSnapshotLimiter := limit("document-snapshots", 20, time.Minute)
 
 	api := r.Group("/api")
 	{
@@ -265,6 +273,12 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					workspaces.DELETE("/:workspace_id/views/:view_id",
 						inWorkspace(domain.PermTaskRead),
 						deps.SavedViewHandler.Delete)
+					workspaces.GET("/:workspace_id/notebooks",
+						inWorkspace(domain.PermDocRead),
+						deps.NotebookHandler.List)
+					workspaces.POST("/:workspace_id/notebooks",
+						inWorkspace(domain.PermDocCreate),
+						deps.NotebookHandler.Create)
 					workspaces.GET("/:workspace_id/audit-log",
 						inWorkspace(domain.PermMemberManage),
 						deps.WorkspaceHandler.AuditLog)
@@ -422,6 +436,50 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 					spaces.GET(routeLists,
 						inSpace(domain.PermSpaceRead),
 						deps.ListHandler.ListInSpace)
+				}
+
+				notebooks := protected.Group("/notebooks/:notebook_id")
+				{
+					notebooks.GET("",
+						inNotebook(domain.PermDocRead),
+						deps.NotebookHandler.Get)
+					notebooks.PATCH("",
+						inNotebook(domain.PermDocUpdate),
+						deps.NotebookHandler.Update)
+					notebooks.DELETE("",
+						inNotebook(domain.PermDocDelete),
+						deps.NotebookHandler.Delete)
+					notebooks.POST("/documents",
+						inNotebook(domain.PermDocCreate),
+						deps.NotebookHandler.CreateDocument)
+					notebooks.GET("/documents",
+						inNotebook(domain.PermDocRead),
+						deps.NotebookHandler.ListDocuments)
+				}
+
+				documents := protected.Group("/documents/:document_id")
+				{
+					documents.GET("",
+						inDocument(domain.PermDocRead),
+						deps.DocumentHandler.Get)
+					documents.PATCH("",
+						inDocument(domain.PermDocUpdate),
+						deps.DocumentHandler.Update)
+					documents.DELETE("",
+						inDocument(domain.PermDocDelete),
+						deps.DocumentHandler.Delete)
+					documents.GET("/state",
+						inDocument(domain.PermDocRead),
+						deps.DocumentHandler.State)
+					documents.POST("/updates",
+						inDocument(domain.PermDocUpdate),
+						documentUpdateLimiter, deps.DocumentHandler.AppendUpdate)
+					documents.POST("/snapshot",
+						inDocument(domain.PermDocUpdate),
+						documentSnapshotLimiter, deps.DocumentHandler.ReplaceSnapshot)
+					documents.GET("/blocks/activity",
+						inDocument(domain.PermDocRead),
+						deps.DocumentHandler.BlockActivity)
 				}
 
 				folders := protected.Group("/folders/:folder_id")
