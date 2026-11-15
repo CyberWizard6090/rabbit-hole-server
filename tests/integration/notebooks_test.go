@@ -2,10 +2,13 @@ package integration
 
 import (
 	"encoding/base64"
+	"hash/fnv"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/reearth/ygo/crdt"
 
 	"rabbit-hole-server/internal/collab"
 )
@@ -71,6 +74,31 @@ func (e *notebookEnv) newDocument(t *testing.T, notebookID uint, title string) u
 
 // validState is a complete document the server accepts as a snapshot.
 func validState() string { return base64.StdEncoding.EncodeToString(collab.InitialState()) }
+
+// upd is a real Yjs update that depends on nothing: one client, named after the label, writes the label into a
+// shared text of its own. The same label always gives the same bytes, so tests can compare what they sent.
+func upd(label string) string {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(label))
+	doc := crdt.New(crdt.WithClientID(crdt.ClientID(hash.Sum32())))
+	text := doc.GetText("test-scratch")
+	doc.Transact(func(txn *crdt.Transaction) { text.Insert(txn, 0, label, nil) }, nil)
+	return base64.StdEncoding.EncodeToString(crdt.EncodeStateAsUpdateV1(doc, nil))
+}
+
+// deleteRoot is an update of a client that opened the document and removed its root block.
+func deleteRoot(t *testing.T) string {
+	t.Helper()
+	doc := crdt.New()
+	if err := crdt.ApplyUpdateV1(doc, collab.InitialState(), nil); err != nil {
+		t.Fatal(err)
+	}
+	rootID, _ := doc.GetMap("meta").Get("rootId")
+	before := doc.StateVector()
+	blocks := doc.GetMap("blocks")
+	doc.Transact(func(txn *crdt.Transaction) { blocks.Delete(txn, rootID.(string)) }, nil)
+	return base64.StdEncoding.EncodeToString(crdt.EncodeStateAsUpdateV1(doc, before))
+}
 
 func b64(raw string) string { return base64.StdEncoding.EncodeToString([]byte(raw)) }
 
@@ -227,22 +255,22 @@ func TestDocuments_UpdatesAreOrderedAndAttributed(t *testing.T) {
 	updates := "/api/v1/documents/" + itoa(doc) + "/updates"
 
 	first := e.call(t, http.MethodPost, updates, e.member,
-		map[string]any{"update": b64("one"), "touched": []string{"block-1", "block-2", "block-1"}}, http.StatusCreated)
+		map[string]any{"update": upd("one"), "touched": []string{"block-1", "block-2", "block-1"}}, http.StatusCreated)
 	if first["data"].(map[string]any)["seq"].(float64) != 1 {
 		t.Fatalf("first update: %v", first)
 	}
 	e.call(t, http.MethodPost, updates, e.owner.token,
-		map[string]any{"update": b64("two"), "touched": []string{"block-2"}}, http.StatusCreated)
+		map[string]any{"update": upd("two"), "touched": []string{"block-2"}}, http.StatusCreated)
 
-	e.call(t, http.MethodPost, updates, e.guest, map[string]any{"update": b64("x")}, http.StatusForbidden)
-	e.call(t, http.MethodPost, updates, e.outsider, map[string]any{"update": b64("x")}, http.StatusForbidden)
+	e.call(t, http.MethodPost, updates, e.guest, map[string]any{"update": upd("x")}, http.StatusForbidden)
+	e.call(t, http.MethodPost, updates, e.outsider, map[string]any{"update": upd("x")}, http.StatusForbidden)
 
 	state := e.call(t, http.MethodGet, "/api/v1/documents/"+itoa(doc)+"/state", e.guest, nil, http.StatusOK)["data"].(map[string]any)
 	list := state["updates"].([]any)
 	if len(list) != 2 || state["last_seq"].(float64) != 2 {
 		t.Fatalf("state after two updates: %v", state)
 	}
-	if got, _ := base64.StdEncoding.DecodeString(list[0].(map[string]any)["update"].(string)); string(got) != "one" {
+	if list[0].(map[string]any)["update"] != upd("one") || list[1].(map[string]any)["update"] != upd("two") {
 		t.Fatalf("updates must keep their bytes and order: %v", list)
 	}
 	if uint(list[1].(map[string]any)["author"].(map[string]any)["id"].(float64)) != e.owner.userID {
@@ -283,13 +311,13 @@ func TestDocuments_UpdateInputIsValidated(t *testing.T) {
 
 	e.call(t, http.MethodPost, updates, e.member, map[string]any{"touched": []string{"a"}}, http.StatusBadRequest)
 	e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": "not base64!!"}, http.StatusBadRequest)
-	e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": b64("x"), "touched": []string{""}}, http.StatusBadRequest)
-	e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": b64("x"), "touched": []string{strings.Repeat("b", 101)}}, http.StatusBadRequest)
+	e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": upd("x"), "touched": []string{""}}, http.StatusBadRequest)
+	e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": upd("x"), "touched": []string{strings.Repeat("b", 101)}}, http.StatusBadRequest)
 	tooMany := make([]string, 201)
 	for i := range tooMany {
 		tooMany[i] = "b" + itoa(uint(i))
 	}
-	e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": b64("x"), "touched": tooMany}, http.StatusBadRequest)
+	e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": upd("x"), "touched": tooMany}, http.StatusBadRequest)
 
 	big := strings.Repeat("a", 512*1024+1)
 	out := e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": b64(big)}, http.StatusRequestEntityTooLarge)
@@ -315,7 +343,7 @@ func TestDocuments_ConcurrentUpdatesGetGaplessNumbers(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			rec := request(t, e.tc.Router, http.MethodPost, updates, e.member, map[string]any{"update": b64("u" + itoa(uint(i))), "touched": []string{"shared"}})
+			rec := request(t, e.tc.Router, http.MethodPost, updates, e.member, map[string]any{"update": upd("u" + itoa(uint(i))), "touched": []string{"shared"}})
 			if rec.Code != http.StatusCreated {
 				t.Errorf("update %d: %d: %s", i, rec.Code, rec.Body.String())
 				return
@@ -344,7 +372,7 @@ func TestDocuments_SnapshotCompactsHistory(t *testing.T) {
 	snapshot := "/api/v1/documents/" + itoa(doc) + "/snapshot"
 
 	for _, text := range []string{"a", "b", "c"} {
-		e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": b64(text)}, http.StatusCreated)
+		e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": upd(text)}, http.StatusCreated)
 	}
 
 	e.call(t, http.MethodPost, snapshot, e.guest, map[string]any{"upto_seq": 2, "state": validState()}, http.StatusForbidden)
@@ -374,7 +402,7 @@ func TestDocuments_SnapshotCompactsHistory(t *testing.T) {
 		t.Fatalf("only the update after the snapshot should remain: %v", state)
 	}
 
-	next := e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": b64("d")}, http.StatusCreated)
+	next := e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": upd("d")}, http.StatusCreated)
 	if next["data"].(map[string]any)["seq"].(float64) != 4 {
 		t.Fatalf("numbering continues after compaction: %v", next)
 	}
@@ -392,7 +420,7 @@ func TestNotebooks_DeleteHidesDocumentsAndWorkspaceDeleteHidesNotebooks(t *testi
 	} {
 		e.call(t, http.MethodGet, path, e.owner.token, nil, http.StatusForbidden)
 	}
-	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(doc)+"/updates", e.owner.token, map[string]any{"update": b64("x")}, http.StatusForbidden)
+	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(doc)+"/updates", e.owner.token, map[string]any{"update": upd("x")}, http.StatusForbidden)
 
 	other := e.newNotebook(t, "other")
 	doc2 := e.newDocument(t, other, "d2")
@@ -429,5 +457,35 @@ func TestNotebooks_RoleDefaultsGrantDocumentPermissions(t *testing.T) {
 		if perms[deny] {
 			t.Errorf("%s must not be granted", deny)
 		}
+	}
+}
+
+func TestDocuments_UpdatesAreChecked(t *testing.T) {
+	e := newNotebookEnv(t)
+	doc := e.newDocument(t, e.newNotebook(t, "n"), "d")
+	updates := "/api/v1/documents/" + itoa(doc) + "/updates"
+	state := "/api/v1/documents/" + itoa(doc) + "/state"
+
+	refused := func(update string) {
+		t.Helper()
+		out := e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": update}, http.StatusBadRequest)
+		details := out["error"].(map[string]any)["details"].([]any)
+		if first := details[0].(map[string]any); first["field"] != "update" || first["code"] != "INVALID_VALUE" {
+			t.Fatalf("refused update: %v", out)
+		}
+	}
+
+	e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": upd("first")}, http.StatusCreated)
+	// Bytes that are not a Yjs update, and an update after which nobody could open the document.
+	refused(b64("this is not a yjs update"))
+	refused(deleteRoot(t))
+	// A refused update leaves no trace: the numbering goes on and the next good update is stored.
+	next := e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": upd("second")}, http.StatusCreated)
+	if next["data"].(map[string]any)["seq"].(float64) != 2 {
+		t.Fatalf("seq after refused updates: %v", next)
+	}
+	stored := e.call(t, http.MethodGet, state, e.member, nil, http.StatusOK)["data"].(map[string]any)["updates"].([]any)
+	if len(stored) != 2 || stored[0].(map[string]any)["update"] != upd("first") || stored[1].(map[string]any)["update"] != upd("second") {
+		t.Fatalf("stored updates: %v", stored)
 	}
 }

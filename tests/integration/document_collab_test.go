@@ -110,13 +110,13 @@ func TestDocumentRoom_RelaysUpdatesAndPresence(t *testing.T) {
 		t.Fatalf("the owner should see the member, and the member the owner: %v", ownerReady)
 	}
 
-	member.send(t, map[string]any{"type": "update", "update": b64("hello"), "touched": []string{"block-1"}, "ref": "r1"})
+	member.send(t, map[string]any{"type": "update", "update": upd("hello"), "touched": []string{"block-1"}, "ref": "r1"})
 	ack := member.expect(t, "ack")
 	if ack["seq"].(float64) != 1 || ack["ref"] != "r1" {
 		t.Fatalf("ack: %v", ack)
 	}
 	update := owner.expect(t, "update")
-	if update["seq"].(float64) != 1 || uint(update["user_id"].(float64)) != e.memberID || update["update"] != b64("hello") {
+	if update["seq"].(float64) != 1 || uint(update["user_id"].(float64)) != e.memberID || update["update"] != upd("hello") {
 		t.Fatalf("the owner should get the update: %v", update)
 	}
 	// Frames are read in order, so a stray frame would show up as the next expectation.
@@ -169,15 +169,15 @@ func TestDocumentRoom_ReadOnlyViewerSeesEditsButCannotSend(t *testing.T) {
 	}
 	member.expect(t, "peer_joined")
 
-	guest.send(t, map[string]any{"type": "update", "update": b64("nope"), "ref": "g1"})
+	guest.send(t, map[string]any{"type": "update", "update": upd("nope"), "ref": "g1"})
 	if refused := guest.expect(t, "error"); refused["code"] != "FORBIDDEN" || refused["ref"] != "g1" {
 		t.Fatalf("a viewer's update must be refused: %v", refused)
 	}
 	// Frames are read in order, so a stray frame would show up as the next expectation.
 
-	member.send(t, map[string]any{"type": "update", "update": b64("by member")})
+	member.send(t, map[string]any{"type": "update", "update": upd("by member")})
 	member.expect(t, "ack")
-	if got := guest.expect(t, "update"); got["update"] != b64("by member") {
+	if got := guest.expect(t, "update"); got["update"] != upd("by member") {
 		t.Fatalf("the viewer should still receive edits: %v", got)
 	}
 
@@ -197,9 +197,9 @@ func TestDocumentRoom_RESTUpdatesReachOpenConnections(t *testing.T) {
 	viewer := e.dial(t, e.guest, nil)
 	viewer.expect(t, "ready")
 
-	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/updates", e.member, map[string]any{"update": b64("rest")}, http.StatusCreated)
+	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/updates", e.member, map[string]any{"update": upd("rest")}, http.StatusCreated)
 	got := viewer.expect(t, "update")
-	if got["update"] != b64("rest") || got["seq"].(float64) != 1 || uint(got["user_id"].(float64)) != e.memberID {
+	if got["update"] != upd("rest") || got["seq"].(float64) != 1 || uint(got["user_id"].(float64)) != e.memberID {
 		t.Fatalf("an update posted over REST must reach the room: %v", got)
 	}
 }
@@ -207,7 +207,7 @@ func TestDocumentRoom_RESTUpdatesReachOpenConnections(t *testing.T) {
 func TestDocumentRoom_CatchUpAfterConnecting(t *testing.T) {
 	e := newRoomEnv(t, collab.Options{})
 	post := func(text string) {
-		e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/updates", e.member, map[string]any{"update": b64(text)}, http.StatusCreated)
+		e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/updates", e.member, map[string]any{"update": upd(text)}, http.StatusCreated)
 	}
 	for _, text := range []string{"a", "b", "c"} {
 		post(text)
@@ -217,7 +217,7 @@ func TestDocumentRoom_CatchUpAfterConnecting(t *testing.T) {
 	client := e.dial(t, e.guest, &since)
 	client.expect(t, "ready")
 	first, second := client.expect(t, "update"), client.expect(t, "update")
-	if first["seq"].(float64) != 2 || first["update"] != b64("b") || second["seq"].(float64) != 3 || second["update"] != b64("c") {
+	if first["seq"].(float64) != 2 || first["update"] != upd("b") || second["seq"].(float64) != 3 || second["update"] != upd("c") {
 		t.Fatalf("catch-up after number 1 should be updates 2 and 3: %v %v", first, second)
 	}
 	if synced := client.expect(t, "synced"); synced["last_seq"].(float64) != 3 {
@@ -328,7 +328,7 @@ func TestDocumentRoom_BadFramesAreRefusedWithoutClosing(t *testing.T) {
 	// The rate limit is per connection: a burst beyond twice the rate is refused, the connection survives.
 	limited := false
 	for i := 0; i < 6; i++ {
-		client.send(t, map[string]any{"type": "update", "update": b64("u"), "ref": fmt.Sprint(i)})
+		client.send(t, map[string]any{"type": "update", "update": upd("u"), "ref": fmt.Sprint(i)})
 	}
 	for i := 0; i < 6; i++ {
 		if client.read(t)["code"] == "RATE_LIMITED" {
@@ -417,7 +417,7 @@ func TestDocumentRoom_DeletingTheNotebookClosesEveryDocumentOfIt(t *testing.T) {
 		t.Fatalf("reason = %q", reason)
 	}
 	// A document of another notebook is not affected.
-	stay.send(t, map[string]any{"type": "update", "update": b64("still open"), "ref": "s"})
+	stay.send(t, map[string]any{"type": "update", "update": upd("still open"), "ref": "s"})
 	if ack := stay.expect(t, "ack"); ack["seq"].(float64) != 1 {
 		t.Fatalf("ack: %v", ack)
 	}
@@ -443,7 +443,7 @@ func TestDocumentRoom_RemovingAMemberDisconnectsThemAtOnce(t *testing.T) {
 	if left := owner.expect(t, "peer_left"); left["type"] != "peer_left" {
 		t.Fatalf("the owner is told that the member left: %v", left)
 	}
-	owner.send(t, map[string]any{"type": "update", "update": b64("owner goes on"), "ref": "o"})
+	owner.send(t, map[string]any{"type": "update", "update": upd("owner goes on"), "ref": "o"})
 	owner.expect(t, "ack")
 }
 
@@ -483,4 +483,67 @@ func TestDocumentRoom_DeletingTheWorkspaceAndSigningOutEverywhereDisconnect(t *t
 		t.Fatalf("workspace deletion reason = %q", reason)
 	}
 	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/events/ticket", e.guest, nil, http.StatusForbidden)
+}
+
+func TestDocumentRoom_RefusesUpdatesThatBreakTheDocument(t *testing.T) {
+	e := newRoomEnv(t, collab.Options{})
+	member := e.dial(t, e.member, nil)
+	member.expect(t, "ready")
+	guest := e.dial(t, e.guest, nil)
+	guest.expect(t, "ready")
+	member.expect(t, "peer_joined")
+
+	member.send(t, map[string]any{"type": "update", "update": b64("garbage"), "ref": "g"})
+	if got := member.expect(t, "error"); got["code"] != "INVALID_UPDATE" || got["ref"] != "g" {
+		t.Fatalf("garbage: %v", got)
+	}
+	member.send(t, map[string]any{"type": "update", "update": deleteRoot(t), "ref": "r"})
+	if got := member.expect(t, "error"); got["code"] != "INVALID_UPDATE" || got["ref"] != "r" {
+		t.Fatalf("root deletion: %v", got)
+	}
+	// The connection stays open, and the first frame the other client gets is the good update: the refused ones
+	// were never published.
+	member.send(t, map[string]any{"type": "update", "update": upd("good"), "ref": "ok"})
+	if got := member.expect(t, "ack"); got["seq"].(float64) != 1 {
+		t.Fatalf("ack: %v", got)
+	}
+	if got := guest.read(t); got["type"] != "update" || got["update"] != upd("good") {
+		t.Fatalf("the other client must only see the good update, got %v", got)
+	}
+}
+
+func TestDocumentRoom_UserBudgetCoversEveryConnectionAndREST(t *testing.T) {
+	e := newRoomEnv(t, collab.Options{UpdatesPerSecond: 1000})
+	e.rt.container.DocumentCollab.WithUpdateLimit(3, time.Minute)
+	first := e.dial(t, e.member, nil)
+	first.expect(t, "ready")
+	second := e.dial(t, e.member, nil)
+	second.expect(t, "ready")
+	first.expect(t, "peer_joined")
+
+	first.send(t, map[string]any{"type": "update", "update": upd("1"), "ref": "1"})
+	first.expect(t, "ack")
+	second.expect(t, "update")
+	second.send(t, map[string]any{"type": "update", "update": upd("2"), "ref": "2"})
+	second.expect(t, "ack")
+	first.expect(t, "update")
+	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/updates", e.member, map[string]any{"update": upd("3")}, http.StatusCreated)
+	first.expect(t, "update")
+	second.expect(t, "update")
+
+	// The budget of three is spent: the socket is told how long to wait, REST answers 429.
+	second.send(t, map[string]any{"type": "update", "update": upd("4"), "ref": "4"})
+	got := second.expect(t, "error")
+	if got["code"] != "RATE_LIMITED" || got["ref"] != "4" {
+		t.Fatalf("over the budget: %v", got)
+	}
+	if wait, _ := got["retry_after"].(float64); wait < 1 || wait > 60 {
+		t.Fatalf("retry_after must say how long to wait: %v", got)
+	}
+	out := e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/updates", e.member, map[string]any{"update": upd("5")}, http.StatusTooManyRequests)
+	if out["error"].(map[string]any)["code"] != "RATE_LIMIT_EXCEEDED" {
+		t.Fatalf("REST over the budget: %v", out)
+	}
+	// Another person has their own budget.
+	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/updates", e.owner.token, map[string]any{"update": upd("6")}, http.StatusCreated)
 }

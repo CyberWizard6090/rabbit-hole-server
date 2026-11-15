@@ -265,6 +265,8 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 	notebookService := service.NewNotebookService(repository.NewNotebookRepository(db)).WithPublisher(collabManager)
 	documentService := service.NewDocumentService(repository.NewDocumentRepository(db)).WithPublisher(collabManager)
 	realtimeHandler := handler.NewRealtimeHandler(hub, tickets, permissionChecker, cfg.AllowedOrigins).WithTokenVersions(authServ)
+	documentCollab := handler.NewDocumentCollabHandler(realtimeHandler, collabManager, documentService, permissionChecker)
+	documentService.WithRefusedUpdateHook(documentCollab.ChargeRefusedUpdate)
 
 	return &Container{
 		Metrics:             instruments,
@@ -321,7 +323,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		Realtime:        hub,
 		RealtimeHandler: realtimeHandler,
 		Collab:          collabManager,
-		DocumentCollab:  handler.NewDocumentCollabHandler(realtimeHandler, collabManager, documentService, permissionChecker),
+		DocumentCollab:  documentCollab,
 	}, nil
 }
 

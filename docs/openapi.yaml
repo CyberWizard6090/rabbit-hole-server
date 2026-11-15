@@ -866,7 +866,8 @@ paths:
       description: |
         `update` is one Yjs update (base64, up to 512 KiB; 413 `DOCUMENT_UPDATE_TOO_LARGE`). `touched` lists the ids of the blocks it changed (up to 200, each up to 100
         characters); they feed the per-block record of who created and who last edited a block. The author is always the authenticated user.
-        Updates of one document get consecutive numbers `seq` (1, 2, 3, ...) in the order the server stored them. Limited to 600 per minute per user.
+        Updates of one document get consecutive numbers `seq` (1, 2, 3, ...) in the order the server stored them. Limited to 600 per minute per user, counted over the REST endpoint and every WebSocket of the user together (429 `RATE_LIMIT_EXCEEDED`).
+        The server applies the update to its copy of the document and refuses it with 400 (`details[].field` `update`, code `INVALID_VALUE`) when the bytes are not a Yjs update or when the document would no longer open (format, root block, more than 50 000 blocks). A refused update is not stored, not published and costs 20 updates of the budget.
       x-permission: doc.update
       security:
         - bearerAuth: []

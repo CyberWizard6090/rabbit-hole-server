@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
@@ -15,6 +16,7 @@ import (
 	httperrors "rabbit-hole-server/internal/http/errors"
 	"rabbit-hole-server/internal/http/response"
 	"rabbit-hole-server/internal/middleware"
+	"rabbit-hole-server/internal/ratelimit"
 	"rabbit-hole-server/internal/service"
 )
 
@@ -26,17 +28,56 @@ type DocumentCollabHandler struct {
 	documents *service.DocumentService
 	checker   service.PermissionChecker
 	opts      collab.Options
+	// updates is the budget of one user across all their connections and the REST endpoint. It lives in memory:
+	// a database-backed limiter would add a write to every keystroke, and rooms live in one process anyway.
+	updates *ratelimit.Window
 }
 
 func NewDocumentCollabHandler(
 	rt *RealtimeHandler, manager *collab.Manager, documents *service.DocumentService, checker service.PermissionChecker,
 ) *DocumentCollabHandler {
-	return &DocumentCollabHandler{rt: rt, manager: manager, documents: documents, checker: checker}
+	return &DocumentCollabHandler{
+		rt: rt, manager: manager, documents: documents, checker: checker,
+		updates: ratelimit.NewWindow(collab.UpdatesPerMinute, time.Minute),
+	}
 }
 
 func (h *DocumentCollabHandler) WithOptions(opts collab.Options) *DocumentCollabHandler {
 	h.opts = opts
 	return h
+}
+
+// WithUpdateLimit replaces the per-user budget of updates (tests use a small one).
+func (h *DocumentCollabHandler) WithUpdateLimit(max int, period time.Duration) *DocumentCollabHandler {
+	h.updates = ratelimit.NewWindow(max, period)
+	return h
+}
+
+func (h *DocumentCollabHandler) allowUpdate(userID uint) (bool, time.Duration) {
+	return h.updates.Allow(strconv.FormatUint(uint64(userID), 10))
+}
+
+// RefusedUpdateCost is how many updates of the budget one refused update costs.
+const RefusedUpdateCost = 20
+
+// ChargeRefusedUpdate takes RefusedUpdateCost updates from the user's budget (one was already taken).
+func (h *DocumentCollabHandler) ChargeRefusedUpdate(userID uint) {
+	for i := 1; i < RefusedUpdateCost; i++ {
+		h.allowUpdate(userID)
+	}
+}
+
+// LimitUpdates applies the per-user budget of updates to the REST endpoint; the WebSocket room uses the same one.
+func (h *DocumentCollabHandler) LimitUpdates(c *gin.Context) {
+	allowed, wait := h.allowUpdate(c.GetUint("userID"))
+	if allowed {
+		c.Next()
+		return
+	}
+	retryAfter := collab.RetryAfterSeconds(wait)
+	c.Header("Retry-After", strconv.Itoa(retryAfter))
+	response.Fail(c, http.StatusTooManyRequests, "RATE_LIMIT_EXCEEDED", map[string]any{"retry_after": retryAfter})
+	c.Abort()
 }
 
 // IssueTicket gives a single-use ticket for this document's room (the same flow as the task feeds).
@@ -66,6 +107,8 @@ type documentBackend struct {
 func (b *documentBackend) AppendUpdate(ctx context.Context, update []byte, touched []string, origin uint64) (int64, error) {
 	return b.h.documents.AppendUpdate(collab.WithOrigin(ctx, origin), b.docID, b.userID, update, touched)
 }
+
+func (b *documentBackend) AllowUpdate() (bool, time.Duration) { return b.h.allowUpdate(b.userID) }
 
 func (b *documentBackend) Sync(ctx context.Context, since int64) (collab.SyncResult, error) {
 	return b.h.documents.Since(ctx, b.docID, since)

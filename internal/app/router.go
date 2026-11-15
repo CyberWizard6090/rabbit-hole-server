@@ -474,7 +474,7 @@ func SetupRouter(deps *Container, cfg *config.Config) *gin.Engine {
 						deps.DocumentHandler.State)
 					documents.POST("/updates",
 						inDocument(domain.PermDocUpdate),
-						documentUpdateLimiter, deps.DocumentHandler.AppendUpdate)
+						documentUpdateLimiter, deps.DocumentCollab.LimitUpdates, deps.DocumentHandler.AppendUpdate)
 					documents.POST("/snapshot",
 						inDocument(domain.PermDocUpdate),
 						documentSnapshotLimiter, deps.DocumentHandler.ReplaceSnapshot)

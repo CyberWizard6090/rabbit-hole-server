@@ -27,7 +27,8 @@ func Topic(documentID uint) string { return "document:" + strconv.FormatUint(uin
 //	{"type":"resync","reason":"snapshot"}                                   history was compacted: reload GET /state
 //	{"type":"ack","ref":"1","seq":43}                                       the update was stored
 //	{"type":"peer_joined"|"awareness"|"peer_left", ...}                     presence
-//	{"type":"error","code":"RATE_LIMITED","ref":"1"}                        a request was refused; the connection stays open
+//	{"type":"error","code":"RATE_LIMITED","ref":"1","retry_after":3}        a request was refused; the connection stays open.
+//	                                                                        retry_after (seconds) comes with RATE_LIMITED: send the update again after it
 const (
 	TypeUpdate    = "update"
 	TypeAwareness = "awareness"
@@ -52,6 +53,18 @@ const (
 	CodeAwarenessTooBig = "AWARENESS_TOO_LARGE"
 	CodeInternal        = "INTERNAL"
 )
+
+// UpdatesPerMinute is how many updates one user may send in a minute, over all connections and the REST API.
+const UpdatesPerMinute = 600
+
+// RetryAfterSeconds rounds a wait up to whole seconds, at least one.
+func RetryAfterSeconds(wait time.Duration) int {
+	seconds := int((wait + time.Second - 1) / time.Second)
+	if seconds < 1 {
+		return 1
+	}
+	return seconds
+}
 
 const (
 	// MaxAwarenessBytes bounds the presence state of one connection (cursor, selection, color).
@@ -137,9 +150,10 @@ type ackFrame struct {
 }
 
 type errorFrame struct {
-	Type string `json:"type"`
-	Code string `json:"code"`
-	Ref  string `json:"ref,omitempty"`
+	Type       string `json:"type"`
+	Code       string `json:"code"`
+	Ref        string `json:"ref,omitempty"`
+	RetryAfter int    `json:"retry_after,omitempty"`
 }
 
 // UpdateEvent is a stored update that must reach the open connections of its document.

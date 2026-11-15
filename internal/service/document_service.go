@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -22,15 +23,26 @@ type DocumentService struct {
 	repo      domain.DocumentRepository
 	publisher DocumentPublisher
 	schema    *editor.Schema
+	checker   *editor.Checker
+	// onRefused is told who sent an update that was refused by the checks.
+	onRefused func(userID uint)
 }
 
 func NewDocumentService(repo domain.DocumentRepository) *DocumentService {
-	return &DocumentService{repo: repo, schema: editor.DefaultSchema()}
+	schema := editor.DefaultSchema()
+	return &DocumentService{repo: repo, schema: schema, checker: editor.NewChecker(schema, editor.DefaultCachedDocuments)}
 }
 
 // WithPublisher sets where stored updates are announced. Without it updates are only stored.
 func (s *DocumentService) WithPublisher(publisher DocumentPublisher) *DocumentService {
 	s.publisher = publisher
+	return s
+}
+
+// WithRefusedUpdateHook sets what happens when a user sends an update the checks refuse. An editor never produces
+// one, and each can make the server reload the document, so the caller charges it to the user's budget.
+func (s *DocumentService) WithRefusedUpdateHook(hook func(userID uint)) *DocumentService {
+	s.onRefused = hook
 	return s
 }
 
@@ -79,6 +91,7 @@ func (s *DocumentService) Delete(ctx context.Context, id uint) error {
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return err
 	}
+	s.checker.Forget(id)
 	// Open connections learn it now, not at their next edit.
 	if s.publisher != nil {
 		s.publisher.CloseDocument(id, collab.ReasonDocumentClosed)
@@ -111,9 +124,10 @@ func touchedBlocks(ids []string) ([]string, error) {
 	return out, nil
 }
 
-// AppendUpdate stores one Yjs update. The server never decodes it: it only orders and keeps the bytes, so a
-// malformed update is rejected by clients when they apply it. touched lists the blocks the update changed; they
-// feed the "who edited this block" record, which uses the authenticated user, never an id from the client.
+// AppendUpdate checks and stores one Yjs update. The update is applied to the server's copy of the document
+// (editor.Checker): bytes that do not decode, or an update after which the document could not be opened, are
+// refused and never reach the storage or other clients. touched lists the blocks the update changed; they feed
+// the "who edited this block" record, which uses the authenticated user, never an id from the client.
 func (s *DocumentService) AppendUpdate(ctx context.Context, id, userID uint, update []byte, touched []string) (int64, error) {
 	if len(update) == 0 {
 		return 0, domain.InvalidField(domain.ErrInvalidDocumentUpdate, "update", "REQUIRED")
@@ -125,8 +139,16 @@ func (s *DocumentService) AppendUpdate(ctx context.Context, id, userID uint, upd
 	if err != nil {
 		return 0, err
 	}
-	seq, err := s.repo.AppendUpdate(ctx, id, userID, update, blocks)
+	seq, err := s.checker.Append(ctx, id, update, s.loadForCheck(id), func() (int64, error) {
+		return s.repo.AppendUpdate(ctx, id, userID, update, blocks)
+	})
 	if err != nil {
+		if errors.Is(err, editor.ErrInvalidDocument) {
+			if s.onRefused != nil {
+				s.onRefused(userID)
+			}
+			return 0, domain.InvalidField(domain.ErrInvalidDocumentUpdate, "update", "INVALID_VALUE")
+		}
 		return 0, err
 	}
 	// The update is committed: announce it to the open connections. The sender (collab.OriginFrom) gets an ack instead.
@@ -136,6 +158,20 @@ func (s *DocumentService) AppendUpdate(ctx context.Context, id, userID uint, upd
 		})
 	}
 	return seq, nil
+}
+
+func (s *DocumentService) loadForCheck(id uint) editor.Loader {
+	return func(ctx context.Context) (editor.State, error) {
+		stored, err := s.repo.State(ctx, id)
+		if err != nil {
+			return editor.State{}, err
+		}
+		state := editor.State{Snapshot: stored.Snapshot, LastSeq: stored.LastSeq, Updates: make([][]byte, 0, len(stored.Updates))}
+		for _, change := range stored.Updates {
+			state.Updates = append(state.Updates, change.Update)
+		}
+		return state, nil
+	}
 }
 
 // Since returns the updates after `since`, or says that the history was compacted past it.
@@ -175,7 +211,12 @@ func (s *DocumentService) ReplaceSnapshot(ctx context.Context, id uint, uptoSeq 
 	if _, err := editor.Inspect(s.schema, state); err != nil {
 		return domain.InvalidField(domain.ErrInvalidDocumentUpdate, "state", "INVALID_VALUE")
 	}
-	return s.repo.ReplaceSnapshot(ctx, id, uptoSeq, state)
+	if err := s.repo.ReplaceSnapshot(ctx, id, uptoSeq, state); err != nil {
+		return err
+	}
+	// The snapshot may hold more than the updates it replaces: the copy used for checks is rebuilt from it.
+	s.checker.Forget(id)
+	return nil
 }
 
 func (s *DocumentService) BlockActivity(ctx context.Context, id uint, blockID string, limit int) ([]domain.BlockActivity, error) {

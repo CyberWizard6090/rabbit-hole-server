@@ -30,6 +30,8 @@ type SyncResult struct {
 type Backend interface {
 	// AppendUpdate stores one update and publishes it to the other connections; origin is this connection.
 	AppendUpdate(ctx context.Context, update []byte, touched []string, origin uint64) (int64, error)
+	// AllowUpdate spends one update of the user's budget, or says how long to wait.
+	AllowUpdate() (allowed bool, wait time.Duration)
 	Sync(ctx context.Context, since int64) (SyncResult, error)
 	// Recheck says whether the user may still read the document and whether they may write.
 	Recheck(ctx context.Context) (allowed, canWrite bool, err error)
@@ -218,6 +220,9 @@ func catchUp(ctx context.Context, backend Backend, since int64, write func([]byt
 func readLoop(ctx context.Context, conn *websocket.Conn, manager *Manager, peer *Peer, backend Backend, opts Options) {
 	limiter := newBucket(opts.UpdatesPerSecond)
 	refuse := func(code, ref string) { peer.Enqueue(encode(errorFrame{Type: TypeError, Code: code, Ref: ref})) }
+	limited := func(ref string, wait time.Duration) {
+		peer.Enqueue(encode(errorFrame{Type: TypeError, Code: CodeRateLimited, Ref: ref, RetryAfter: RetryAfterSeconds(wait)}))
+	}
 
 	for {
 		kind, raw, err := conn.Read(ctx)
@@ -246,7 +251,12 @@ func readLoop(ctx context.Context, conn *websocket.Conn, manager *Manager, peer 
 			}
 
 			if !limiter.allow() {
-				refuse(CodeRateLimited, message.Ref)
+				limited(message.Ref, time.Second)
+				continue
+			}
+
+			if allowed, wait := backend.AllowUpdate(); !allowed {
+				limited(message.Ref, wait)
 				continue
 			}
 
