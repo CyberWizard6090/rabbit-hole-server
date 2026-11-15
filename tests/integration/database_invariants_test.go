@@ -28,8 +28,30 @@ func TestMigrationLifecycleLeavesCurrentSchema(t *testing.T) {
 	if err := tc.DB.Raw("SELECT version, dirty FROM schema_migrations").Row().Scan(&version, &dirty); err != nil {
 		t.Fatalf("read migration state: %v", err)
 	}
-	if version != 2 || dirty {
-		t.Fatalf("migration state = (%d, dirty=%t), want (2, dirty=false)", version, dirty)
+	if version != 3 || dirty {
+		t.Fatalf("migration state = (%d, dirty=%t), want (3, dirty=false)", version, dirty)
+	}
+}
+
+func TestRecurrenceColumnOnlyAcceptsAnObject(t *testing.T) {
+	tc := newTestContext(t)
+	owner := newWorkspaceOwner(t, tc, "recurcheck")
+	list := mustCreate(t, tc, owner.token, "/api/v1/spaces/"+itoa(owner.spaceID)+"/lists", map[string]any{"name": "L"})
+	var status uint
+	if err := tc.DB.Raw("SELECT id FROM task_statuses WHERE list_id = ? LIMIT 1", list).Scan(&status).Error; err != nil || status == 0 {
+		t.Fatalf("find a status: %v", err)
+	}
+	insert := func(rule string) error {
+		return tc.DB.Exec(`INSERT INTO tasks (space_id, list_id, status_id, title, user_id, recurrence)
+			VALUES (?, ?, ?, 'schema check', ?, ?::jsonb)`, owner.spaceID, list, status, owner.userID, rule).Error
+	}
+	if err := insert(`{"frequency":"daily"}`); err != nil {
+		t.Fatalf("an object was rejected: %v", err)
+	}
+	for _, bad := range []string{`"daily"`, `[1]`, `5`} {
+		if err := insert(bad); err == nil {
+			t.Fatalf("recurrence %s was accepted", bad)
+		}
 	}
 }
 

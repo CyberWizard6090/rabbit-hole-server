@@ -69,6 +69,7 @@ type CreateTaskParams struct {
 	DueDate      *time.Time
 	TimeEstimate int
 	CustomFields map[uint]any
+	Recurrence   *domain.Recurrence
 }
 
 type UpdateTaskParams struct {
@@ -84,6 +85,7 @@ type UpdateTaskParams struct {
 	AddTagIDs    []uint
 	AddTagNames  []string
 	RemoveTagIDs []uint
+	Recurrence   domain.Nullable[domain.Recurrence]
 }
 
 func checkDateRange(start, due *time.Time) error {
@@ -101,6 +103,7 @@ type taskService struct {
 	activity    ActivityRecorder
 	fields      CustomFieldService
 	tx          TransactionRunner
+	recurrence  RecurrenceStore
 }
 
 func NewTaskService(
@@ -111,8 +114,9 @@ func NewTaskService(
 	activity ActivityRecorder,
 	fields CustomFieldService,
 	tx TransactionRunner,
+	options ...TaskServiceOption,
 ) TaskModule {
-	return &taskService{
+	s := &taskService{
 		repo:        repo,
 		spaceRepo:   spaceRepo,
 		tagService:  tagService,
@@ -121,6 +125,10 @@ func NewTaskService(
 		fields:      fields,
 		tx:          tx,
 	}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 func (s *taskService) resolveNewTags(ctx context.Context, spaceID uint, names []string) ([]uint, error) {
@@ -183,6 +191,11 @@ func (s *taskService) createTask(
 	if err := checkDateRange(input.StartDate, input.DueDate); err != nil {
 		return nil, err
 	}
+	rule, err := prepareRecurrence(input.Recurrence, nil)
+	if err != nil {
+		return nil, err
+	}
+	input.Recurrence = rule
 	list, err := s.spaceRepo.GetListByID(ctx, input.ListID)
 	if err != nil {
 		return nil, fmt.Errorf("get list by id: %w", err)
@@ -245,6 +258,7 @@ func (s *taskService) createTaskInTx(
 		Tags:              taskTags,
 		Source:            origin.source,
 		SourceReferenceID: origin.sourceReferenceID,
+		Recurrence:        input.Recurrence,
 		Actor:             origin.actor.Normalized(),
 		RequesterInfo:     origin.requester,
 	}
@@ -413,6 +427,13 @@ func (s *taskService) UpdateTask(ctx context.Context, userID, id uint, params Up
 		if params.TimeEstimate != nil {
 			task.TimeEstimate = *params.TimeEstimate
 		}
+		if params.Recurrence.Set {
+			rule, err := prepareRecurrence(params.Recurrence.Value, task.Recurrence)
+			if err != nil {
+				return err
+			}
+			task.Recurrence = rule
+		}
 		return nil
 	}
 
@@ -423,7 +444,7 @@ func (s *taskService) UpdateTask(ctx context.Context, userID, id uint, params Up
 			return updateErr
 		}
 		updated = after
-		return recordActivity(txCtx, s.activity, diffTask(after.ID, userID, snapshotTask(before), snapshotTask(after))...)
+		return s.recordChange(txCtx, userID, before, after)
 	})
 	if err != nil {
 		return nil, err
@@ -465,7 +486,6 @@ func (s *taskService) MoveTask(ctx context.Context, userID, taskID uint, params 
 	if params.StatusID != nil {
 		target.StatusID = *params.StatusID
 	}
-	before := snapshotTask(task)
 	var moved *domain.Task
 	err = s.inTransaction(ctx, func(txCtx context.Context) error {
 		result, moveErr := s.repo.Move(txCtx, taskID, target)
@@ -473,12 +493,36 @@ func (s *taskService) MoveTask(ctx context.Context, userID, taskID uint, params 
 			return moveErr
 		}
 		moved = result
-		return recordActivity(txCtx, s.activity, diffTask(result.ID, userID, before, snapshotTask(result))...)
+		return s.recordChange(txCtx, userID, task, result)
 	})
 	if err != nil {
 		return nil, err
 	}
 	return moved, nil
+}
+
+// recordChange writes the history of a change and, when the change completed a repeating task, creates the next
+// occurrence in the same transaction. after is the task as the caller will answer with.
+func (s *taskService) recordChange(ctx context.Context, userID uint, before, after *domain.Task) error {
+	entries := diffTask(after.ID, userID, snapshotTask(before), snapshotTask(after))
+	completed, err := s.completedNow(ctx, before, after)
+	if err != nil {
+		return err
+	}
+	var next *domain.Task
+	if completed {
+		if next, err = s.spawnNext(ctx, after); err != nil {
+			return err
+		}
+	}
+	if err := recordActivity(ctx, s.activity, entries...); err != nil {
+		return err
+	}
+	if next != nil {
+		after.NextOccurrenceID = &next.ID
+		return recordActivity(ctx, s.activity, recurredActivity(after, next))
+	}
+	return nil
 }
 
 func overlapsIDs(a, b []uint) bool {

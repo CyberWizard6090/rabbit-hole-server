@@ -206,6 +206,8 @@ export interface CreateTaskRequest {
   parent_id?: number | null;
   /** 1 low, 2 normal, 3 high, 4 urgent, 5 critical; higher is more urgent. 0 or omitted means 2 (normal). See TaskPriority. */
   priority?: number;
+  /** Makes the task repeat; see RecurrenceRequest. Omit or null for a task that does not repeat. */
+  recurrence?: RecurrenceRequest | null;
   start_date?: string | null;
   /** Must be a status of the list in the path. */
   status_id: number;
@@ -635,6 +637,38 @@ export interface ReadResult {
   updated: number;
 }
 
+export interface Recurrence {
+  anchor: "due" | "completion";
+  count?: number;
+  frequency: "daily" | "weekly" | "monthly" | "yearly";
+  interval: number;
+  month_day?: number;
+  /** Position of the task in the series, 1 for the first. */
+  occurrence: number;
+  time_zone: string;
+  until?: string;
+  weekdays?: number[];
+}
+
+/** How a task repeats. When the task is completed the next one is created with the next dates, in the first */
+export interface RecurrenceRequest {
+  /** `due` counts from the due date of the completed task (its start date, or the completion moment when it has no dates), so a weekly task stays on its weekday however late it is finished; occurrences already in the past are skipped. `completion` counts from the moment the task is completed. */
+  anchor?: "due" | "completion";
+  /** Number of tasks in the series including the first; empty means no limit. */
+  count?: number;
+  frequency: "daily" | "weekly" | "monthly" | "yearly";
+  /** Every N days, weeks, months or years. */
+  interval?: number;
+  /** Monthly only: the day of the month, -1 for the last day; empty means the day of the due date. A month without that day uses its last day. Not with `anchor` completion. */
+  month_day?: number;
+  /** IANA zone in which days are counted; the time of day of the due date is kept in it across daylight saving. Pass the user's zone. */
+  time_zone?: string;
+  /** Last day of the series in `time_zone`; empty means no end. */
+  until?: string;
+  /** Weekly only, 1 Monday ... 7 Sunday; empty means the weekday of the due date. Not with `anchor` completion. */
+  weekdays?: number[];
+}
+
 export interface RegisterRequest {
   email: string;
   password: string;
@@ -761,9 +795,13 @@ export interface Task {
   due_date: string | null;
   id: number;
   list_id: number;
+  /** Only in the answer of the request that completed a repeating task: the id of the task created in its place. */
+  next_occurrence_id?: number;
   parent_id: number | null;
   position: number;
   priority: TaskPriority;
+  /** The repeat rule of a task that is still to be done; null for a task that does not repeat. */
+  recurrence: Recurrence | null;
   /** Only present on tasks created from a form that identified a requester, and only for callers with `task.update` on the task (members and above). Guests and realtime events never carry it. */
   requester?: TaskRequester;
   source: "manual" | "form" | "template" | "automation" | "api";
@@ -983,6 +1021,8 @@ export interface UpdateTaskRequest {
   parent_id?: number | null;
   /** 1 low, 2 normal, 3 high, 4 urgent, 5 critical. See TaskPriority. */
   priority?: number;
+  /** Sets, replaces (null removes) the repeat rule. The position in the series (`occurrence`) is kept when the rule is replaced. Invalid values are 400 `VALIDATION_FAILED` with details on `recurrence.<field>`. */
+  recurrence?: RecurrenceRequest | null;
   /** Tags to detach; tags the task does not have are ignored. Applied atomically with the other changes under the task lock; a tag in both `remove_tag_ids` and `add_tag_ids` is 400 `CONFLICTING_TAG_CHANGE`. The change is recorded as a `tag_ids` activity entry. */
   remove_tag_ids?: number[];
   /** null clears the date. */

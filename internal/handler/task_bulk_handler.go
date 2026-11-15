@@ -129,6 +129,7 @@ func (h *TaskHandler) bulkUpdate(ctx context.Context, uid, taskID uint, f dto.Bu
 		return bulkErrorCode(err)
 	}
 	h.publishTask(realtime.EventTaskUpdated, uid, task)
+	h.publishNextOccurrence(ctx, uid, task)
 	return ""
 }
 
@@ -161,6 +162,7 @@ func (h *TaskHandler) bulkMove(ctx context.Context, uid, taskID uint, f dto.Bulk
 	} else {
 		h.publishTask(realtime.EventTaskUpdated, uid, task)
 	}
+	h.publishNextOccurrence(ctx, uid, task)
 	return ""
 }
 
