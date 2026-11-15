@@ -363,6 +363,25 @@ func TestDocumentRoom_RecheckClosesAConnectionWhoseAccessWasRevokedWithoutANotic
 	}
 }
 
+func TestDocumentRoom_OversizedFrameClosesWithAReasonTheClientCanRead(t *testing.T) {
+	e := newRoomEnv(t, collab.Options{})
+	client := e.dial(t, e.member, nil)
+	client.expect(t, "ready")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	// Valid JSON, only too long.
+	frame := []byte(`{"type":"awareness","state":"` + strings.Repeat("a", collab.MaxFrameBytes) + `"}`)
+	if err := client.conn.Write(ctx, websocket.MessageText, frame); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	code, reason := client.closedWith(t)
+	if code != websocket.StatusMessageTooBig || reason != collab.ReasonFrameTooLarge {
+		t.Fatalf("got %d %q, want 1009 %q", code, reason, collab.ReasonFrameTooLarge)
+	}
+}
+
 // closedWith waits for the server to close the connection and returns the close status and reason.
 func (c *roomClient) closedWith(t *testing.T) (websocket.StatusCode, string) {
 	t.Helper()

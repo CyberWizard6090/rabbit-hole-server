@@ -129,6 +129,7 @@ Clients that send no `Origin`, such as scripts, are accepted.
 | 1001 | `server shutting down` |
 | 1008 | `access revoked` (removed from the workspace while connected; checked every minute) |
 | 1008 | `client too slow` (the client stopped reading and its buffer filled up) |
+| 1009 | `frame too large` (a client frame above 1 MiB; do not reconnect and resend it) |
 
 The server pings every 25 seconds; browsers answer automatically.
 

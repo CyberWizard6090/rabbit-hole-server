@@ -69,7 +69,9 @@ func RetryAfterSeconds(wait time.Duration) int {
 const (
 	// MaxAwarenessBytes bounds the presence state of one connection (cursor, selection, color).
 	MaxAwarenessBytes = 4 * 1024
-	// MaxFrameBytes bounds one client frame: a 512 KiB update in base64 plus the envelope.
+	// MaxFrameBytes bounds one client frame: a 512 KiB update in base64 plus the envelope. The library cannot skip
+	// the rest of a message, so a larger frame closes the connection with status 1009 (message too big) and the
+	// reason ReasonFrameTooLarge; the client must not reconnect and retry the same frame.
 	MaxFrameBytes = 1 << 20
 
 	ReasonSlowClient    = "client too slow"
@@ -78,6 +80,8 @@ const (
 	ReasonAccessChanged  = "access changed"
 	ReasonShuttingDown   = "server shutting down"
 	ReasonDocumentClosed = "document deleted"
+	// ReasonFrameTooLarge is the close reason (status 1009) for a client frame above MaxFrameBytes.
+	ReasonFrameTooLarge = "frame too large"
 )
 
 // ClientMessage is any frame a client sends.

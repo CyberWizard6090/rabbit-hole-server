@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/coder/websocket"
@@ -102,7 +103,9 @@ func Serve(
 
 	defer cancel()
 
-	conn.SetReadLimit(MaxFrameBytes)
+	// The size of a frame is checked by readFrame, which can answer with a close reason; the library's own limit
+	// would close with status 1009 and a text the client cannot rely on.
+	conn.SetReadLimit(-1)
 
 	write := func(frame []byte) error {
 		writeCtx, stop := context.WithTimeout(ctx, opts.WriteTimeout)
@@ -217,6 +220,30 @@ func catchUp(ctx context.Context, backend Backend, since int64, write func([]byt
 	return write(encode(syncedFrame{Type: TypeSynced, LastSeq: result.LastSeq}))
 }
 
+var errFrameTooLarge = errors.New("frame too large")
+
+// readFrame reads one message of at most MaxFrameBytes. A larger one is not read to the end: the caller closes
+// the connection, since the rest of the message cannot be skipped without reading it.
+func readFrame(ctx context.Context, conn *websocket.Conn) (websocket.MessageType, []byte, error) {
+	kind, reader, err := conn.Reader(ctx)
+
+	if err != nil {
+		return 0, nil, err
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(reader, MaxFrameBytes+1))
+
+	if err != nil {
+		return 0, nil, err
+	}
+
+	if len(raw) > MaxFrameBytes {
+		return 0, nil, errFrameTooLarge
+	}
+
+	return kind, raw, nil
+}
+
 func readLoop(ctx context.Context, conn *websocket.Conn, manager *Manager, peer *Peer, backend Backend, opts Options) {
 	limiter := newBucket(opts.UpdatesPerSecond)
 	refuse := func(code, ref string) { peer.Enqueue(encode(errorFrame{Type: TypeError, Code: code, Ref: ref})) }
@@ -225,7 +252,12 @@ func readLoop(ctx context.Context, conn *websocket.Conn, manager *Manager, peer 
 	}
 
 	for {
-		kind, raw, err := conn.Read(ctx)
+		kind, raw, err := readFrame(ctx, conn)
+
+		if errors.Is(err, errFrameTooLarge) {
+			_ = conn.Close(websocket.StatusMessageTooBig, ReasonFrameTooLarge)
+			return
+		}
 
 		if err != nil {
 			return
