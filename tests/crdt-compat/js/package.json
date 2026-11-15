@@ -1,0 +1,9 @@
+{
+  "name": "crdt-compat",
+  "private": true,
+  "type": "module",
+  "description": "Checks that the Go Yjs port reads and writes what the yjs npm package does",
+  "dependencies": {
+    "yjs": "13.6.33"
+  }
+}
