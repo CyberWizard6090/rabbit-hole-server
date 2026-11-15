@@ -891,8 +891,8 @@ paths:
       summary: "Replace the history up to an update with a compacted state"
       description: |
         `state` is the whole document state (base64, up to 8 MiB) that already contains every update up to `upto_seq`. The server stores it and drops those updates.
-        `upto_seq` must be larger than the current snapshot number and not larger than `last_seq` (409 `DOCUMENT_SNAPSHOT_CONFLICT`). The server does not decode the state:
-        only send a snapshot you built from `/state` plus the updates you applied.
+        `upto_seq` must be larger than the current snapshot number and not larger than `last_seq` (409 `DOCUMENT_SNAPSHOT_CONFLICT`). The server applies the state to an empty document and checks its structure (format 1, a root block, well-formed blocks);
+        bytes that are not a document are refused with 400 (`details[].field` `state`, code `INVALID_VALUE`). Schema violations are not refused. Only send a snapshot you built from `/state` plus the updates you applied.
       x-permission: doc.update
       security:
         - bearerAuth: []

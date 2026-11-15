@@ -232,7 +232,7 @@ func TestDocumentRoom_CatchUpAfterConnecting(t *testing.T) {
 	client.expect(t, "synced")
 
 	// After compaction past the client's number it must reload the state.
-	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/snapshot", e.member, map[string]any{"upto_seq": 2, "state": b64("merged")}, http.StatusOK)
+	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/snapshot", e.member, map[string]any{"upto_seq": 2, "state": validState()}, http.StatusOK)
 	client.send(t, map[string]any{"type": "sync", "since": 1})
 	if got := client.expect(t, "resync"); got["reason"] != "snapshot" {
 		t.Fatalf("resync: %v", got)

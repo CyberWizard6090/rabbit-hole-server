@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"rabbit-hole-server/internal/collab"
 )
 
 type notebookEnv struct {
@@ -66,6 +68,9 @@ func (e *notebookEnv) newDocument(t *testing.T, notebookID uint, title string) u
 		map[string]any{"title": title}, http.StatusCreated)
 	return uint(out["data"].(map[string]any)["id"].(float64))
 }
+
+// validState is a complete document the server accepts as a snapshot.
+func validState() string { return base64.StdEncoding.EncodeToString(collab.InitialState()) }
 
 func b64(raw string) string { return base64.StdEncoding.EncodeToString([]byte(raw)) }
 
@@ -342,20 +347,26 @@ func TestDocuments_SnapshotCompactsHistory(t *testing.T) {
 		e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": b64(text)}, http.StatusCreated)
 	}
 
-	e.call(t, http.MethodPost, snapshot, e.guest, map[string]any{"upto_seq": 2, "state": b64("merged")}, http.StatusForbidden)
+	e.call(t, http.MethodPost, snapshot, e.guest, map[string]any{"upto_seq": 2, "state": validState()}, http.StatusForbidden)
 	// A snapshot cannot claim updates that do not exist yet, nor go back.
-	conflict := e.call(t, http.MethodPost, snapshot, e.member, map[string]any{"upto_seq": 4, "state": b64("merged")}, http.StatusConflict)
+	conflict := e.call(t, http.MethodPost, snapshot, e.member, map[string]any{"upto_seq": 4, "state": validState()}, http.StatusConflict)
 	if conflict["error"].(map[string]any)["code"] != "DOCUMENT_SNAPSHOT_CONFLICT" {
 		t.Fatalf("snapshot ahead of history: %v", conflict)
 	}
-	e.call(t, http.MethodPost, snapshot, e.member, map[string]any{"upto_seq": 0, "state": b64("merged")}, http.StatusBadRequest)
+	e.call(t, http.MethodPost, snapshot, e.member, map[string]any{"upto_seq": 0, "state": validState()}, http.StatusBadRequest)
 	e.call(t, http.MethodPost, snapshot, e.member, map[string]any{"upto_seq": 2}, http.StatusBadRequest)
+	// Bytes that are not a document are refused: a snapshot replaces the whole history.
+	garbage := e.call(t, http.MethodPost, snapshot, e.member, map[string]any{"upto_seq": 2, "state": b64("merged")}, http.StatusBadRequest)
+	details := garbage["error"].(map[string]any)["details"].([]any)
+	if first := details[0].(map[string]any); first["field"] != "state" || first["code"] != "INVALID_VALUE" {
+		t.Fatalf("garbage snapshot: %v", garbage)
+	}
 
-	e.call(t, http.MethodPost, snapshot, e.member, map[string]any{"upto_seq": 2, "state": b64("merged")}, http.StatusOK)
-	e.call(t, http.MethodPost, snapshot, e.member, map[string]any{"upto_seq": 2, "state": b64("again")}, http.StatusConflict)
+	e.call(t, http.MethodPost, snapshot, e.member, map[string]any{"upto_seq": 2, "state": validState()}, http.StatusOK)
+	e.call(t, http.MethodPost, snapshot, e.member, map[string]any{"upto_seq": 2, "state": validState()}, http.StatusConflict)
 
 	state := e.call(t, http.MethodGet, "/api/v1/documents/"+itoa(doc)+"/state", e.guest, nil, http.StatusOK)["data"].(map[string]any)
-	if got, _ := base64.StdEncoding.DecodeString(state["snapshot"].(string)); string(got) != "merged" {
+	if got, _ := base64.StdEncoding.DecodeString(state["snapshot"].(string)); string(got) != string(collab.InitialState()) {
 		t.Fatalf("snapshot not stored: %v", state)
 	}
 	list := state["updates"].([]any)

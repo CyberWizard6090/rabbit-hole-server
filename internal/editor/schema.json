@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "blocks": {
+    "block:callout": {
+      "role": "content",
+      "inline": true,
+      "children": []
+    },
+    "block:code": {
+      "role": "content",
+      "inline": true,
+      "children": []
+    },
+    "block:divider": {
+      "role": "content",
+      "inline": false,
+      "children": []
+    },
+    "block:formula": {
+      "role": "content",
+      "inline": false,
+      "children": []
+    },
+    "block:heading": {
+      "role": "content",
+      "inline": true,
+      "children": []
+    },
+    "block:image": {
+      "role": "content",
+      "inline": false,
+      "children": []
+    },
+    "block:list": {
+      "role": "content",
+      "inline": true,
+      "children": [
+        "block:list",
+        "block:paragraph"
+      ]
+    },
+    "block:note": {
+      "role": "hub",
+      "inline": false,
+      "children": [
+        "block:callout",
+        "block:code",
+        "block:divider",
+        "block:formula",
+        "block:heading",
+        "block:image",
+        "block:list",
+        "block:paragraph",
+        "block:quote"
+      ]
+    },
+    "block:page": {
+      "role": "root",
+      "inline": false,
+      "children": [
+        "block:note"
+      ]
+    },
+    "block:paragraph": {
+      "role": "content",
+      "inline": true,
+      "children": []
+    },
+    "block:quote": {
+      "role": "content",
+      "inline": true,
+      "children": []
+    }
+  }
+}

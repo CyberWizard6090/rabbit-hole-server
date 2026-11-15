@@ -8,6 +8,7 @@ import (
 
 	"rabbit-hole-server/internal/collab"
 	"rabbit-hole-server/internal/domain"
+	"rabbit-hole-server/internal/editor"
 )
 
 // DocumentPublisher delivers stored updates to open connections of the document (the WebSocket rooms).
@@ -20,10 +21,11 @@ type DocumentPublisher interface {
 type DocumentService struct {
 	repo      domain.DocumentRepository
 	publisher DocumentPublisher
+	schema    *editor.Schema
 }
 
 func NewDocumentService(repo domain.DocumentRepository) *DocumentService {
-	return &DocumentService{repo: repo}
+	return &DocumentService{repo: repo, schema: editor.DefaultSchema()}
 }
 
 // WithPublisher sets where stored updates are announced. Without it updates are only stored.
@@ -168,6 +170,10 @@ func (s *DocumentService) ReplaceSnapshot(ctx context.Context, id uint, uptoSeq 
 	}
 	if uptoSeq < 1 {
 		return domain.InvalidField(domain.ErrInvalidDocumentUpdate, "upto_seq", "INVALID_VALUE")
+	}
+	// A snapshot replaces the whole history, so garbage here would make the document impossible to open.
+	if _, err := editor.Inspect(s.schema, state); err != nil {
+		return domain.InvalidField(domain.ErrInvalidDocumentUpdate, "state", "INVALID_VALUE")
 	}
 	return s.repo.ReplaceSnapshot(ctx, id, uptoSeq, state)
 }
