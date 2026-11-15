@@ -14,6 +14,7 @@ type RecurrenceRequest struct {
 	Weekdays  []int  `json:"weekdays"`
 	MonthDay  int    `json:"month_day"`
 	Anchor    string `json:"anchor"`
+	Trigger   string `json:"trigger"`
 	TimeZone  string `json:"time_zone"`
 	Until     string `json:"until"`
 	Count     int    `json:"count"`
@@ -22,7 +23,7 @@ type RecurrenceRequest struct {
 func (r RecurrenceRequest) Domain() domain.Recurrence {
 	return domain.Recurrence{
 		Frequency: domain.RecurrenceFrequency(r.Frequency), Interval: r.Interval, Weekdays: r.Weekdays,
-		MonthDay: r.MonthDay, Anchor: domain.RecurrenceAnchor(r.Anchor), TimeZone: r.TimeZone, Until: r.Until, Count: r.Count,
+		MonthDay: r.MonthDay, Anchor: domain.RecurrenceAnchor(r.Anchor), Trigger: domain.RecurrenceTrigger(r.Trigger), TimeZone: r.TimeZone, Until: r.Until, Count: r.Count,
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"rabbit-hole-server/internal/domain"
@@ -15,6 +16,8 @@ type RecurrenceStore interface {
 	OpenStatus(ctx context.Context, listID uint) (uint, error)
 	CarryOver(ctx context.Context, fromTaskID, toTaskID uint) error
 	ClearRecurrence(ctx context.Context, taskID uint) error
+	DueScheduled(ctx context.Context, now time.Time, limit int) ([]uint, error)
+	ClaimScheduled(ctx context.Context, taskID uint, now time.Time) (bool, error)
 }
 
 // TaskServiceOption configures optional parts of the task service.
@@ -48,7 +51,7 @@ func prepareRecurrence(rule *domain.Recurrence, previous *domain.Recurrence) (*d
 
 // completedNow reports whether the change moved a repeating task into a finished status.
 func (s *taskService) completedNow(ctx context.Context, before, after *domain.Task) (bool, error) {
-	if s.recurrence == nil || after.Recurrence == nil || before.StatusID == after.StatusID {
+	if s.recurrence == nil || after.Recurrence == nil || after.Recurrence.Scheduled() || before.StatusID == after.StatusID {
 		return false, nil
 	}
 	nowDone, err := s.recurrence.IsDoneStatus(ctx, after.StatusID)
@@ -136,5 +139,86 @@ func recurredActivity(done *domain.Task, next *domain.Task) domain.ActivityEntry
 	return domain.ActivityEntry{
 		TaskID: done.ID, Actor: domain.NewActor(domain.ActorAutomation, 0, recurrenceActorLabel),
 		Action: domain.ActivityTaskRecurred, NewValue: raw,
+	}
+}
+
+// DueRecurrenceSpawner creates the next occurrences of scheduled repeating tasks.
+type DueRecurrenceSpawner interface {
+	SpawnDue(ctx context.Context, limit int) ([]*domain.Task, error)
+}
+
+// SpawnDue creates the next task of every scheduled repeating task whose due date has passed, at most limit of them,
+// and returns the new tasks. Each series moves in its own transaction, so one broken task does not hold the others back,
+// and the row lock keeps several server instances from creating the same occurrence twice. A series that fell behind
+// (the server was down) gets one task with the first date after today, not one per missed date.
+func (s *taskService) SpawnDue(ctx context.Context, limit int) ([]*domain.Task, error) {
+	if s.recurrence == nil {
+		return nil, nil
+	}
+	now := time.Now()
+	ids, err := s.recurrence.DueScheduled(ctx, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	var created []*domain.Task
+	var firstErr error
+	for _, id := range ids {
+		var next *domain.Task
+		err := s.inTransaction(ctx, func(txCtx context.Context) error {
+			claimed, err := s.recurrence.ClaimScheduled(txCtx, id, now)
+			if err != nil || !claimed {
+				return err
+			}
+			current, err := s.repo.GetByID(txCtx, id)
+			if err != nil {
+				return err
+			}
+			if next, err = s.spawnNext(txCtx, current); err != nil {
+				return err
+			}
+			if next == nil {
+				return nil
+			}
+			current.NextOccurrenceID = &next.ID
+			return recordActivity(txCtx, s.activity, recurredActivity(current, next))
+		})
+		if err != nil {
+			slog.Warn("recurrence: cannot create the next occurrence", "task_id", id, "error", err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if next != nil {
+			if full, err := s.repo.GetByID(ctx, next.ID); err == nil {
+				next = full
+			}
+			created = append(created, next)
+		}
+	}
+	return created, firstErr
+}
+
+// RunRecurrenceScheduler calls spawn every interval until ctx ends.
+func RunRecurrenceScheduler(ctx context.Context, spawn func(context.Context) (int, error), every time.Duration) {
+	run := func() {
+		created, err := spawn(ctx)
+		if err != nil && ctx.Err() == nil {
+			slog.Warn("recurrence: some occurrences were not created", "error", err)
+		}
+		if created > 0 {
+			slog.Info("recurrence: created the next occurrences", "count", created)
+		}
+	}
+	run()
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
+		}
 	}
 }

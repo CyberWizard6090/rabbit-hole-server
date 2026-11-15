@@ -28,8 +28,8 @@ func TestMigrationLifecycleLeavesCurrentSchema(t *testing.T) {
 	if err := tc.DB.Raw("SELECT version, dirty FROM schema_migrations").Row().Scan(&version, &dirty); err != nil {
 		t.Fatalf("read migration state: %v", err)
 	}
-	if version != 3 || dirty {
-		t.Fatalf("migration state = (%d, dirty=%t), want (3, dirty=false)", version, dirty)
+	if version != 4 || dirty {
+		t.Fatalf("migration state = (%d, dirty=%t), want (4, dirty=false)", version, dirty)
 	}
 }
 

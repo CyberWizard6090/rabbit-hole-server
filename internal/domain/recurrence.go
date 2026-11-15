@@ -30,6 +30,17 @@ const (
 	AnchorCompletion RecurrenceAnchor = "completion"
 )
 
+// RecurrenceTrigger says what creates the next task.
+type RecurrenceTrigger string
+
+const (
+	// TriggerCompletion creates the next task when the current one is completed (the default).
+	TriggerCompletion RecurrenceTrigger = "completion"
+	// TriggerSchedule creates the next task when the due date of the current one passes, whether it is done or not, so
+	// a "every Monday" task appears on time even if nobody finished the last one.
+	TriggerSchedule RecurrenceTrigger = "schedule"
+)
+
 const (
 	MaxRecurrenceInterval = 365
 	MaxRecurrenceCount    = 1000
@@ -50,6 +61,8 @@ type Recurrence struct {
 	// A month without that day uses its last day.
 	MonthDay int              `json:"month_day,omitempty"`
 	Anchor   RecurrenceAnchor `json:"anchor"`
+	// Trigger is what creates the next task; rules saved before it existed count as TriggerCompletion.
+	Trigger RecurrenceTrigger `json:"trigger"`
 	// TimeZone is the IANA zone in which days are counted; the time of day of the due date is kept in it.
 	TimeZone string `json:"time_zone"`
 	// Until is the last day (YYYY-MM-DD in TimeZone) of the series; empty means no end.
@@ -67,6 +80,9 @@ func (r *Recurrence) Normalize() {
 	}
 	if r.Anchor == "" {
 		r.Anchor = AnchorDue
+	}
+	if r.Trigger == "" {
+		r.Trigger = TriggerCompletion
 	}
 	if r.TimeZone == "" {
 		r.TimeZone = "UTC"
@@ -97,6 +113,15 @@ func (r Recurrence) Validate() error {
 	case AnchorDue, AnchorCompletion:
 	default:
 		add("anchor", "INVALID_VALUE", map[string]any{"allowed": []string{"due", "completion"}})
+	}
+	switch r.Trigger {
+	case TriggerCompletion:
+	case TriggerSchedule:
+		if r.Anchor == AnchorCompletion {
+			add("anchor", "NOT_WITH_SCHEDULE_TRIGGER", nil)
+		}
+	default:
+		add("trigger", "INVALID_VALUE", map[string]any{"allowed": []string{"completion", "schedule"}})
 	}
 	if len(r.Weekdays) > 0 {
 		seen := map[int]bool{}
@@ -140,6 +165,17 @@ func (r Recurrence) Validate() error {
 		return nil
 	}
 	return InvalidFields(ErrInvalidRecurrence, problems)
+}
+
+// Scheduled reports whether the rule creates the next task by the calendar instead of at completion.
+func (r Recurrence) Scheduled() bool { return r.Trigger == TriggerSchedule }
+
+// RequireDueDate rejects a scheduled rule on a task without a due date: the due date is what the schedule counts from.
+func (r Recurrence) RequireDueDate(due *time.Time) error {
+	if !r.Scheduled() || due != nil {
+		return nil
+	}
+	return InvalidFields(ErrInvalidRecurrence, []FieldProblem{{Field: "recurrence.trigger", Reason: "REQUIRES_DUE_DATE"}})
 }
 
 // Next returns the due date of the task that follows one completed at completedAt, and false when the series is over

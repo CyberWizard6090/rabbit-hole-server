@@ -275,6 +275,9 @@ func recurrenceToDomain(raw *string) *domain.Recurrence {
 	if err := json.Unmarshal([]byte(*raw), &rule); err != nil {
 		return nil
 	}
+	if rule.Trigger == "" {
+		rule.Trigger = domain.TriggerCompletion
+	}
 	return &rule
 }
 

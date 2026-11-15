@@ -43,9 +43,10 @@ type TestContext struct {
 	FormUploads   service.FormUploadService
 	StorageDir    string
 
-	Raw     http.Handler
-	Workers []*service.OutboxWorker
-	Config  config.Config
+	Raw            http.Handler
+	SpawnRecurring func(context.Context) (int, error)
+	Workers        []*service.OutboxWorker
+	Config         config.Config
 }
 
 func TestMain(m *testing.M) {
@@ -158,15 +159,16 @@ func newTestContextWith(t *testing.T, adjust func(cfg *config.Config), opts ...a
 
 	rawRouter := app.SetupRouter(container, &cfg)
 	return &TestContext{
-		DB:            integrationDB,
-		Router:        contractHandler{inner: drainingHandler{inner: rawRouter, workers: container.Workers}, t: t},
-		Raw:           rawRouter,
-		Workers:       container.Workers,
-		Config:        cfg,
-		Mail:          outbox,
-		Notifications: container.Notifications,
-		FormUploads:   container.FormUploads,
-		StorageDir:    cfg.Storage.LocalDir,
+		DB:             integrationDB,
+		Router:         contractHandler{inner: drainingHandler{inner: rawRouter, workers: container.Workers}, t: t},
+		Raw:            rawRouter,
+		SpawnRecurring: container.SpawnRecurring,
+		Workers:        container.Workers,
+		Config:         cfg,
+		Mail:           outbox,
+		Notifications:  container.Notifications,
+		FormUploads:    container.FormUploads,
+		StorageDir:     cfg.Storage.LocalDir,
 	}
 }
 

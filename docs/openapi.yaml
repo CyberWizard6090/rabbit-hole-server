@@ -5240,18 +5240,24 @@ components:
           enum: [due, completion]
           default: due
           description: "`due` counts from the due date of the completed task (its start date, or the completion moment when it has no dates), so a weekly task stays on its weekday however late it is finished; occurrences already in the past are skipped. `completion` counts from the moment the task is completed."
+        trigger:
+          type: string
+          enum: [completion, schedule]
+          default: completion
+          description: "`completion` creates the next task when this one is completed. `schedule` creates it when the due date of this one passes, whether the task is done or not, so the series keeps its calendar (\"every Monday\"); the task must have a due date (`REQUIRES_DUE_DATE`), `anchor` completion is not allowed (`NOT_WITH_SCHEDULE_TRIGGER`). A series that fell behind (the server was down, the task is long overdue) gets one task with the first date after today, not one per missed date."
         time_zone: {type: string, default: UTC, example: Europe/Berlin, description: "IANA zone in which days are counted; the time of day of the due date is kept in it across daylight saving. Pass the user's zone."}
         until: {type: string, format: date, description: "Last day of the series in `time_zone`; empty means no end."}
         count: {type: integer, minimum: 1, maximum: 1000, description: "Number of tasks in the series including the first; empty means no limit."}
     Recurrence:
       type: object
-      required: [frequency, interval, anchor, time_zone, occurrence]
+      required: [frequency, interval, anchor, trigger, time_zone, occurrence]
       properties:
         frequency: {type: string, enum: [daily, weekly, monthly, yearly]}
         interval: {type: integer}
         weekdays: {type: array, items: {type: integer}}
         month_day: {type: integer}
         anchor: {type: string, enum: [due, completion]}
+        trigger: {type: string, enum: [completion, schedule]}
         time_zone: {type: string}
         until: {type: string, format: date}
         count: {type: integer}
