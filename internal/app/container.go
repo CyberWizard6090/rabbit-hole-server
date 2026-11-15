@@ -78,6 +78,7 @@ type Container struct {
 	RealtimeHandler *handler.RealtimeHandler
 	Collab          *collab.Manager
 	DocumentCollab  *handler.DocumentCollabHandler
+	Documents       *service.DocumentService
 }
 
 func NewContainer(db *gorm.DB, cfg *config.Config) (*Container, error) {
@@ -329,6 +330,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 		RealtimeHandler: realtimeHandler,
 		Collab:          collabManager,
 		DocumentCollab:  documentCollab,
+		Documents:       documentService,
 	}, nil
 }
 

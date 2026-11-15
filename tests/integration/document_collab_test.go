@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/reearth/ygo/crdt"
 
 	"rabbit-hole-server/internal/collab"
 	"rabbit-hole-server/internal/realtime"
@@ -546,4 +548,70 @@ func TestDocumentRoom_UserBudgetCoversEveryConnectionAndREST(t *testing.T) {
 	}
 	// Another person has their own budget.
 	e.call(t, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/updates", e.owner.token, map[string]any{"update": upd("6")}, http.StatusCreated)
+}
+
+func TestDocumentRoom_ServerCompactsALongHistory(t *testing.T) {
+	e := newRoomEnv(t, collab.Options{})
+	e.rt.container.Documents.WithCompactAfter(4)
+	updates := "/api/v1/documents/" + itoa(e.docID) + "/updates"
+	state := "/api/v1/documents/" + itoa(e.docID) + "/state"
+	before := e.rt.container.Documents.Compactions()
+
+	// A client that is connected when the history is replaced is told to reload.
+	watcher := e.dial(t, e.guest, nil)
+	watcher.expect(t, "ready")
+
+	for i := 0; i < 7; i++ {
+		e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": upd("edit-" + itoa(uint(i)))}, http.StatusCreated)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for e.rt.container.Documents.Compactions() == before {
+		if time.Now().After(deadline) {
+			t.Fatal("the history was not compacted")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	got := e.call(t, http.MethodGet, state, e.guest, nil, http.StatusOK)["data"].(map[string]any)
+	if got["snapshot_seq"].(float64) < 4 || got["last_seq"].(float64) != 7 {
+		t.Fatalf("state after compaction: snapshot_seq=%v last_seq=%v", got["snapshot_seq"], got["last_seq"])
+	}
+	if remaining := len(got["updates"].([]any)); remaining >= 7 {
+		t.Fatalf("%d updates still stored after compaction", remaining)
+	}
+
+	// The state a newcomer builds from the snapshot and the updates after it is the same document: every
+	// edit made before the compaction is in it, and the numbering goes on.
+	raw, err := base64.StdEncoding.DecodeString(got["snapshot"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := crdt.New()
+	if err := crdt.ApplyUpdateV1(doc, raw, nil); err != nil {
+		t.Fatalf("the snapshot does not decode: %v", err)
+	}
+	for _, change := range got["updates"].([]any) {
+		raw, _ := base64.StdEncoding.DecodeString(change.(map[string]any)["update"].(string))
+		if err := crdt.ApplyUpdateV1(doc, raw, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scratch := doc.GetText("test-scratch").ToString()
+	for i := 0; i < 7; i++ {
+		if !strings.Contains(scratch, "edit-"+itoa(uint(i))) {
+			t.Fatalf("edit-%d is missing after compaction: %q", i, scratch)
+		}
+	}
+	next := e.call(t, http.MethodPost, updates, e.member, map[string]any{"update": upd("after")}, http.StatusCreated)
+	if next["data"].(map[string]any)["seq"].(float64) != 8 {
+		t.Fatalf("numbering after compaction: %v", next)
+	}
+
+	// Somebody who last saw update 1 cannot be caught up from the updates any more: the server says so.
+	since := int64(1)
+	late := e.dial(t, e.member, &since)
+	late.expect(t, "ready")
+	if frame := late.expect(t, "resync"); frame["reason"] != "snapshot" {
+		t.Fatalf("resync: %v", frame)
+	}
 }

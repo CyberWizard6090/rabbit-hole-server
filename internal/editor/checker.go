@@ -14,6 +14,8 @@ type State struct {
 	Snapshot []byte
 	Updates  [][]byte
 	LastSeq  int64
+	// SnapshotSeq is the number of the last update the snapshot contains.
+	SnapshotSeq int64
 }
 
 // Loader reads the stored state of a document.
@@ -39,6 +41,10 @@ type cached struct {
 
 	doc *crdt.Doc
 	seq int64
+	// base is the number of the last update the stored snapshot contains; seq-base updates are stored after it.
+	base int64
+	// compacting is true while a compaction of this document runs.
+	compacting bool
 	// enforce is false for a document that was already unopenable when it was loaded (stored before the checks
 	// existed): refusing every update would not repair it, so only decoding is checked.
 	enforce bool
@@ -128,7 +134,7 @@ func (c *Checker) load(ctx context.Context, id uint, item *cached, load Loader) 
 			skipped++
 		}
 	}
-	item.doc, item.seq = doc, state.LastSeq
+	item.doc, item.seq, item.base = doc, state.LastSeq, state.SnapshotSeq
 	item.enforce = skipped == 0 && checkOpenable(c.schema, doc) == nil
 	if !item.enforce {
 		slog.Warn("document cannot be checked: its stored state is already broken", "document_id", id, "undecodable", skipped)
@@ -205,4 +211,42 @@ func checkOpenable(schema *Schema, doc *crdt.Doc) error {
 		return invalid("too many blocks (%d, the limit is %d)", count, MaxBlocks)
 	}
 	return nil
+}
+
+// ClaimCompaction says whether the caller should compact the document now: at least `after` updates are stored
+// after the snapshot and nobody is compacting it. A true answer must be followed by DoneCompaction.
+func (c *Checker) ClaimCompaction(id uint, after int64) bool {
+	c.mu.Lock()
+	item := c.docs[id]
+	c.mu.Unlock()
+
+	if item == nil {
+		return false
+	}
+	item.mu.Lock()
+	defer item.mu.Unlock()
+
+	if item.doc == nil || item.compacting || item.seq-item.base < after {
+		return false
+	}
+	item.compacting = true
+	return true
+}
+
+// DoneCompaction ends a claim. uptoSeq is the number the new snapshot covers, or 0 when nothing was replaced.
+func (c *Checker) DoneCompaction(id uint, uptoSeq int64) {
+	c.mu.Lock()
+	item := c.docs[id]
+	c.mu.Unlock()
+
+	if item == nil {
+		return
+	}
+	item.mu.Lock()
+	defer item.mu.Unlock()
+
+	item.compacting = false
+	if uptoSeq > item.base {
+		item.base = uptoSeq
+	}
 }

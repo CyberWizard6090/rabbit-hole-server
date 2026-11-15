@@ -848,7 +848,7 @@ paths:
       description: |
         The compacted Yjs state (`snapshot`, base64) and the updates after it, oldest first. A client applies the snapshot and then each update
         (`Y.applyUpdate`) to get the current document. `needs_compaction` is true when many updates follow the snapshot: the client should then send
-        a snapshot (`POST /documents/{id}/snapshot`). The server stores the bytes and never decodes them.
+        a snapshot (`POST /documents/{id}/snapshot`). The server compacts the history by itself after 200 updates, so this is only a fallback. The server stores the bytes as they were checked on the way in.
       x-permission: doc.read
       security:
         - bearerAuth: []

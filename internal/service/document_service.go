@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -26,12 +28,29 @@ type DocumentService struct {
 	checker   *editor.Checker
 	// onRefused is told who sent an update that was refused by the checks.
 	onRefused func(userID uint)
+	// compactAfter is how many updates may follow the snapshot before the server compacts the history.
+	compactAfter int64
+	// compactions counts the compactions that replaced a history (tests wait for it).
+	compactions atomic.Int64
 }
 
 func NewDocumentService(repo domain.DocumentRepository) *DocumentService {
 	schema := editor.DefaultSchema()
-	return &DocumentService{repo: repo, schema: schema, checker: editor.NewChecker(schema, editor.DefaultCachedDocuments)}
+	return &DocumentService{repo: repo, schema: schema, checker: editor.NewChecker(schema, editor.DefaultCachedDocuments), compactAfter: DefaultCompactAfter}
 }
+
+// DefaultCompactAfter is how many updates may follow the snapshot before the server compacts the history. It stays
+// well under domain.MaxDocumentPendingUpdates, where a client would be told to compact.
+const DefaultCompactAfter = 200
+
+// WithCompactAfter changes after how many updates the history is compacted.
+func (s *DocumentService) WithCompactAfter(n int64) *DocumentService {
+	s.compactAfter = n
+	return s
+}
+
+// Compactions is how many times the history of any document was replaced by a snapshot.
+func (s *DocumentService) Compactions() int64 { return s.compactions.Load() }
 
 // WithPublisher sets where stored updates are announced. Without it updates are only stored.
 func (s *DocumentService) WithPublisher(publisher DocumentPublisher) *DocumentService {
@@ -151,6 +170,7 @@ func (s *DocumentService) AppendUpdate(ctx context.Context, id, userID uint, upd
 		}
 		return 0, err
 	}
+	s.compactLater(id)
 	// The update is committed: announce it to the open connections. The sender (collab.OriginFrom) gets an ack instead.
 	if s.publisher != nil {
 		s.publisher.PublishUpdate(id, collab.UpdateEvent{
@@ -160,13 +180,47 @@ func (s *DocumentService) AppendUpdate(ctx context.Context, id, userID uint, upd
 	return seq, nil
 }
 
+// compactLater starts a compaction in the background when the history after the snapshot has grown long. It runs
+// once at a time per document and never fails the edit that triggered it.
+func (s *DocumentService) compactLater(id uint) {
+	if s.compactAfter <= 0 || !s.checker.ClaimCompaction(id, s.compactAfter) {
+		return
+	}
+	go func() {
+		uptoSeq := int64(0)
+		defer func() { s.checker.DoneCompaction(id, uptoSeq) }()
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+
+		state, err := s.loadForCheck(id)(ctx)
+		if err != nil {
+			return
+		}
+		compacted, err := editor.Compact(s.schema, state, domain.MaxDocumentStateBytes)
+		if err != nil {
+			slog.Warn("document history was left as it is", "document_id", id, "reason", err)
+			return
+		}
+		// The snapshot covers exactly the updates that were read. Updates stored meanwhile keep their numbers.
+		switch err := s.repo.ReplaceSnapshot(ctx, id, state.LastSeq, compacted); {
+		case err == nil:
+			uptoSeq = state.LastSeq
+			s.compactions.Add(1)
+		case errors.Is(err, domain.ErrSnapshotConflict), errors.Is(err, domain.ErrDocumentNotFound):
+		default:
+			slog.Warn("document history compaction failed", "document_id", id, "error", err)
+		}
+	}()
+}
+
 func (s *DocumentService) loadForCheck(id uint) editor.Loader {
 	return func(ctx context.Context) (editor.State, error) {
 		stored, err := s.repo.State(ctx, id)
 		if err != nil {
 			return editor.State{}, err
 		}
-		state := editor.State{Snapshot: stored.Snapshot, LastSeq: stored.LastSeq, Updates: make([][]byte, 0, len(stored.Updates))}
+		state := editor.State{Snapshot: stored.Snapshot, LastSeq: stored.LastSeq, SnapshotSeq: stored.SnapshotSeq, Updates: make([][]byte, 0, len(stored.Updates))}
 		for _, change := range stored.Updates {
 			state.Updates = append(state.Updates, change.Update)
 		}
