@@ -646,6 +646,7 @@ export interface Recurrence {
   /** Position of the task in the series, 1 for the first. */
   occurrence: number;
   time_zone: string;
+  trigger: "completion" | "schedule";
   until?: string;
   weekdays?: number[];
 }
@@ -663,6 +664,8 @@ export interface RecurrenceRequest {
   month_day?: number;
   /** IANA zone in which days are counted; the time of day of the due date is kept in it across daylight saving. Pass the user's zone. */
   time_zone?: string;
+  /** `completion` creates the next task when this one is completed. `schedule` creates it when the due date of this one passes, whether the task is done or not, so the series keeps its calendar ("every Monday"); the task must have a due date (`REQUIRES_DUE_DATE`), `anchor` completion is not allowed (`NOT_WITH_SCHEDULE_TRIGGER`). A series that fell behind (the server was down, the task is long overdue) gets one task with the first date after today, not one per missed date. */
+  trigger?: "completion" | "schedule";
   /** Last day of the series in `time_zone`; empty means no end. */
   until?: string;
   /** Weekly only, 1 Monday ... 7 Sunday; empty means the weekday of the due date. Not with `anchor` completion. */

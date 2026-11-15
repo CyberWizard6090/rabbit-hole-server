@@ -196,6 +196,11 @@ func (s *taskService) createTask(
 		return nil, err
 	}
 	input.Recurrence = rule
+	if rule != nil {
+		if err := rule.RequireDueDate(input.DueDate); err != nil {
+			return nil, err
+		}
+	}
 	list, err := s.spaceRepo.GetListByID(ctx, input.ListID)
 	if err != nil {
 		return nil, fmt.Errorf("get list by id: %w", err)
@@ -433,6 +438,11 @@ func (s *taskService) UpdateTask(ctx context.Context, userID, id uint, params Up
 				return err
 			}
 			task.Recurrence = rule
+		}
+		if task.Recurrence != nil {
+			if err := task.Recurrence.RequireDueDate(task.DueDate); err != nil {
+				return err
+			}
 		}
 		return nil
 	}

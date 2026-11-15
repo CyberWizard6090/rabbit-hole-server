@@ -18,7 +18,7 @@ func at(t *testing.T, layout, value string) time.Time {
 func utc(t *testing.T, value string) time.Time { return at(t, "2006-01-02 15:04", value) }
 
 func rule(frequency RecurrenceFrequency, interval int, mutate ...func(*Recurrence)) Recurrence {
-	r := Recurrence{Frequency: frequency, Interval: interval, Anchor: AnchorDue, TimeZone: "UTC", Occurrence: 1}
+	r := Recurrence{Frequency: frequency, Interval: interval, Anchor: AnchorDue, Trigger: TriggerCompletion, TimeZone: "UTC", Occurrence: 1}
 	for _, m := range mutate {
 		m(&r)
 	}
@@ -144,6 +144,8 @@ func TestRecurrenceValidation(t *testing.T) {
 		{"unknown zone", func(r *Recurrence) { r.TimeZone = "Mars/Base" }, "recurrence.time_zone"},
 		{"local zone", func(r *Recurrence) { r.TimeZone = "Local" }, "recurrence.time_zone"},
 		{"bad until", func(r *Recurrence) { r.Until = "tomorrow" }, "recurrence.until"},
+		{"unknown trigger", func(r *Recurrence) { r.Trigger = "hourly" }, "recurrence.trigger"},
+		{"schedule with the completion anchor", func(r *Recurrence) { r.Trigger = TriggerSchedule; r.Anchor = AnchorCompletion; r.Weekdays = nil }, "recurrence.anchor"},
 		{"negative count", func(r *Recurrence) { r.Count = -1 }, "recurrence.count"},
 		{"huge count", func(r *Recurrence) { r.Count = 100000 }, "recurrence.count"},
 	}
@@ -182,5 +184,25 @@ func TestMonthDayRulesAndNormalize(t *testing.T) {
 	r.Normalize()
 	if r.Interval != 1 || r.Anchor != AnchorDue || r.TimeZone != "UTC" || r.Occurrence != 1 || r.Weekdays[0] != 1 {
 		t.Fatalf("normalized rule = %+v", r)
+	}
+}
+
+func TestScheduledRuleNeedsADueDate(t *testing.T) {
+	due := time.Date(2030, 1, 7, 9, 0, 0, 0, time.UTC)
+	scheduled := Recurrence{Trigger: TriggerSchedule}
+	if err := scheduled.RequireDueDate(&due); err != nil {
+		t.Fatalf("a scheduled rule with a due date was rejected: %v", err)
+	}
+	var fieldErr *FieldError
+	if err := scheduled.RequireDueDate(nil); !errors.As(err, &fieldErr) || fieldErr.Problems[0].Field != "recurrence.trigger" {
+		t.Fatalf("err = %v, want a recurrence.trigger problem", err)
+	}
+	if err := (Recurrence{Trigger: TriggerCompletion}).RequireDueDate(nil); err != nil {
+		t.Fatalf("a completion rule needs no due date: %v", err)
+	}
+	var legacy Recurrence
+	legacy.Normalize()
+	if legacy.Trigger != TriggerCompletion || legacy.Scheduled() {
+		t.Fatalf("trigger = %q, want the completion default", legacy.Trigger)
 	}
 }

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -80,4 +81,25 @@ func (s *TaskRecurrenceStore) CarryOver(ctx context.Context, fromTaskID, toTaskI
 // ClearRecurrence removes the rule of a task: the series moved on to another task or came to an end.
 func (s *TaskRecurrenceStore) ClearRecurrence(ctx context.Context, taskID uint) error {
 	return mapErr(database.DBFromContext(ctx, s.db).Exec("UPDATE tasks SET recurrence = NULL WHERE id = ?", taskID).Error)
+}
+
+// DueScheduled lists the tasks whose scheduled rule is due: the next occurrence has to be created. Oldest first.
+func (s *TaskRecurrenceStore) DueScheduled(ctx context.Context, now time.Time, limit int) ([]uint, error) {
+	var ids []uint
+	err := database.DBFromContext(ctx, s.db).Raw(`
+		SELECT id FROM tasks
+		WHERE deleted_at IS NULL AND recurrence ->> 'trigger' = 'schedule' AND due_date <= ?
+		ORDER BY due_date, id LIMIT ?`, now, limit).Scan(&ids).Error
+	return ids, mapErr(err)
+}
+
+// ClaimScheduled locks the task while its next occurrence is created and reports whether the task is still due. A task
+// another scheduler instance holds, or one that changed since DueScheduled, is not claimed.
+func (s *TaskRecurrenceStore) ClaimScheduled(ctx context.Context, taskID uint, now time.Time) (bool, error) {
+	var ids []uint
+	err := database.DBFromContext(ctx, s.db).Raw(`
+		SELECT id FROM tasks
+		WHERE id = ? AND deleted_at IS NULL AND recurrence ->> 'trigger' = 'schedule' AND due_date <= ?
+		FOR UPDATE SKIP LOCKED`, taskID, now).Scan(&ids).Error
+	return len(ids) == 1, mapErr(err)
 }
