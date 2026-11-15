@@ -204,6 +204,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 	activityRecorder := service.NewNotifyingRecorder(activityService, notifications.dispatcher, transactions)
 	taskService := service.NewTaskService(
 		taskRepo, spaceRepo, tagService, cursorCodec, activityRecorder, customFieldService, database.NewTransactionRunner(db),
+		service.WithRecurrence(repository.NewTaskRecurrenceStore(db)),
 	)
 	taskProcessor := service.NewSubmissionTaskProcessor(
 		formRepo, taskService, templateRepo, customFieldService, formUploadRepo, activityRecorder,

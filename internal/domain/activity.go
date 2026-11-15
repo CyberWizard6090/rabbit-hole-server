@@ -9,6 +9,7 @@ import (
 const (
 	ActivityTaskCreated    = "task.created"
 	ActivityTaskUpdated    = "task.updated"
+	ActivityTaskRecurred   = "task.recurred"
 	ActivityTaskMoved      = "task.moved"
 	ActivityCommentCreated = "comment.created"
 	ActivityCommentUpdated = "comment.updated"

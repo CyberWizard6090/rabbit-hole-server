@@ -4133,7 +4133,7 @@ components:
     Task:
       type: object
       description: Task as returned by every task endpoint, the dashboard and realtime events.
-      required: [id, created_at, updated_at, list_id, status_id, parent_id, title, description, priority, user_id, assignees, tags, start_date, due_date, time_estimate, time_spent, position, source, created_by, subtask_count, checklist_items_total, checklist_items_resolved]
+      required: [id, created_at, updated_at, list_id, status_id, parent_id, title, description, priority, user_id, assignees, tags, start_date, due_date, time_estimate, time_spent, position, source, recurrence, created_by, subtask_count, checklist_items_total, checklist_items_resolved]
       properties:
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
@@ -4150,6 +4150,12 @@ components:
         time_spent: {type: integer, description: "Seconds, summed from the time entries."}
         source: {type: string, enum: [manual, form, template, automation, api]}
         source_reference_id: {type: integer}
+        recurrence:
+          allOf:
+            - $ref: '#/components/schemas/Recurrence'
+          nullable: true
+          description: "The repeat rule of a task that is still to be done; null for a task that does not repeat."
+        next_occurrence_id: {type: integer, description: "Only in the answer of the request that completed a repeating task: the id of the task created in its place."}
         id: {type: integer}
         user_id: {type: integer, description: "The technical owner. Permission rules such as 'the author can edit own task' point at it. For a task created from a form it is `owner_id` of the task configuration when that user is still a workspace member, otherwise the form creator; for every other task it is the creating user."}
         created_by: {$ref: '#/components/schemas/ActorView'}
@@ -4202,6 +4208,11 @@ components:
         start_date: {type: string, format: date-time, nullable: true}
         due_date: {type: string, format: date-time, nullable: true, description: Must not be before start_date (400 INVALID_DATE_RANGE).}
         time_estimate: {type: integer, minimum: 0, maximum: 2147483647, description: Seconds.}
+        recurrence:
+          allOf:
+            - $ref: '#/components/schemas/RecurrenceRequest'
+          nullable: true
+          description: "Makes the task repeat; see RecurrenceRequest. Omit or null for a task that does not repeat."
         custom_fields: {type: object, additionalProperties: {}, description: "Custom field values keyed by field id, for example `{\"7\": \"ACME\"}`; saved with the task in one transaction. Every required custom field of the workspace needs a non-empty value, otherwise 400 `VALIDATION_FAILED` with one `custom_fields.<id>` detail (`REQUIRED`, params `field_id`) per missing field. Unknown fields and invalid values are 400 `INVALID_CUSTOM_FIELD`. Tasks created by a form fail with `task_creation_status` `failed` when a required field has no value."}
     TaskPriority:
       type: integer
@@ -4624,6 +4635,11 @@ components:
         assignee_ids: {type: array, maxItems: 100, items: {type: integer}, description: "Replaces the whole set of assignees; [] removes all. Must be workspace members. Responses list assignees as public profiles (id, username, first_name, last_name, avatar_url), never with e-mail, bio or time zone."}
         add_tag_ids: {type: array, maxItems: 100, items: {type: integer}}
         add_tag_names: {type: array, maxItems: 50, items: {type: string, maxLength: 50}}
+        recurrence:
+          allOf:
+            - $ref: '#/components/schemas/RecurrenceRequest'
+          nullable: true
+          description: "Sets, replaces (null removes) the repeat rule. The position in the series (`occurrence`) is kept when the rule is replaced. Invalid values are 400 `VALIDATION_FAILED` with details on `recurrence.<field>`."
         remove_tag_ids: {type: array, maxItems: 100, items: {type: integer}, description: "Tags to detach; tags the task does not have are ignored. Applied atomically with the other changes under the task lock; a tag in both `remove_tag_ids` and `add_tag_ids` is 400 `CONFLICTING_TAG_CHANGE`. The change is recorded as a `tag_ids` activity entry."}
     UpdateListRequest:
       type: object
@@ -5206,3 +5222,37 @@ components:
       required: [ended]
       properties:
         ended: {type: integer}
+    RecurrenceRequest:
+      type: object
+      required: [frequency]
+      description: |
+        How a task repeats. When the task is completed the next one is created with the next dates, in the first
+        open status of the list, with the same title, description, priority, estimate, assignees, tags, parent, custom
+        field values and checklists (all items unresolved). Comments, attachments, time entries, subtasks and relations
+        stay with the completed task. The completed task keeps no rule; the new one gets it with `occurrence` + 1.
+      properties:
+        frequency: {type: string, enum: [daily, weekly, monthly, yearly]}
+        interval: {type: integer, minimum: 1, maximum: 365, default: 1, description: "Every N days, weeks, months or years."}
+        weekdays: {type: array, items: {type: integer, minimum: 1, maximum: 7}, description: "Weekly only, 1 Monday ... 7 Sunday; empty means the weekday of the due date. Not with `anchor` completion."}
+        month_day: {type: integer, minimum: -1, maximum: 31, description: "Monthly only: the day of the month, -1 for the last day; empty means the day of the due date. A month without that day uses its last day. Not with `anchor` completion."}
+        anchor:
+          type: string
+          enum: [due, completion]
+          default: due
+          description: "`due` counts from the due date of the completed task (its start date, or the completion moment when it has no dates), so a weekly task stays on its weekday however late it is finished; occurrences already in the past are skipped. `completion` counts from the moment the task is completed."
+        time_zone: {type: string, default: UTC, example: Europe/Berlin, description: "IANA zone in which days are counted; the time of day of the due date is kept in it across daylight saving. Pass the user's zone."}
+        until: {type: string, format: date, description: "Last day of the series in `time_zone`; empty means no end."}
+        count: {type: integer, minimum: 1, maximum: 1000, description: "Number of tasks in the series including the first; empty means no limit."}
+    Recurrence:
+      type: object
+      required: [frequency, interval, anchor, time_zone, occurrence]
+      properties:
+        frequency: {type: string, enum: [daily, weekly, monthly, yearly]}
+        interval: {type: integer}
+        weekdays: {type: array, items: {type: integer}}
+        month_day: {type: integer}
+        anchor: {type: string, enum: [due, completion]}
+        time_zone: {type: string}
+        until: {type: string, format: date}
+        count: {type: integer}
+        occurrence: {type: integer, minimum: 1, description: "Position of the task in the series, 1 for the first."}

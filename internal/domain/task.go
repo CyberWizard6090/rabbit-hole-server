@@ -42,10 +42,15 @@ type Task struct {
 	Position          int64         `json:"position"`
 	Source            TaskSource    `json:"source"`
 	SourceReferenceID *uint         `json:"source_reference_id,omitempty"`
-	Actor             Actor         `json:"-"`
-	CreatedBy         ActorView     `json:"created_by"`
-	RequesterInfo     *Requester    `json:"-"`
-	Requester         *Requester    `json:"requester,omitempty"`
+	// Recurrence is the repeat rule of a task that is still to be done; null for a task that does not repeat.
+	Recurrence *Recurrence `json:"recurrence"`
+	// NextOccurrenceID is set on the answer of the request that completed a repeating task: the task created in its
+	// place. It is never stored.
+	NextOccurrenceID *uint      `json:"next_occurrence_id,omitempty"`
+	Actor            Actor      `json:"-"`
+	CreatedBy        ActorView  `json:"created_by"`
+	RequesterInfo    *Requester `json:"-"`
+	Requester        *Requester `json:"requester,omitempty"`
 
 	SubtaskCount int `json:"subtask_count"`
 

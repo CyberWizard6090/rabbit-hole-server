@@ -54,7 +54,7 @@ func mustJSON(value any) json.RawMessage {
 
 var trackedTaskFields = []string{
 	"title", "description", "status_id", "priority", "start_date", "due_date",
-	"time_estimate", "parent_id", "assignee_ids", "tag_ids", "list_id",
+	"time_estimate", "parent_id", "assignee_ids", "tag_ids", "list_id", "recurrence",
 }
 
 func sortedIDs(ids []uint) []uint {
@@ -84,6 +84,7 @@ func snapshotTask(t *domain.Task) map[string]json.RawMessage {
 		"assignee_ids":  mustJSON(sortedIDs(assignees)),
 		"tag_ids":       mustJSON(sortedIDs(tags)),
 		"list_id":       mustJSON(t.ListID),
+		"recurrence":    mustJSON(t.Recurrence),
 	}
 }
 

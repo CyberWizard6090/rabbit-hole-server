@@ -212,6 +212,7 @@ type Task struct {
 	ActorID           *uint
 	ActorLabel        *string `gorm:"type:text"`
 	Requester         *string `gorm:"type:jsonb"`
+	Recurrence        *string `gorm:"type:jsonb"`
 
 	SortStatusPosition int     `gorm:"->;-:migration"`
 	SortAssignee       *string `gorm:"->;-:migration"`

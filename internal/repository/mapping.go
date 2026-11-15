@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"encoding/json"
 	"errors"
 
 	"gorm.io/gorm"
@@ -167,6 +168,7 @@ func taskToDomain(t persistence.Task) domain.Task {
 		Source: domain.TaskSource(t.Source), SourceReferenceID: t.SourceReferenceID,
 		Actor:              taskActorToDomain(t),
 		RequesterInfo:      taskRequesterToDomain(t),
+		Recurrence:         recurrenceToDomain(t.Recurrence),
 		SortStatusPosition: t.SortStatusPosition, SortAssignee: t.SortAssignee,
 		ChecklistItemsTotal: t.ChecklistItemsTotal, ChecklistItemsResolved: t.ChecklistItemsResolved,
 		Assignees: mapSlice(t.Assignees, publicUserToDomain),
@@ -232,7 +234,8 @@ func taskFromDomain(t domain.Task) persistence.Task {
 	actorType, actorID, actorLabel := taskActorColumns(t)
 	return persistence.Task{
 		ActorType: actorType, ActorID: actorID, ActorLabel: actorLabel, Requester: taskRequesterColumn(t),
-		Model: modelFromDomain(t.Model), SpaceID: t.SpaceID, ListID: t.ListID, StatusID: t.StatusID,
+		Recurrence: recurrenceColumn(t.Recurrence),
+		Model:      modelFromDomain(t.Model), SpaceID: t.SpaceID, ListID: t.ListID, StatusID: t.StatusID,
 		ParentID: t.ParentID, Title: t.Title, Description: t.Description, Priority: t.Priority,
 		UserID: t.UserID, StartDate: t.StartDate, DueDate: t.DueDate,
 		TimeEstimate: t.TimeEstimate, TimeSpent: t.TimeSpent, Position: t.Position,
@@ -262,4 +265,27 @@ func memberFromDomain(m domain.Member) persistence.Member {
 		Model: modelFromDomain(m.Model), WorkspaceID: m.WorkspaceID, UserID: m.UserID,
 		RoleID: m.RoleID, Role: roleFromDomain(m.Role),
 	}
+}
+
+func recurrenceToDomain(raw *string) *domain.Recurrence {
+	if raw == nil {
+		return nil
+	}
+	var rule domain.Recurrence
+	if err := json.Unmarshal([]byte(*raw), &rule); err != nil {
+		return nil
+	}
+	return &rule
+}
+
+func recurrenceColumn(rule *domain.Recurrence) *string {
+	if rule == nil {
+		return nil
+	}
+	raw, err := json.Marshal(rule)
+	if err != nil {
+		return nil
+	}
+	column := string(raw)
+	return &column
 }
