@@ -20,6 +20,7 @@ type Config struct {
 	Auth           AuthConfig
 	RateLimit      RateLimitConfig
 	Retention      RetentionConfig
+	Recurrence     RecurrenceConfig
 	Metrics        MetricsConfig
 	Storage        StorageConfig
 	Mail           MailConfig
@@ -69,6 +70,12 @@ type RateLimitConfig struct {
 type MetricsConfig struct {
 	Enabled bool   `env:"METRICS_ENABLED" envDefault:"true"`
 	Token   string `env:"METRICS_TOKEN"`
+}
+
+// RecurrenceConfig tunes the scheduler that creates the next task of scheduled repeating tasks.
+type RecurrenceConfig struct {
+	// Interval is how often the scheduler looks for due series; 0 turns it off (for instances that only serve requests).
+	Interval time.Duration `env:"RECURRENCE_INTERVAL" envDefault:"1m" validate:"gte=0"`
 }
 
 type RetentionConfig struct {

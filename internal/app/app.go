@@ -67,6 +67,13 @@ func NewApp(db *gorm.DB, cfg *config.Config) (*App, error) {
 			runRateLimitPurge(workerCtx, container.PurgeRateLimits, rateLimitPurgeInterval)
 		}()
 	}
+	if container.SpawnRecurring != nil && container.RecurrenceInterval > 0 {
+		a.running.Add(1)
+		go func() {
+			defer a.running.Done()
+			service.RunRecurrenceScheduler(workerCtx, container.SpawnRecurring, container.RecurrenceInterval)
+		}()
+	}
 	if container.PurgeData != nil {
 		a.running.Add(1)
 		go func() {

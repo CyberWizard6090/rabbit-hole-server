@@ -45,6 +45,8 @@ type Container struct {
 	PurgeData           func(context.Context) (domain.RetentionResult, error)
 	SyncAccess          func(context.Context) (domain.AccessSyncResult, error)
 	RetentionInterval   time.Duration
+	SpawnRecurring      func(context.Context) (int, error)
+	RecurrenceInterval  time.Duration
 	UserHandler         *handler.UserHandler
 
 	WorkspaceHandler *handler.WorkspaceHandler
@@ -212,6 +214,7 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 	activityRecorder := service.NewNotifyingRecorder(activityService, notifications.dispatcher, transactions)
 	taskService := service.NewTaskService(
 		taskRepo, spaceRepo, tagService, cursorCodec, activityRecorder, customFieldService, database.NewTransactionRunner(db),
+		service.WithRecurrence(repository.NewTaskRecurrenceStore(db)),
 	)
 	taskProcessor := service.NewSubmissionTaskProcessor(
 		formRepo, taskService, templateRepo, customFieldService, formUploadRepo, activityRecorder,
@@ -289,10 +292,12 @@ func NewContainerWithMailer(db *gorm.DB, cfg *config.Config, transport mail.Send
 				OutboxDone: cfg.Retention.OutboxDone, OutboxDead: cfg.Retention.OutboxDead, ExpiredTokens: cfg.Retention.ExpiredTokens,
 			})
 		},
-		RetentionInterval: cfg.Retention.Interval,
-		CommentHandler:    handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
-		TaskHandler:       handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
-		UserHandler:       handler.NewUserHandler(userService).WithPendingEmail(emailChange),
+		RetentionInterval:  cfg.Retention.Interval,
+		SpawnRecurring:     recurrenceSpawner(taskService, hub),
+		RecurrenceInterval: cfg.Recurrence.Interval,
+		CommentHandler:     handler.NewCommentHandler(commentService, taskService).WithPublisher(hub),
+		TaskHandler:        handler.NewTaskHandler(taskService, cursorCodec).WithPublisher(hub).WithPermissionChecker(permissionChecker),
+		UserHandler:        handler.NewUserHandler(userService).WithPendingEmail(emailChange),
 
 		ContactHandler:     handler.NewContactHandler(contactService),
 		SearchHandler:      handler.NewSearchHandler(service.NewSearchService(repository.NewSearchRepository(db))),
@@ -400,4 +405,21 @@ func (all connectionRevokers) DisconnectUserFeeds(userID uint) int {
 		total += revoker.DisconnectUserFeeds(userID)
 	}
 	return total
+}
+
+// recurrenceSpawner creates the due occurrences and announces them to the clients that watch the lists.
+func recurrenceSpawner(tasks service.TaskModule, hub *realtime.Hub) func(context.Context) (int, error) {
+	spawner, ok := tasks.(service.DueRecurrenceSpawner)
+	if !ok {
+		return nil
+	}
+	return func(ctx context.Context) (int, error) {
+		created, err := spawner.SpawnDue(ctx, 100)
+		for _, task := range created {
+			hub.Publish(realtime.Event{
+				Type: realtime.EventTaskCreated, SpaceID: task.SpaceID, ListID: task.ListID, TaskID: task.ID, Task: task,
+			})
+		}
+		return len(created), err
+	}
 }

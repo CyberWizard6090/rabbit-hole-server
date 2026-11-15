@@ -105,6 +105,7 @@ relies on:
 - **Activity**: `GET /tasks/{id}/activity` returns who changed what on a task, newest first (field
   changes with old and new values, moves between lists, comment and attachment events). Entries are written in the
   same transaction as the change, so a failed write rolls the change back and a crash cannot lose history.
+- **Recurring tasks**: a rule on a task (`recurrence`) creates the next task either when the current one is completed (`trigger: completion`) or, with `trigger: schedule`, when its due date passes; a background job checks every `RECURRENCE_INTERVAL` (1 minute), safe with several replicas (row locks), `0` turns it off on an instance.
 - **Retention**: a background job deletes processed (7 days) and dead (30 days) outbox events and expired or used e-mail tokens, channel confirmations, refresh-token sessions and form idempotency keys (7 days) every hour (`RETENTION_*`); user data is never purged.
 - **Reliable delivery**: notification events, e-mails (including account mails) and webhooks go through the
   `outbox_events` table and are processed by background workers with retries, so a restart or an SMTP/webhook outage
@@ -147,6 +148,7 @@ relies on:
   WebSocket feed `GET /notifications/events` (single-use ticket from `POST /notifications/events/ticket`):
   `notification.created`, `.read`, `.deleted` and `.unread_count`.
 - **Bulk tasks**: `POST /tasks/bulk` updates (status, priority, due date, assignees, tags), moves or deletes up to 100 tasks in one request; each task is checked and handled like its single route and reported in `results`, so one forbidden or invalid task does not stop the others.
+- **Repeating tasks**: a task with a `recurrence` rule (daily, weekly on chosen weekdays, monthly on a day or the last day, yearly; every N units; counted from the due date or from completion; optional end by date or count; time zone aware) creates the next task when it is completed by status change, move or bulk update, carrying over assignees, tags, checklists (unresolved) and custom fields.
 - **Metrics**: `GET /metrics` (Prometheus, bearer token required when deployed) exports request rate, errors and latency per route, outbox queue depth and age, dead events, the database pool and WebSocket connections; alert rules are in `docs/alerts.yml`.
 - **Sessions**: `GET /profile/sessions` lists the devices a user is signed in on, `DELETE /profile/sessions/{session}` ends one (its access token stops working at once) and `DELETE /profile/sessions` ends all the others; a sign-in from an unfamiliar device and a password change are announced by e-mail.
 - **API contract**: every response is described in `docs/openapi.yaml`, every integration test checks the real responses against it, and `make api-types` generates `docs/api-types.ts` for the frontend (see `docs/api-contract.md`).

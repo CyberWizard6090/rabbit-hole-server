@@ -483,7 +483,22 @@ func changedTaskColumns(before, after *domain.Task) map[string]any {
 	if before.TimeEstimate != after.TimeEstimate {
 		changes["time_estimate"] = after.TimeEstimate
 	}
+	if !sameRecurrence(before.Recurrence, after.Recurrence) {
+		if column := recurrenceColumn(after.Recurrence); column != nil {
+			changes["recurrence"] = gorm.Expr("?::jsonb", *column)
+		} else {
+			changes["recurrence"] = gorm.Expr("NULL")
+		}
+	}
 	return changes
+}
+
+func sameRecurrence(a, b *domain.Recurrence) bool {
+	left, right := recurrenceColumn(a), recurrenceColumn(b)
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
 }
 
 func sameUintPtr(a, b *uint) bool {

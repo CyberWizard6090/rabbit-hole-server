@@ -120,8 +120,13 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		NewTagNames:  req.NewTagNames,
 		TimeEstimate: req.TimeEstimate,
 		CustomFields: customFields,
+		Recurrence:   req.RecurrenceOrNil(),
 	})
 	if err != nil {
+		if appErr, ok := recurrenceError(err); ok {
+			response.HandleError(c, appErr)
+			return
+		}
 		if appErr, ok := requiredCustomFieldError(err); ok {
 			response.HandleError(c, appErr)
 			return
@@ -180,8 +185,13 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		AddTagIDs:    req.AddTagIDs,
 		AddTagNames:  req.AddTagNames,
 		RemoveTagIDs: req.RemoveTagIDs,
+		Recurrence:   req.RecurrenceChange(),
 	})
 	if err != nil {
+		if appErr, ok := recurrenceError(err); ok {
+			response.HandleError(c, appErr)
+			return
+		}
 		if errors.Is(err, domain.ErrConflictingTagChange) {
 			response.HandleError(c, httperrors.BadRequest("CONFLICTING_TAG_CHANGE", err.Error(), err))
 			return
@@ -201,6 +211,7 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	}
 
 	h.publishTask(realtime.EventTaskUpdated, uid, task)
+	h.publishNextOccurrence(c.Request.Context(), uid, task)
 	response.Success(c, http.StatusOK, h.present(c, uid, task))
 }
 
@@ -443,5 +454,6 @@ func (h *TaskHandler) Move(c *gin.Context) {
 	} else {
 		h.publishTask(realtime.EventTaskUpdated, uid, task)
 	}
+	h.publishNextOccurrence(c.Request.Context(), uid, task)
 	response.Success(c, http.StatusOK, h.present(c, uid, task))
 }
