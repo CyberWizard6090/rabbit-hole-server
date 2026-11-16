@@ -44,7 +44,7 @@ type blockSchema struct {
 	canContain map[string]struct{}
 }
 
-// Schema is the nesting rules shared with the editor (Inkbrick packages/document/schema/blocks.json).
+// Schema is the nesting rules shared with the editor (Inkbrick packages/collab/schema/blocks.json).
 type Schema struct {
 	Version int                     `json:"version"`
 	Blocks  map[string]*blockSchema `json:"blocks"`

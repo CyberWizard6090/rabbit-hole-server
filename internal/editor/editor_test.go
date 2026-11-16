@@ -156,3 +156,32 @@ func TestEmbeddedSchemaMatchesFile(t *testing.T) {
 		t.Fatal("page must be the root")
 	}
 }
+
+func TestSchemaKnowsTablesColumnsAndToggles(t *testing.T) {
+	raw := state(t, func(doc *crdt.Doc) {
+		valid(doc)
+		addBlock(doc, "t", "block:table", "note", "b")
+		addBlock(doc, "r", "block:table-row", "t", "a")
+		addBlock(doc, "c", "block:table-cell", "r", "a")
+		addBlock(doc, "cols", "block:columns", "note", "c")
+		addBlock(doc, "col", "block:column", "cols", "a")
+		addBlock(doc, "cp", "block:paragraph", "col", "a")
+		addBlock(doc, "tg", "block:toggle", "note", "d")
+		addBlock(doc, "tp", "block:paragraph", "tg", "a")
+	})
+	report, err := Inspect(DefaultSchema(), raw)
+	if err != nil || report.IssueCount != 0 {
+		t.Fatalf("report=%+v err=%v", report, err)
+	}
+
+	raw = state(t, func(doc *crdt.Doc) {
+		valid(doc)
+		addBlock(doc, "t", "block:table", "note", "b")
+		addBlock(doc, "bad", "block:table-cell", "t", "a")    // a cell directly in a table
+		addBlock(doc, "lone", "block:table-row", "note", "c") // a row outside a table
+	})
+	report, err = Inspect(DefaultSchema(), raw)
+	if err != nil || report.IssueCount != 2 {
+		t.Fatalf("report=%+v err=%v", report, err)
+	}
+}

@@ -11,6 +11,29 @@
       "inline": true,
       "children": []
     },
+    "block:column": {
+      "role": "hub",
+      "inline": false,
+      "children": [
+        "block:callout",
+        "block:code",
+        "block:divider",
+        "block:formula",
+        "block:heading",
+        "block:image",
+        "block:list",
+        "block:paragraph",
+        "block:quote",
+        "block:table",
+        "block:toc",
+        "block:toggle"
+      ]
+    },
+    "block:columns": {
+      "role": "hub",
+      "inline": false,
+      "children": ["block:column"]
+    },
     "block:divider": {
       "role": "content",
       "inline": false,
@@ -34,10 +57,7 @@
     "block:list": {
       "role": "content",
       "inline": true,
-      "children": [
-        "block:list",
-        "block:paragraph"
-      ]
+      "children": ["block:list", "block:paragraph"]
     },
     "block:note": {
       "role": "hub",
@@ -45,21 +65,23 @@
       "children": [
         "block:callout",
         "block:code",
+        "block:columns",
         "block:divider",
         "block:formula",
         "block:heading",
         "block:image",
         "block:list",
         "block:paragraph",
-        "block:quote"
+        "block:quote",
+        "block:table",
+        "block:toc",
+        "block:toggle"
       ]
     },
     "block:page": {
       "role": "root",
       "inline": false,
-      "children": [
-        "block:note"
-      ]
+      "children": ["block:note"]
     },
     "block:paragraph": {
       "role": "content",
@@ -70,6 +92,31 @@
       "role": "content",
       "inline": true,
       "children": []
+    },
+    "block:table": {
+      "role": "content",
+      "inline": false,
+      "children": ["block:table-row"]
+    },
+    "block:table-cell": {
+      "role": "content",
+      "inline": true,
+      "children": []
+    },
+    "block:table-row": {
+      "role": "content",
+      "inline": false,
+      "children": ["block:table-cell"]
+    },
+    "block:toc": {
+      "role": "content",
+      "inline": false,
+      "children": []
+    },
+    "block:toggle": {
+      "role": "content",
+      "inline": true,
+      "children": ["block:list", "block:paragraph", "block:toggle"]
     }
   }
 }

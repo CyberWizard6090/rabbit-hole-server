@@ -132,12 +132,12 @@ GET  /documents/{id}/presence                (doc.read)  → кто в доку�
 `block:paragraph`), пока для будущего логирования и метрик.
 
 Правила вложенности лежат в `internal/editor/schema.json`. Файл не пишется вручную: его строит Inkbrick
-(`packages/document/schema/blocks.json`, тест `exportSchema.test.ts` следит, чтобы он не отставал от кода).
+(`packages/collab/schema/blocks.json`, тест `exportSchema.test.ts` следит, чтобы он не отставал от кода).
 После смены схемы в Inkbrick:
 
 ```bash
-UPDATE_SCHEMA_JSON=1 pnpm vitest run packages/document/__tests__/exportSchema.test.ts
-cp packages/document/schema/blocks.json ../rabbit-hole-server/internal/editor/schema.json
+UPDATE_SCHEMA_JSON=1 pnpm vitest run packages/collab/__tests__/exportSchema.test.ts
+cp packages/collab/schema/blocks.json ../rabbit-hole-server/internal/editor/schema.json
 ```
 
 ### Проверка каждого обновления
