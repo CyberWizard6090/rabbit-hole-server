@@ -159,7 +159,20 @@ func (s *DocumentService) AppendUpdate(ctx context.Context, id, userID uint, upd
 		return 0, err
 	}
 	seq, err := s.checker.Append(ctx, id, update, s.loadForCheck(id), func() (int64, error) {
-		return s.repo.AppendUpdate(ctx, id, userID, update, blocks)
+		seq, err := s.repo.AppendUpdate(ctx, id, userID, update, blocks)
+		if err != nil {
+			return 0, err
+		}
+		// The update is committed: announce it to the open connections, the sender (collab.OriginFrom) gets an ack
+		// instead. This runs under the lock the checker holds for the document, so announcements leave in the
+		// order of the update numbers. Announced after the lock, two writers could swap places, and a client that
+		// had seen number 6 but not 5 would ask for "after 6" on its next connect and never get 5.
+		if s.publisher != nil {
+			s.publisher.PublishUpdate(id, collab.UpdateEvent{
+				Seq: seq, UserID: userID, Update: update, Origin: collab.OriginFrom(ctx), At: time.Now(),
+			})
+		}
+		return seq, nil
 	})
 	if err != nil {
 		if errors.Is(err, editor.ErrInvalidDocument) {
@@ -171,12 +184,6 @@ func (s *DocumentService) AppendUpdate(ctx context.Context, id, userID uint, upd
 		return 0, err
 	}
 	s.compactLater(id)
-	// The update is committed: announce it to the open connections. The sender (collab.OriginFrom) gets an ack instead.
-	if s.publisher != nil {
-		s.publisher.PublishUpdate(id, collab.UpdateEvent{
-			Seq: seq, UserID: userID, Update: update, Origin: collab.OriginFrom(ctx), At: time.Now(),
-		})
-	}
 	return seq, nil
 }
 

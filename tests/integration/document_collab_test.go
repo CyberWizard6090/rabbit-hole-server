@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -632,5 +633,67 @@ func TestDocumentRoom_ServerCompactsALongHistory(t *testing.T) {
 	late.expect(t, "ready")
 	if frame := late.expect(t, "resync"); frame["reason"] != "snapshot" {
 		t.Fatalf("resync: %v", frame)
+	}
+}
+
+// Writers that commit at the same moment must be announced in the order of their update numbers. A client that has
+// seen number 6 asks for "everything after 6" when it reconnects, so a 5 announced later than 6 would be lost to it.
+func TestDocumentRoom_UpdatesAreAnnouncedInTheOrderOfTheirNumbers(t *testing.T) {
+	e := newRoomEnv(t, collab.Options{UpdatesPerSecond: 100000})
+	e.rt.container.DocumentCollab.WithUpdateLimit(10_000_000, time.Minute)
+	const writers, each, readers = 10, 40, 2
+
+	var users []string
+	for i := 0; i < writers; i++ {
+		id, token := newUser(t, e.tc, fmt.Sprintf("order-%d@example.test", i))
+		addContact(t, e.tc, e.owner.token, id)
+		if rec := request(t, e.tc.Router, http.MethodPost, membersPath(e.owner.workspaceID, ""), e.owner.token,
+			map[string]any{"user_id": id, "role": "Member"}); rec.Code != http.StatusCreated {
+			t.Fatalf("add member: %d", rec.Code)
+		}
+		users = append(users, token)
+	}
+
+	type reader struct {
+		conn *roomClient
+		seqs []int64
+	}
+	var watchers []*reader
+	for i := 0; i < readers; i++ {
+		w := &reader{conn: e.dial(t, e.guest, nil)}
+		w.conn.expect(t, "ready")
+		watchers = append(watchers, w)
+	}
+
+	var wg sync.WaitGroup
+	for w, token := range users {
+		wg.Add(1)
+		go func(w int, token string) {
+			defer wg.Done()
+			for j := 0; j < each; j++ {
+				rec := request(t, e.tc.Router, http.MethodPost, "/api/v1/documents/"+itoa(e.docID)+"/updates", token,
+					map[string]any{"update": upd(fmt.Sprintf("o%d-%d", w, j))})
+				if rec.Code != http.StatusCreated {
+					t.Errorf("update: %d", rec.Code)
+					return
+				}
+			}
+		}(w, token)
+	}
+	wg.Wait()
+
+	total := writers * each
+	for _, w := range watchers {
+		for len(w.seqs) < total {
+			frame := w.conn.read(t)
+			if frame["type"] == "update" {
+				w.seqs = append(w.seqs, int64(frame["seq"].(float64)))
+			}
+		}
+		for i := 1; i < len(w.seqs); i++ {
+			if w.seqs[i] != w.seqs[i-1]+1 {
+				t.Fatalf("updates arrived out of order: ... %d then %d (position %d)", w.seqs[i-1], w.seqs[i], i)
+			}
+		}
 	}
 }
